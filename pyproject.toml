@@ -3,8 +3,15 @@ name = "agentstate-guard"
 version = "0.1.0"
 description = "AgentState Guard — protect Claude Code / CloudCLI / Docker / Tailscale environment state"
 requires-python = ">=3.11"
-dependencies = []
-optional-dependencies = { yaml = ["pyyaml"] }
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+yaml = ["pyyaml"]
+dev = ["pytest", "ruff", "mypy"]
 
 [project.scripts]
 agentguard = "agentguard.cli:main"

@@ -130,6 +130,16 @@ def _build_parser() -> argparse.ArgumentParser:
     # host-probe
     sub.add_parser("host-probe", help="Collect host state (stdin)")
 
+    # ui
+    ui_p = sub.add_parser("ui", help="Start the web UI")
+    ui_p.add_argument("--port", type=int, default=8787, help="Port (default: 8787)")
+
+    # serve
+    sv = sub.add_parser("serve", help="Start API server")
+    sv.add_argument("--port", type=int, default=8787)
+    sv.add_argument("--allow-remote", action="store_true")
+    sv.add_argument("--host", type=str, default=None)
+
     return p
 
 
@@ -301,6 +311,25 @@ def _dispatch(args: argparse.Namespace) -> Any:
 
     elif args.command == "host-probe":
         return cmd_host_import()
+
+    elif args.command == "ui":
+        host = "127.0.0.1"
+        port = args.port
+        print(f"Starting AgentState Guard UI at http://{host}:{port}")
+        print("Press Ctrl+C to stop")
+        from .api.server import run_server
+        run_server(host=host, port=port, config=cfg)
+        return {"status": "stopped"}
+
+    elif args.command == "serve":
+        host = args.host or ("0.0.0.0" if args.allow_remote else "127.0.0.1")
+        port = args.port
+        if host == "0.0.0.0":
+            print("⚠️  Remote access enabled. Ensure Tailscale or SSH tunnel is active.")
+        print(f"Starting AgentState Guard API at http://{host}:{port}")
+        from .api.server import run_server
+        run_server(host=host, port=port, allow_remote=args.allow_remote, config=cfg)
+        return {"status": "stopped"}
 
     return {"error": f"Unknown command: {args.command}"}
 
