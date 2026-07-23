@@ -1,0 +1,84 @@
+import React, { useEffect, useState } from 'react';
+
+const API = '/api';
+
+type StatusData = { checks: Record<string,boolean>; versions: Record<string,string> };
+type Checkpoint = { id: number; label: string; created_at: string };
+type Txn = { id: number; status: string; label: string; created_at: string };
+
+const STATUS_MAP: Record<string,string> = {
+  PASS: '#22c55e', WARN: '#f59e0b', FAIL: '#ef4444',
+  SKIP: '#6b7280', UNREACHABLE: '#94a3b8'
+};
+
+function App() {
+  const [page, setPage] = useState('dashboard');
+  const [status, setStatus] = useState<StatusData|null>(null);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [txns, setTxns] = useState<Txn[]>([]);
+  const [token, setToken] = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/session`).then(r=>r.json()).then(d=>setToken(d.token));
+    fetch(`${API}/status`).then(r=>r.json()).then(d=>setStatus(d));
+    fetch(`${API}/checkpoints`).then(r=>r.json()).then(d=>setCheckpoints(d.checkpoints||[]));
+    fetch(`${API}/transactions`).then(r=>r.json()).then(d=>setTxns(d.transactions||[]));
+  }, []);
+
+  const h = { headers: { 'X-Session-Token': token } };
+
+  return (
+    <div style={{fontFamily:'system-ui,sans-serif',maxWidth:960,margin:'0 auto',padding:16}}>
+      <h1>🛡️ AgentState Guard</h1>
+      <nav style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+        {['dashboard','checkpoints','transactions'].map(p=>
+          <button key={p} onClick={()=>setPage(p)}
+            style={{background:p===page?'#2563eb':'#e5e7eb',color:p===page?'#fff':'#000',
+              border:'none',padding:'6px 14px',borderRadius:6,cursor:'pointer'}}>{p}</button>
+        )}
+      </nav>
+
+      {page==='dashboard' && <div>
+        <h2>Health</h2>
+        {status?.checks && <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {Object.entries(status.checks).map(([k,v])=>
+            <div key={k} style={{padding:'8px 12px',background:v?'#dcfce7':'#fee2e2',
+              borderRadius:8,fontSize:14}}>{k}: {v?'✅':'❌'}</div>
+          )}
+        </div>}
+        <h2>Versions</h2>
+        <pre style={{background:'#f3f4f6',padding:12,borderRadius:8,fontSize:13}}>
+          {JSON.stringify(status?.versions??{},null,2)}
+        </pre>
+        {checkpoints.length>0 && <div>
+          <h2>Checkpoints ({checkpoints.length})</h2>
+          {checkpoints.slice(0,5).map(c=>
+            <div key={c.id} style={{padding:6,borderBottom:'1px solid #e5e7eb',fontSize:14}}>
+              #{c.id} {c.label} <span style={{color:'#6b7280'}}>{c.created_at.slice(0,19)}</span>
+            </div>
+          )}
+        </div>}
+      </div>}
+
+      {page==='checkpoints' && <div>
+        <h2>All Checkpoints</h2>
+        {checkpoints.map(c=>
+          <div key={c.id} style={{padding:8,border:'1px solid #e5e7eb',borderRadius:8,marginBottom:6}}>
+            #{c.id} <strong>{c.label}</strong> <span style={{color:'#6b7280'}}>{c.created_at.slice(0,19)}</span>
+          </div>
+        )}
+      </div>}
+
+      {page==='transactions' && <div>
+        <h2>Transactions</h2>
+        {txns.map(t=>
+          <div key={t.id} style={{padding:8,border:'1px solid #e5e7eb',borderRadius:8,marginBottom:6}}>
+            #{t.id} <strong>{t.label}</strong>
+            <span style={{marginLeft:8,color:'#6b7280'}}>[{t.status}]</span>
+          </div>
+        )}
+      </div>}
+    </div>
+  );
+}
+export default App;
