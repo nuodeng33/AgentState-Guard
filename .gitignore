@@ -1,0 +1,16 @@
+.agentguard/
+.venv/
+web/node_modules/
+.cache/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+artifacts/
+reports/
+.env
+.env.*

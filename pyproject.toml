@@ -1,0 +1,17 @@
+[project]
+name = "agentstate-guard"
+version = "0.1.0"
+description = "AgentState Guard — protect Claude Code / CloudCLI / Docker / Tailscale environment state"
+requires-python = ">=3.11"
+dependencies = []
+optional-dependencies = { yaml = ["pyyaml"] }
+
+[project.scripts]
+agentguard = "agentguard.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agentguard*"]
