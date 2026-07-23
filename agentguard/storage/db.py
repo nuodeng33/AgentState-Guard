@@ -14,12 +14,31 @@ class StateDB:
         self._conn: Optional[sqlite3.Connection] = None
 
     def connect(self) -> None:
-        """Open or create the SQLite database."""
+        """Open or create the SQLite database with migrations."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._init_schema()
+        self._run_migrations()
+
+    def _run_migrations(self) -> None:
+        """Run pending schema migrations."""
+        # Bootstrap: ensure schema_migrations table exists first
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version     INTEGER PRIMARY KEY,
+                name        TEXT NOT NULL,
+                applied_at  TEXT NOT NULL,
+                checksum    TEXT NOT NULL,
+                duration_ms INTEGER
+            )
+        """)
+        self._conn.commit()
+        from .migrations import MigrationEngine
+        engine = MigrationEngine(self.db_path)
+        results = engine.migrate(self._conn)
+        if results.get("errors"):
+            raise RuntimeError(f"Schema migration failed: {results['errors']}")
 
     def close(self) -> None:
         if self._conn:
