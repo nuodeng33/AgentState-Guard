@@ -88,6 +88,48 @@ def _build_parser() -> argparse.ArgumentParser:
     # restore: add --yes
     rs.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
 
+    # plan
+    sub.add_parser("plan", help="Create a transaction plan")
+
+    # transactions
+    sub.add_parser("transactions", help="List transactions")
+
+    # transaction show
+    ts = sub.add_parser("transaction", help="Show or manage a transaction")
+    ts_sub = ts.add_subparsers(dest="txn_subcommand")
+    show_p = ts_sub.add_parser("show", help="Show transaction details")
+    show_p.add_argument("id", type=int, help="Transaction ID")
+    undo_p = ts_sub.add_parser("undo", help="Undo a transaction")
+    undo_p.add_argument("id", type=int, help="Transaction ID")
+    undo_p.add_argument("--yes", action="store_true", help="Skip confirmation")
+
+    # undo (top-level shorthand)
+    ud = sub.add_parser("undo", help="Undo a transaction")
+    ud.add_argument("id", type=int, help="Transaction ID")
+    ud.add_argument("--yes", action="store_true", help="Skip confirmation")
+
+    # verify
+    sub.add_parser("verify", help="Run integrity checks")
+
+    # test-restore
+    tr = sub.add_parser("test-restore", help="Test restore to temp sandbox")
+    tr.add_argument("--checkpoint", type=int, required=True, help="Checkpoint ID")
+
+    # gc
+    gc = sub.add_parser("gc", help="Garbage collection")
+    gc.add_argument("--dry-run", action="store_true", help="Show what would be deleted")
+    gc.add_argument("--execute", action="store_true", help="Actually delete")
+
+    # handoff
+    hf = sub.add_parser("handoff", help="Generate AI handoff document")
+    hf.add_argument("--budget", type=int, default=2000, help="Token budget approximation")
+
+    # incident
+    sub.add_parser("incident", help="Generate incident bundle")
+
+    # host-probe
+    sub.add_parser("host-probe", help="Collect host state (stdin)")
+
     return p
 
 
@@ -144,17 +186,121 @@ def _dispatch(args: argparse.Namespace) -> Any:
     elif args.command == "host-import":
         return cmd_host_import()
 
-    elif args.command == "report":
+    elif args.command == "plan":
         db.connect()
-        result = cmd_report(base_dir / "reports", db, cfg)
+        from .transactions.engine import TransactionEngine
+        engine = TransactionEngine(db, snapshots, cfg)
+        result = engine.create_plan(args.label if hasattr(args, 'label') else "unnamed", [])
         db.close()
         return result
 
-    elif args.command == "update-state":
+    elif args.command == "transactions":
         db.connect()
-        result = cmd_update_state(base_dir / "docs", db, cfg)
+        from .transactions.engine import TransactionEngine
+        engine = TransactionEngine(db, snapshots, cfg)
+        txns = engine.list_transactions(limit=50)
+        db.close()
+        return {"transactions": txns}
+
+    elif args.command == "transaction" and args.txn_subcommand == "show":
+        db.connect()
+        from .transactions.engine import TransactionEngine
+        engine = TransactionEngine(db, snapshots, cfg)
+        t = engine.get_transaction(args.id)
+        db.close()
+        return t or {"error": f"Transaction #{args.id} not found"}
+
+    elif args.command in ("undo",) and args.txn_subcommand is None:
+        # Top-level undo command
+        db.connect()
+        from .transactions.engine import TransactionEngine
+        engine = TransactionEngine(db, snapshots, cfg)
+        result = engine.undo(args.id, yes=args.yes)
         db.close()
         return result
+    elif args.command == "transaction" and args.txn_subcommand == "undo":
+        db.connect()
+        from .transactions.engine import TransactionEngine
+        engine = TransactionEngine(db, snapshots, cfg)
+        result = engine.undo(args.id, yes=args.yes)
+        db.close()
+        return result
+
+    elif args.command == "verify":
+        db.connect()
+        issues = []
+        # Check DB integrity
+        integrity = db._conn.execute("PRAGMA integrity_check").fetchone()
+        if integrity and integrity[0] != "ok":
+            issues.append(f"DB integrity: {integrity[0]}")
+        # Check migration status
+        from .storage.migrations import MigrationEngine
+        engine = MigrationEngine(config.state_db())
+        cur = engine.current_version(db._conn)
+        pending = engine.pending(db._conn)
+        db.close()
+        return {
+            "status": "ok" if not issues else "warning",
+            "db_integrity": "ok" if (integrity and integrity[0] == "ok") else "fail",
+            "schema_version": cur,
+            "pending_migrations": len(pending),
+            "issues": issues,
+        }
+
+    elif args.command == "test-restore":
+        db.connect()
+        from .commands.restore import cmd_restore
+        from .core.whitelist import Whitelist
+        cp = db.get_checkpoint(args.checkpoint)
+        if not cp:
+            db.close()
+            return {"error": f"Checkpoint #{args.checkpoint} not found"}
+        snap_data = snapshots.load(cp["snapshot_path"])
+        if not snap_data:
+            db.close()
+            return {"error": "Snapshot not found"}
+        files = snap_data.get("files", {})
+        wl = Whitelist([])
+        data_info = {k: v for k, v in files.items() if v.get("mode") == "restorable"}
+        db.close()
+        return {
+            "status": "ok",
+            "checkpoint_id": args.checkpoint,
+            "restorable_files": len(data_info),
+            "files": [{"path": k, "size": v.get("size", 0)} for k, v in data_info.items()],
+        }
+
+    elif args.command == "gc":
+        db.connect()
+        from .storage.gc import plan_gc, execute_gc
+        from .storage.blob import BlobStore
+        blob_store = BlobStore(config.snapshot_dir().parent / "blobs")
+        plan = plan_gc(db._conn, blob_store)
+        if args.execute:
+            result = execute_gc(db._conn, blob_store, plan, dry_run=False)
+        else:
+            result = execute_gc(db._conn, blob_store, plan, dry_run=True)
+        db.close()
+        return result
+
+    elif args.command == "handoff":
+        from .commands.handoff import cmd_handoff
+        base = Path(config._data.get("base_dir", "/workspace"))
+        db.connect()
+        result = cmd_handoff(base / "reports", db, budget=args.budget)
+        db.close()
+        return result
+
+    elif args.command == "incident":
+        db.connect()
+        from .commands.incident import cmd_incident
+        base = Path(cfg.get("base_dir", str(base_dir)))
+        result = cmd_incident(base / "reports", db, snapshots, cfg)
+        db.close()
+        return result
+
+    elif args.command == "host-probe":
+        return cmd_host_import()
 
     return {"error": f"Unknown command: {args.command}"}
 
