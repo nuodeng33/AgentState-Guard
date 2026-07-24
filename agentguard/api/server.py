@@ -20,7 +20,9 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
     """
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import JSONResponse
+    from fastapi.responses import FileResponse
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.staticfiles import StaticFiles
     import uvicorn
 
     from ..storage.db import StateDB
@@ -32,7 +34,7 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
     from ..storage.gc import plan_gc
     from ..storage.blob import BlobStore
 
-    app = FastAPI(title="AgentState Guard API", version="1.0.0")
+    app = FastAPI(title="AgentState Guard API", version="0.9.0-dev")
 
     app.add_middleware(
         CORSMiddleware,
@@ -42,12 +44,18 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
         allow_headers=["*"],
     )
 
+    # Serve web_static if built
+    web_static = HERE.parent / "web_static"
+    if web_static.is_dir():
+        app.mount("/", StaticFiles(directory=str(web_static), html=True), name="web")
+
     # Session token
     session_token = secrets.token_hex(32)
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
-        if request.url.path in ("/api/health", "/api/session"):
+        # Allow static files and public API endpoints
+        if (not request.url.path.startswith("/api/")) or request.url.path in ("/api/health", "/api/session"):
             response = await call_next(request)
             return response
         token = request.headers.get("X-Session-Token", "")

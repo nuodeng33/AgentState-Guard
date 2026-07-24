@@ -116,9 +116,8 @@ def _build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--checkpoint", type=int, required=True, help="Checkpoint ID")
 
     # gc
-    gc = sub.add_parser("gc", help="Garbage collection")
-    gc.add_argument("--dry-run", action="store_true", help="Show what would be deleted")
-    gc.add_argument("--execute", action="store_true", help="Actually delete")
+    gc = sub.add_parser("gc", help="Garbage collection (dry-run)")
+    gc.add_argument("--dry-run", action="store_true", default=True, help="Show what would be deleted")
 
     # handoff
     hf = sub.add_parser("handoff", help="Generate AI handoff document")
