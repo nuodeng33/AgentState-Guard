@@ -1,12 +1,12 @@
 {
   "productName": "AgentState Guard",
   "version": "0.9.0",
-  "identifier": "com.agentstate-guard.desktop",
+  "identifier": "com.agentstateguard.desktop",
   "build": {
     "frontendDist": "../../agentguard/web_static",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd .. && npm run dev",
-    "beforeBuildCommand": "cd .. && npm run build"
+    "beforeDevCommand": "cd ../../web && npm run dev",
+    "beforeBuildCommand": "cd ../../web && npm run build"
   },
   "app": {
     "windows": [

@@ -22,16 +22,20 @@ jobs:
           name: desktop-web-build
           path: agentguard/web_static/
 
-  tauri-scaffold:
+  tauri-build:
     runs-on: windows-latest
     needs: [frontend-build]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a  # v1
         with: { toolchain: stable }
-      - name: Verify Tauri scaffold
-        working-directory: desktop
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-web-build
+          path: agentguard/web_static/
+      - name: Install Tauri CLI and build
+        working-directory: desktop/src-tauri
         run: |
-          echo "Tauri scaffold present — $(cargo --version)"
-          echo "To complete Windows build: run 'cargo init' in desktop/src-tauri/"
-          echo "Then: cargo install tauri-cli && cargo tauri build --debug"
+          cargo install tauri-cli --version "^2"
+          cargo tauri build --debug
