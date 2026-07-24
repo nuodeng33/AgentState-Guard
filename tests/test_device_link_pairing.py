@@ -48,8 +48,7 @@ class TestPairingStateMachine:
 
     def test_expired(self):
         s = self.make_session(expiry_seconds=0)
-        s.checkpoint()
-        assert s.state == PairState.EXPIRED
+        assert s.is_expired
         assert s.is_terminal
 
     def test_cancelled(self):

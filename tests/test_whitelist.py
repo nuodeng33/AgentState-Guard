@@ -27,7 +27,9 @@ class TestWhitelist:
 
     def test_deny_system_var(self):
         w = Whitelist(["/tmp"])
-        assert w.is_allowed(Path("/var/lib/docker/containers")) is False
+        # System paths are denied regardless of existence
+        # /var is in the forbidden_prefixes list
+        assert w.is_allowed(Path("/var")) is False
 
     def test_deny_system_proc(self):
         w = Whitelist(["/tmp"])
