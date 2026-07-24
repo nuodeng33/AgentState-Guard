@@ -18,9 +18,6 @@ dev = ["cryptography>=41.0", "pytest", "ruff", "mypy"]
 agentguard = "agentguard.cli:main"
 
 
-[tool.pytest.ini_options]
-addopts = "-m "not device_link""
-
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
