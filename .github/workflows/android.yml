@@ -31,12 +31,15 @@ jobs:
         working-directory: android
         run: |
           echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip" > gradle/wrapper/gradle-wrapper.properties
-          gradle wrapper --gradle-version 8.7 2>/dev/null || true
-          chmod +x gradlew 2>/dev/null || true
-          ./gradlew assembleDebug lintDebug testDebugUnitTest --no-daemon 2>&1 || true
-          echo "=== APK check ==="
-          find . -name "*.apk" -ls
-          cp $(find . -name "*.apk" | head -1) ../agentstate-guard-debug.apk 2>/dev/null || echo "No APK found"
+          gradle wrapper --gradle-version 8.7
+          chmod +x gradlew
+          ./gradlew lintDebug --no-daemon
+          ./gradlew testDebugUnitTest --no-daemon
+          ./gradlew assembleDebug --no-daemon
+          APK=$(find . -name "*.apk" | head -1)
+          echo "APK=$APK"
+          test -n "$APK" || (echo "No APK found" && exit 1)
+          cp "$APK" ../agentstate-guard-debug.apk
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
         with:
           name: agentstate-guard-debug.apk
