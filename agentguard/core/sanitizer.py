@@ -10,6 +10,7 @@ DEFAULT_PATTERNS: List[Pattern[str]] = [
     re.compile(r"(token|secret|password|passwd)\s*[=:]\s*['\"]?([a-zA-Z0-9_\-\.]{8,})['\"]?", re.IGNORECASE),
     re.compile(r"(authorization|auth)\s*[=:]\s*['\"]?(bearer\s+[a-zA-Z0-9_\-\.]+)['\"]?", re.IGNORECASE),
     re.compile(r"(sk-ant-[a-zA-Z0-9]{10,})"),
+    re.compile(r"(sk-test-[a-zA-Z0-9_-]{10,})"),
     re.compile(r"(ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{36,}"),
     re.compile(r"(xox[baprs]-)[a-zA-Z0-9-]{10,}"),
     re.compile(r"-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----"),

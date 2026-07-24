@@ -1,23 +1,26 @@
 # Current State
 
-**Phase:** 03 — Bootstrap Scripts + Web API (up next)
+**Version:** 0.9.0.dev0
 **Branch:** feat/v1-gui-release
-**HEAD:** 3ee0874 (Phase 02 commit)
-**Tests:** 139 passed (+32 since baseline)
+**HEAD:** 6e33cab
+**Tests:** 139 passing
 
-## Completed (Phase 00-02)
-- ASG-CORE-001/002/005: Storage (migrations, blobs, audit) ✅
-- ASG-CORE-003/004: Transaction engine + coverage ✅
-- ASG-CLI-001..011: 20 CLI commands ✅
-- Governance docs: all created ✅
+## Completed
+- Q1: Capability matrix, overstated claims corrected
+- Q2: Security audit, test key scan, sanitizer fix
+- Q3: Web security, dependency review docs
+- Q8: Build scripts (build-ui, build-release, clean-dev-env)
+- Q10: Security/privacy audit docs
 
-## Next Actions
-1. Create bootstrap scripts (Phase 03)
-2. Add web API foundation (FastAPI, Phase 04)
-3. Build React frontend (Phase 05-08)
-4. E2E testing and final verification
+## Remaining
+- Q4: Real integration in temp sandbox
+- Q5: Frontend build (npm, typecheck, build)
+- Q6: GUI acceptance
+- Q7: Playwright E2E
+- Q9: Performance
+- Q10: Missing open-source docs
+- Q11-15: Final verification
 
-## Environment
-- python3: 3.11.2 | node: v22.23.1 | git: 2.39.5
-- claude: 2.1.217 | tests: 139/139 passing
-
+## Key Decisions
+- Version stays 0.9.0.dev0 until all queues complete
+- test-restore, host-probe marked STUB
