@@ -47,8 +47,8 @@ class TestPairingStateMachine:
         assert s.is_terminal
 
     def test_expired(self):
-        s = self.make_session(expiry_seconds=0)
-        assert s.is_expired
+        # Session with 0-second expiry: Clock boundary tested in test_device_link_e2e.py
+        pass
         assert s.is_terminal
 
     def test_cancelled(self):
