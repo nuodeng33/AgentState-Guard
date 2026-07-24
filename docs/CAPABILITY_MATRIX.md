@@ -1,4 +1,5 @@
 # Capability Matrix — AgentState Guard 0.9.0.dev0
+## 22 Active Commands (4 removed: watch, export, import, run)
 
 | Command | Req ID | File | Status | Unit | Int | E2E | Real Evidence | Limitation | README Claim |
 |---------|--------|------|--------|------|-----|-----|---------------|-------------|-------------|
