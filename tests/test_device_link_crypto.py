@@ -5,7 +5,7 @@ from agentguard.device_link.crypto import (
     canonical_concat, encode_uint16_be, encode_utf8,
     encode_hex, encode_uint64_be, spki_fingerprint,
     derive_sas, build_pairing_transcript, format_sas,
-    random_bytes, random_hex, random_session_id,
+    random_bytes, random_session_id,
     ReplayCache,
 )
 
