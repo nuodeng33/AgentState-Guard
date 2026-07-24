@@ -46,9 +46,7 @@ class TestPairingStateMachine:
         assert s.state == PairState.CONSUMED
         assert s.is_terminal
 
-    def test_expired(self):
-        # Session with 0-second expiry: Clock boundary tested in test_device_link_e2e.py
-        pass
+    # test_expired removed — clock boundary covered in test_device_link_e2e.py
         assert s.is_terminal
 
     def test_cancelled(self):
