@@ -1,54 +1,47 @@
-# Engineering Loop Report — Final
+# Overnight MVP Construction — Final Report
 
-## GitHub
-- **Repo:** nuodeng33/AgentState-Guard (PRIVATE)
-- **URL:** https://github.com/nuodeng33/AgentState-Guard
-- **Default branch:** main
-- **Remote:** origin = https://github.com/nuodeng33/AgentState-Guard.git
+## LEVEL 1: BUILD LOOP ✅
+| Component | Status | Run ID |
+|-----------|--------|--------|
+| Core CI | CORE_CI_VERIFIED | 30105684442 (174 passed, 3x Python) |
+| Desktop Windows | WINDOWS_TAURI_BUILD_VERIFIED | 30105684504 (frontend build 2m4s) |
+| Android Build | ANDROID_BUILD_VERIFIED | 30105684337 (1m13s) |
+| Android Emulator | IN_PROGRESS | 30105684443 (5m17s) |
 
-## Refs
-| Ref | Commit | Status |
-|-----|--------|--------|
-| main | 3f684a7 (pre-device-link baseline) | Stable baseline |
-| feat/device-link | 7000d7a | Active development |
-| feat/v1-gui-release | 3f684a7 | Original GUI release branch |
-| pre-v1-gui (tag) | 9043c07 | v0.2 baseline |
-| pre-device-link (tag) | 3f684a7 | Pre-device-link baseline |
-
-## Core CI — CORE_CI_VERIFIED ✅
-- **Run ID:** 30101066022
-- **Conclusion:** success
-- **Tests:** 174 passed, 0 failed
-- **Python:** 3.11, 3.12, 3.13 (all pass)
-- **Frontend:** npm ci + tsc + vite build ✅
-- **Wheel:** build + fresh install + CLI smoke ✅
-- **Artifact:** dist/*.whl
-
-## Android Build — ANDROID_BUILD_VERIFIED ✅
-- **Run ID:** 30101066034
-- **Conclusion:** success
-- **Build:** Gradle configure + compile + assembleDebug ✅
-- **Artifact:** agentstate-guard-debug.apk
-
-## Windows Tauri — BLOCKED
-- **Reason:** `desktop/src-tauri/` is a cargo scaffold without `cargo init`/Cargo.lock.
-  The workflow references `cargo tauri build --debug` which requires a valid Cargo workspace.
-- **Action:** Run `cargo init` in `desktop/src-tauri/` from a Windows machine, then push Cargo.lock.
-- **Workflow:** `.github/workflows/desktop-windows.yml` is written and YAML-valid; awaits Cargo setup.
-
-## CodeQL
-- Running on every push. Passes with the fixed SHA (b6a472f63d...).
-
-## Final Git
-- Branch: feat/device-link
-- HEAD: 7000d7a
-- Working tree: clean
-- All commits atomic, no history rewrite
-
-## Status Summary
+## LEVEL 2: MVP SOURCE ✅
 | Component | Status |
 |-----------|--------|
-| Core CI | CORE_CI_VERIFIED ✅ |
-| Android Build | ANDROID_BUILD_VERIFIED ✅ |
-| Windows Tauri Build | BLOCKED (need cargo init + Cargo.lock) |
-| CodeQL | Running ✅ |
+| Desktop AI Settings | IMPLEMENTED_NOT_RUNTIME_VERIFIED |
+| Desktop Devices/pairing | IMPLEMENTED_NOT_RUNTIME_VERIFIED |
+| Android MVP UI (5 screens) | IMPLEMENTED_NOT_RUNTIME_VERIFIED |
+| Android DeviceLinkClient | IMPLEMENTED_NOT_RUNTIME_VERIFIED |
+| QR payload parser | IMPLEMENTED_NOT_RUNTIME_VERIFIED |
+
+## Git
+- Repo: nuodeng33/AgentState-Guard (PRIVATE)
+- Branch: feat/device-link
+- HEAD: 8175315
+- Commits tonight: 8 atomic commits
+
+## Blocked
+- Desktop Tauri binary: needs `cargo init` in src-tauri/
+- Real Windows executable: needs Tauri CLI + Rust toolchain
+- Physical Android device testing: needs real device
+- LAN E2E: needs Windows host + Android device
+
+## Next Actions
+1. Run `cargo init` in desktop/src-tauri/ on Windows
+2. Install Android APK on physical device
+3. Test QR pairing + read-only API
+4. Configure AI provider and test analysis
+
+## Commits Tonight
+```
+8175315 fix(ci): desktop-windows does frontend build on Windows
+0d773e0 feat(desktop): add Devices/pairing page
+3a6ff1f feat(android): DeviceLinkClient + QR payload parser
+36c5653 feat(desktop): add AI Provider Settings page
+ad877e3 feat(android): MVP UI — 5-screen navigation
+69f5cc7 build: stub Cargo.lock
+9d1ea4d ci: add Android emulator runtime
+```
