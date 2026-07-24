@@ -1,39 +1,54 @@
-# Engineering Loop Report
-
-## Sandbox Boundary
-**HARD_BOUNDARY_CONFIRMED** — zero capabilities, no-new-privileges, no Docker socket, no host mounts.
-
-## Secret Exposure
-**No secrets directly accessible.** `ANTHROPIC_AUTH_TOKEN` exists as env var but is not exposed to tools.
-
-## Claude Code Autonomy
-**dontAsk** — 41 allow rules, 85 deny rules. Container isolation is primary security boundary.
+# Engineering Loop Report — Final
 
 ## GitHub
-**NEEDS_USER_LOGIN** — gh CLI installed (v2.63.0) at `/workspace/tools/bin/gh`. Run: `gh auth login` on host machine with browser access.
+- **Repo:** nuodeng33/AgentState-Guard (PRIVATE)
+- **URL:** https://github.com/nuodeng33/AgentState-Guard
+- **Default branch:** main
+- **Remote:** origin = https://github.com/nuodeng33/AgentState-Guard.git
 
-## Repository
-**EXISTING** — local Git only. Remote not yet configured (waiting for gh auth).
+## Refs
+| Ref | Commit | Status |
+|-----|--------|--------|
+| main | 3f684a7 (pre-device-link baseline) | Stable baseline |
+| feat/device-link | 7000d7a | Active development |
+| feat/v1-gui-release | 3f684a7 | Original GUI release branch |
+| pre-v1-gui (tag) | 9043c07 | v0.2 baseline |
+| pre-device-link (tag) | 3f684a7 | Pre-device-link baseline |
 
-## Workflows Created (static validation only — NOT_RUN)
-| Workflow | File | Status |
-|----------|------|--------|
-| Core CI | .github/workflows/core.yml | STATICALLY_VALIDATED |
-| Desktop Windows | .github/workflows/desktop-windows.yml | STATICALLY_VALIDATED |
-| Android Build | .github/workflows/android.yml | STATICALLY_VALIDATED |
+## Core CI — CORE_CI_VERIFIED ✅
+- **Run ID:** 30101066022
+- **Conclusion:** success
+- **Tests:** 174 passed, 0 failed
+- **Python:** 3.11, 3.12, 3.13 (all pass)
+- **Frontend:** npm ci + tsc + vite build ✅
+- **Wheel:** build + fresh install + CLI smoke ✅
+- **Artifact:** dist/*.whl
 
-## Artifacts Awaiting CI
-| Artifact | Expected From |
-|----------|--------------|
-| agentstate-guard-*.whl | Core CI (wheel job) |
-| agentstate-guard-windows-debug.exe | Desktop Windows |
-| agentstate-guard-debug.apk | Android Build |
+## Android Build — ANDROID_BUILD_VERIFIED ✅
+- **Run ID:** 30101066034
+- **Conclusion:** success
+- **Build:** Gradle configure + compile + assembleDebug ✅
+- **Artifact:** agentstate-guard-debug.apk
 
-## Android Project
-**SOURCE_IMPLEMENTED** — 8 files, Kotlin + Compose + Material 3, waits for Gradle.
+## Windows Tauri — BLOCKED
+- **Reason:** `desktop/src-tauri/` is a cargo scaffold without `cargo init`/Cargo.lock.
+  The workflow references `cargo tauri build --debug` which requires a valid Cargo workspace.
+- **Action:** Run `cargo init` in `desktop/src-tauri/` from a Windows machine, then push Cargo.lock.
+- **Workflow:** `.github/workflows/desktop-windows.yml` is written and YAML-valid; awaits Cargo setup.
 
-## Current Branch
-`feat/device-link`
+## CodeQL
+- Running on every push. Passes with the fixed SHA (b6a472f63d...).
 
-## Next Action for User
-Run `gh auth login` to enable GitHub push + CI loop.
+## Final Git
+- Branch: feat/device-link
+- HEAD: 7000d7a
+- Working tree: clean
+- All commits atomic, no history rewrite
+
+## Status Summary
+| Component | Status |
+|-----------|--------|
+| Core CI | CORE_CI_VERIFIED ✅ |
+| Android Build | ANDROID_BUILD_VERIFIED ✅ |
+| Windows Tauri Build | BLOCKED (need cargo init + Cargo.lock) |
+| CodeQL | Running ✅ |
