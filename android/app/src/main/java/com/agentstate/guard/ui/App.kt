@@ -1,56 +1,72 @@
 package com.agentstate.guard.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.agentstate.guard.ui.screens.*
 
+enum class Screen(val route: String, val label: String) {
+    Home("home", "Home"),
+    Environment("environment", "Environment"),
+    Checkpoints("checkpoints", "Checkpoints"),
+    Changes("changes", "Changes"),
+    AI("ai", "AI"),
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentStateApp() {
-    MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("🛡️", style = MaterialTheme.typography.displayLarge)
-                Spacer(Modifier.height(16.dp))
-                Text("AgentState Guard", style = MaterialTheme.typography.headlineMedium)
-                Text("0.9.0-dev", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(24.dp))
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
 
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Row {
-                            Text("Desktop", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                            Text("Not connected", color = MaterialTheme.colorScheme.error)
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                Screen.entries.forEach { screen ->
+                    NavigationBarItem(
+                        icon = {
+                            when (screen) {
+                                Screen.Home -> Icon(Icons.Default.Home, null)
+                                Screen.Environment -> Icon(Icons.Default.Build, null)
+                                Screen.Checkpoints -> Icon(Icons.Default.History, null)
+                                Screen.Changes -> Icon(Icons.Default.Difference, null)
+                                Screen.AI -> Icon(Icons.Default.AutoAwesome, null)
+                            }
+                        },
+                        label = { Text(screen.label) },
+                        selected = currentRoute == screen.route,
+                        onClick = {
+                            if (currentRoute != screen.route) {
+                                navController.navigate(screen.route) {
+                                    popUpTo(Screen.Home.route) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
                         }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Row {
-                            Text("Environment", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                            Text("Unknown", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Row {
-                            Text("Changes", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                            Text("0", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    )
                 }
             }
+        }
+    ) { padding ->
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Home.route,
+            modifier = Modifier.padding(padding)
+        ) {
+            composable(Screen.Home.route) { HomeScreen() }
+            composable(Screen.Environment.route) { EnvironmentScreen() }
+            composable(Screen.Checkpoints.route) { CheckpointsScreen() }
+            composable(Screen.Changes.route) { ChangesScreen() }
+            composable(Screen.AI.route) { AIScreen() }
         }
     }
 }
