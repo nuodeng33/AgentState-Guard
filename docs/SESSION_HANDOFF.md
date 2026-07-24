@@ -1,37 +1,35 @@
-# Session Handoff
+# Session Handoff — Overnight MVP Construction
 
-**Product:** AgentState Guard 0.9.0.dev0
-**Branch:** feat/v1-gui-release
-**HEAD:** b7a7a16
-**Tests:** 139 passing
+## Target: LEVEL 2 (Android MVP UI + Desktop AI Settings)
 
-## Completed (8 queues)
-- Q1: Capability matrix ✅
-- Q2: Security audit ✅
-- Q3: Web security docs ✅
-- Q4: Real integration ✅
-- Q5: Frontend build ✅
-- Q6: GUI acceptance ✅
-- Q8: Build scripts ✅
-- Q10: Partial docs ✅
+## Current Status
+| Component | Status | Evidence |
+|-----------|--------|----------|
+| Core CI | CORE_CI_VERIFIED | 174 passed, 3x Python |
+| Android Build | ANDROID_BUILD_VERIFIED | Gradle assembleDebug |
+| Android Emulator | IN_PROGRESS | Boot + install testing |
+| Desktop Windows | BLOCKED | Needs cargo init on Windows runner |
+| Android MVP UI | IMPLEMENTED_NOT_RUNTIME_VERIFIED | 5 screens + navigation |
+| Desktop AI Settings | IMPLEMENTED_NOT_RUNTIME_VERIFIED | Provider presets + test connection |
+| QR Pairing | NOT_IMPLEMENTED | Next milestone |
+| Device Link Client | NOT_IMPLEMENTED | Network layer for Android |
+| AI Monitor | NOT_IMPLEMENTED | Uses existing provider.py |
 
-## Queues Remaining
-- Q7: Playwright E2E (needs browser binaries)
-- Q9: Performance benchmarks
-- Q10: Complete open-source docs (CONTRIBUTING, ARCHITECTURE, etc.)
-- Q11: GitHub workflow final review
-- Q12: Dogfooding
-- Q13: Final code review
-- Q14: Version determination
-- Q15: Final report
+## Git
+- Branch: feat/device-link
+- HEAD: 36c5653
+- Remote: nuodeng33/AgentState-Guard (PRIVATE)
 
-## Next Commands
-1. python3 -m pytest tests/ -q
-2. git status --short
-3. git log --oneline -8
-4. Read docs/spec/ACCEPTANCE_MATRIX.md
+## Next Actions
+1. Wait for Android Emulator CI result
+2. Implement QR pairing + DeviceLinkClient
+3. Build Android device link network layer
+4. Read current state docs before continuing
 
-## Key Decision
-- Version stays 0.9.0.dev0 until ALL remaining queues complete
-- test-restore, host-probe documented as STUB
-- export/import, watch, run: NOT_IMPLEMENTED removed from CLI
+## Commands
+```bash
+export PATH="/workspace/tools/bin:$PATH"
+gh run list --branch feat/device-link --limit 6
+python3 -m pytest tests/ -q
+git status --short
+```
