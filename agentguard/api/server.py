@@ -137,6 +137,51 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
         finally:
             db.close()
 
+    # ---- AI Provider (backend proxy, no CORS) ----
+
+    from ..ai.provider import OpenAICompatibleProvider, ProviderConfig, build_analysis_context
+
+    _ai_provider = None
+    _ai_config = None
+
+    @app.post("/api/ai/test")
+    async def _ai_test(body: dict):
+        """Test AI provider connection. API key stays in memory."""
+        api_key = body.get("api_key", "")
+        base_url = body.get("base_url", "")
+        model = body.get("model", "")
+        if not base_url:
+            return {"ok": False, "error": "Base URL required"}
+        cfg = ProviderConfig(base_url=base_url, api_key=api_key, model=model)
+        provider = OpenAICompatibleProvider(cfg, timeout=10)
+        return provider.test_connection()
+
+    @app.post("/api/ai/models")
+    async def _ai_models(body: dict):
+        """List models from AI provider."""
+        api_key = body.get("api_key", "")
+        base_url = body.get("base_url", "")
+        if not base_url:
+            return {"models": [], "error": "Base URL required"}
+        cfg = ProviderConfig(base_url=base_url, api_key=api_key)
+        provider = OpenAICompatibleProvider(cfg, timeout=10)
+        models = provider.list_models()
+        return {"models": [m.to_dict() for m in models]}
+
+    @app.post("/api/ai/analyze")
+    async def _ai_analyze(body: dict):
+        """Run AI environment analysis. Uses sanitized context only."""
+        api_key = body.get("api_key", "")
+        base_url = body.get("base_url", "")
+        model = body.get("model", "deepseek-chat")
+        context = body.get("context", {})
+        if not base_url:
+            return {"status": "error", "summary": "AI provider not configured"}
+        cfg = ProviderConfig(base_url=base_url, api_key=api_key, model=model)
+        provider = OpenAICompatibleProvider(cfg, timeout=30)
+        result = provider.analyze(context)
+        return result.to_dict()
+
     # ---- Device Link Gateway (mounted at /device/v1/) ----
 
     from ..device_link.gateway import DeviceLinkGateway

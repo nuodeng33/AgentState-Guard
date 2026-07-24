@@ -110,11 +110,13 @@ function AISettingsScreen() {
 
   const testConnection = async () => {
     try {
-      const resp = await fetch(baseUrl + '/models', {
-        headers: { Authorization: 'Bearer ' + apiKey }
+      const resp = await fetch('/api/ai/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, model: model })
       });
       const data = await resp.json();
-      setTestResult(resp.ok ? `Connected (${data.data?.length || 0} models)` : 'Failed: ' + resp.status);
+      setTestResult(data.ok ? 'Connected' : ('Error: ' + (data.error || data.detail || 'unknown')));
     } catch(e) {
       setTestResult('Connection failed');
     }
