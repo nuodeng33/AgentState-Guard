@@ -31,7 +31,7 @@ function App() {
     <div style={{fontFamily:'system-ui,sans-serif',maxWidth:960,margin:'0 auto',padding:16}}>
       <h1>🛡️ AgentState Guard</h1>
       <nav style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
-        {['dashboard','checkpoints','transactions','settings'].map(p=>
+        {['dashboard','checkpoints','transactions','settings','devices'].map(p=>
           <button key={p} onClick={()=>setPage(p)}
             style={{background:p===page?'#2563eb':'#e5e7eb',color:p===page?'#fff':'#000',
               border:'none',padding:'6px 14px',borderRadius:6,cursor:'pointer'}}>{p}</button>
@@ -80,6 +80,7 @@ function App() {
       </div>}
 
       {page==='settings' && <AISettingsScreen />}
+      {page==='devices' && <DevicesScreen setPage={setPage} />}
     </div>
   );
 }
@@ -143,6 +144,66 @@ function AISettingsScreen() {
       <p style={{color: '#6b7280', fontSize: 13, marginTop: 16}}>
         API Key is held in memory only. Never saved to disk. Never sent to Android.
       </p>
+    </div>
+  );
+}
+
+// ── Devices / Pairing Screen ──────────────────────
+
+function DevicesScreen({ setPage }: { setPage: (p: string) => void }) {
+  const [mobileLinkEnabled, setMobileLinkEnabled] = useState(false);
+  const [pairingSession, setPairingSession] = useState<any>(null);
+  const [sas, setSas] = useState('');
+
+  const enableMobileLink = async () => {
+    setMobileLinkEnabled(true);
+    // Start pairing session via API
+    try {
+      const resp = await fetch('/api/device-link/pair/start', { method: 'POST' });
+      const data = await resp.json();
+      setPairingSession(data);
+    } catch(e) {}
+  };
+
+  const computeSas = async (androidPubkey: string) => {
+    try {
+      const resp = await fetch('/api/device-link/pair/sas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pubkey_der_hex: androidPubkey })
+      });
+      const data = await resp.json();
+      setSas(data.sas || '');
+    } catch(e) {}
+  };
+
+  return (
+    <div style={{maxWidth: 480, margin: '0 auto', padding: 16}}>
+      <h2>Devices</h2>
+      {!mobileLinkEnabled ? (
+        <>
+          <p>Mobile Link: OFF</p>
+          <button onClick={enableMobileLink} style={{background:'#2563eb',color:'#fff',padding:'10px 20px',border:'none',borderRadius:8}}>
+            Enable Mobile Link
+          </button>
+        </>
+      ) : (
+        <>
+          <p>Mobile Link: ON</p>
+          <p>No paired devices</p>
+          <p style={{fontSize:13,color:'#6b7280'}}>
+            Open AgentState Guard on your Android phone and scan the QR code to pair.
+          </p>
+          {pairingSession && (
+            <div style={{background:'#f0f9ff',padding:16,borderRadius:8,marginTop:16,textAlign:'center'}}>
+              <p style={{fontWeight:'bold'}}>Pairing Code: {pairingSession.session_id?.slice(0,16) || '...'}</p>
+              {sas && <p style={{fontSize:24,letterSpacing:4,fontWeight:'bold'}}>{sas}</p>}
+            </div>
+          )}
+          <button onClick={enableMobileLink} style={{marginTop:8}}>Refresh Pairing Code</button>
+        </>
+      )}
+      <button onClick={() => setPage('dashboard')} style={{marginTop:16,display:'block'}}>Back to Dashboard</button>
     </div>
   );
 }
