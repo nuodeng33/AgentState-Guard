@@ -63,6 +63,7 @@ def _http(method: str, port: int, path: str, data: dict = None,
 # Both Python and Kotlin MUST use DER-encoded ECDSA signatures.
 # Test vectors verify cross-platform compatibility.
 
+@pytest.mark.device_link
 class TestECDSAWireFormat:
     """Independent ECDSA P-256 vectors — no agentguard wrappers."""
 
@@ -110,6 +111,7 @@ class TestECDSAWireFormat:
 
 # ── Time boundary ─────────────────────────────────────────────
 
+@pytest.mark.device_link
 class TestTimeBoundary:
     """Expiry = age >= 120.000 means expired."""
 
@@ -151,6 +153,7 @@ class TestTimeBoundary:
 
 # ── 10×10 Transition Matrix ───────────────────────────────────
 
+@pytest.mark.device_link
 class TestFullTransitionMatrix:
     ALL = list(PairState)
 
@@ -210,6 +213,7 @@ class TestFullTransitionMatrix:
 
 # ── Real Gateway E2E over HTTP ─────────────────────────────────
 
+@pytest.mark.device_link
 class TestGatewayE2E:
     """Complete Happy Path + 11 attack tests over real HTTP."""
 
@@ -359,6 +363,7 @@ class TestGatewayE2E:
 
 # ── Secret Leak Full Scan ──────────────────────────────────────
 
+@pytest.mark.device_link
 class TestSecretLeakFull:
     def test_all_channels_clean(self):
         import io, sys, os, tempfile
@@ -389,6 +394,7 @@ class TestSecretLeakFull:
 
 # ── Mutation Test Helpers ──────────────────────────────────────
 
+@pytest.mark.device_link
 class TestMutations:
     """Verify that key security code paths are covered by failing tests."""
 

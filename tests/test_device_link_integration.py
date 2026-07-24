@@ -29,6 +29,7 @@ def _free_port():
     return port
 
 
+@pytest.mark.device_link
 class TestGatewayRealIntegration:
     """Real Gateway over HTTP on 127.0.0.1."""
 

@@ -10,6 +10,7 @@ from agentguard.device_link.crypto import (
 )
 
 
+@pytest.mark.device_link
 class TestCryptoSAS:
     def test_sas_derivation_deterministic(self):
         """Same input → same SAS."""
@@ -59,6 +60,7 @@ class TestCryptoSAS:
         assert b"android-uuid-1" in t
 
 
+@pytest.mark.device_link
 class TestCryptoSerialization:
     def test_canonical_concat(self):
         result = canonical_concat(b"a", b"b", b"c")
@@ -80,6 +82,7 @@ class TestCryptoSerialization:
         assert all(c in "0123456789abcdef" for c in fp)
 
 
+@pytest.mark.device_link
 class TestCryptoRandom:
     def test_random_bytes_length(self):
         for n in [16, 32, 64]:
@@ -97,6 +100,7 @@ class TestCryptoRandom:
         assert all(c in "0123456789abcdef" for c in sid)
 
 
+@pytest.mark.device_link
 class TestReplayCache:
     def test_first_accept(self):
         cache = ReplayCache(ttl_seconds=60)
@@ -118,6 +122,7 @@ class TestReplayCache:
         assert cache.check_and_record("nonce-1") is True  # expired, so different
 
 
+@pytest.mark.device_link
 class TestCryptoTestVectors:
     """Verify the test vectors from CRYPTO_TEST_VECTORS.md produce correct behavior."""
 

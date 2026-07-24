@@ -22,6 +22,7 @@ from agentguard.device_link.pairing import (
 # 1. Golden vector — reference vs production
 # ============================================================
 
+@pytest.mark.device_link
 class TestGoldenVectors:
     """Production crypto MUST match reference for transcript and SAS."""
 
@@ -68,6 +69,7 @@ class TestGoldenVectors:
 # 2. Canonical transcript — order sensitivity
 # ============================================================
 
+@pytest.mark.device_link
 class TestTranscriptCanonicalization:
     def test_field_order_sensitivity(self):
         base = TRANSCRIPT_A_PARAMS
@@ -89,6 +91,7 @@ class TestTranscriptCanonicalization:
 # 3. Clock injection — expiry boundary
 # ============================================================
 
+@pytest.mark.device_link
 class TestClockExpiry:
     def test_pairing_not_expired_at_119_seconds(self):
         clock = FakeClock(0)
@@ -129,6 +132,7 @@ class TestClockExpiry:
 # 4. Exhaustive state machine — all transitions
 # ============================================================
 
+@pytest.mark.device_link
 class TestExhaustiveFSM:
     ALL_STATES = list(PairState)
 
@@ -198,6 +202,7 @@ class TestExhaustiveFSM:
 # 5. Security invariants
 # ============================================================
 
+@pytest.mark.device_link
 class TestSecurityInvariants:
     def test_random_bytes_are_different(self):
         a = SecureRandom().bytes(32)
@@ -236,6 +241,7 @@ class TestSecurityInvariants:
 # 6. Positive/Negative coverage count
 # ============================================================
 
+@pytest.mark.device_link
 class TestCoverageSummary:
     def test_positive_tests_present(self):
         """There must be positive (correct) as well as negative (security) tests."""

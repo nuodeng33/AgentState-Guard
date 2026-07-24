@@ -6,6 +6,7 @@ import pytest
 from agentguard.device_link.pairing import PairingSession, PairingManager, PairState
 
 
+@pytest.mark.device_link
 class TestPairingStateMachine:
     def make_session(self, **kwargs):
         return PairingSession(
@@ -96,6 +97,7 @@ class TestPairingStateMachine:
             s.consume()
 
 
+@pytest.mark.device_link
 class TestPairingManager:
     def test_create_session(self):
         mgr = PairingManager()

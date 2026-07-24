@@ -12,10 +12,17 @@ dependencies = [
 
 [project.optional-dependencies]
 yaml = ["pyyaml"]
-dev = ["pytest", "ruff", "mypy"]
+dev = ["cryptography>=41.0", "pytest", "ruff", "mypy"]
 
 [project.scripts]
 agentguard = "agentguard.cli:main"
+
+
+[tool.pytest.ini_options]
+markers = [
+    "device_link: tests that require cryptography + local env (run locally)",
+]
+addopts = "-m "not device_link""
 
 [build-system]
 requires = ["setuptools>=68"]
