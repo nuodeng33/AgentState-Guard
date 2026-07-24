@@ -28,6 +28,9 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+      - name: Set SDK path
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
       - name: Gradle build
         working-directory: android
         run: |
