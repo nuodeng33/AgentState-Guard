@@ -1,4 +1,4 @@
-# CLI Command Capability Matrix — AgentState Guard 0.9.0-dev
+# CLI Command Capability Matrix — AgentState Guard 0.9.0.dev0
 
 | Command | Status | Real Impl | Unit Test | Int Test | E2E | Notes |
 |---------|--------|-----------|-----------|----------|-----|-------|
@@ -8,8 +8,8 @@
 | checkpoints | COMPLETE | ✅ | — | ✅ | — | Lists from DB |
 | diff | COMPLETE | ✅ | — | ✅ | — | Hash comparison |
 | restore | COMPLETE | ✅ | ✅ | ✅ | — | Atomic restore from blob |
-| report | COMPLETE | ✅ | — | ✅ | — | MD + JSON output |
-| update-state | COMPLETE | ✅ | — | — | — | Docs from structured data |
+| report | IMPLEMENTED | ✅ | ✅ | — | — | MD + JSON output, no int test |
+| update-state | IMPLEMENTED | ✅ | — | — | — | Docs from structured data, no test |
 | plan | PARTIAL | ✅ | ✅ | ✅ | — | Creates txn, no step detail yet |
 | transactions | PARTIAL | ✅ | ✅ | ✅ | — | Lists from DB |
 | transaction show | PARTIAL | ✅ | ✅ | ✅ | — | Shows txn with steps |

@@ -1,7 +1,7 @@
 {
   "name": "agentstate-guard-web",
   "private": true,
-  "version": "1.0.0-rc",
+  "version": "0.9.0-dev",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -40,7 +40,7 @@ agentguard ui
 - ✅ No `sudo` or system package installation
 
 ## Status
-**v1.0.0 Release Candidate** — Not yet production-ready. See [docs/RELEASE_READINESS.md](docs/RELEASE_READINESS.md).
+**v0.9.0.dev0 (Backend Preview)** — Not production-ready. Backend core complete; frontend and E2E verification pending.
 
 ## License
 Apache 2.0

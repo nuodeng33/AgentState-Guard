@@ -44,10 +44,8 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
         allow_headers=["*"],
     )
 
-    # Serve web_static if built
-    web_static = HERE.parent / "web_static"
-    if web_static.is_dir():
-        app.mount("/", StaticFiles(directory=str(web_static), html=True), name="web")
+    # Serve web_static if built (AFTER API routes are defined below)
+    # We'll add a catch-all at the end via the @app.exception_handler
 
     # Session token
     session_token = secrets.token_hex(32)
@@ -79,7 +77,7 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "version": "1.0.0"}
+        return {"status": "ok", "version": "0.9.0.dev0"}
 
     @app.get("/api/session")
     async def get_session():
@@ -138,6 +136,32 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
             return result
         finally:
             db.close()
+
+    # --- Catch-all: serve SPA for non-API paths ---
+    from fastapi.responses import HTMLResponse
+    web_static = HERE.parent / "web_static"
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("_docs"):
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        if not web_static.is_dir():
+            return JSONResponse({"error": "Frontend not built"}, status_code=404)
+        html = web_static / "index.html"
+        if html.is_file():
+            content = html.read_bytes()
+            media_type = "text/html; charset=utf-8"
+            if full_path and not full_path.startswith("api/"):
+                # Try exact static file match
+                static_file = (web_static / full_path).resolve()
+                if static_file.is_file() and str(static_file).startswith(str(web_static.resolve())):
+                    content = static_file.read_bytes()
+                    suffix = static_file.suffix.lower()
+                    ext_map = {".js": "text/javascript", ".css": "text/css", ".json": "application/json",
+                               ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+                    media_type = ext_map.get(suffix, "application/octet-stream")
+            return HTMLResponse(content=content, media_type=media_type)
+        return JSONResponse({"error": "Not found"}, status_code=404)
 
     return app
 
