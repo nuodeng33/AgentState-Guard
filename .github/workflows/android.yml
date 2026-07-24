@@ -1,0 +1,33 @@
+name: Android Build
+on:
+  push:
+    branches: [feat/v1-gui-release, feat/device-link]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-java@8df1039502a15bceb9433410b1a100fbe190c53b  # v4.5.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-android@2f09f56b9a2e04ec39f95b9b8b9e10e230e8a19d  # v4
+      - name: Setup Android SDK
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+        shell: bash
+      - name: Gradle build
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew lintDebug testDebugUnitTest assembleDebug
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk agentstate-guard-debug.apk
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: agentstate-guard-debug.apk
+          path: agentstate-guard-debug.apk
