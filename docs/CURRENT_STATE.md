@@ -1,26 +1,28 @@
 # Current State
 
 **Version:** 0.9.0.dev0
-**Branch:** feat/v1-gui-release
-**HEAD:** 6e33cab
-**Tests:** 139 passing
+**Branch:** feat/device-link (HEAD: about to commit Phase 0.1 + 3-5)
+**Tests:** crypto + pairing + gateway imports OK; old test suite needs re-run
 
 ## Completed
-- Q1: Capability matrix, overstated claims corrected
-- Q2: Security audit, test key scan, sanitizer fix
-- Q3: Web security, dependency review docs
-- Q8: Build scripts (build-ui, build-release, clean-dev-env)
-- Q10: Security/privacy audit docs
+| Phase | Status | Files |
+|-------|--------|-------|
+| 0 | HEADLESS_VERIFIED | Architecture docs + API contract |
+| 0.1 | HEADLESS_VERIFIED | ECDSA P-256, Keystore fix, SAS derivation, pairing FSM |
+| 3 | BUILDABLE_NOW | Device Link Gateway (pairing endpoints + auth + device registry) |
+| 4 | BUILDABLE_NOW | Crypto primitives (SAS, challenge, replay cache, fingerprints) |
 
-## Remaining
-- Q4: Real integration in temp sandbox
-- Q5: Frontend build (npm, typecheck, build)
-- Q6: GUI acceptance
-- Q7: Playwright E2E
-- Q9: Performance
-- Q10: Missing open-source docs
-- Q11-15: Final verification
+## Current Capability
+| Module | Code | Tests |
+|--------|------|-------|
+| agentguard/device_link/crypto.py | ✅ | Functional tests pass |
+| agentguard/device_link/pairing.py | ✅ | State machine tests pass |
+| agentguard/device_link/gateway.py | ✅ | Import OK, needs integration |
 
-## Key Decisions
-- Version stays 0.9.0.dev0 until all queues complete
-- test-restore, host-probe marked STUB
+## Needs Attention
+| Item | Status |
+|------|--------|
+| Rust toolchain | NEEDS_TOOLCHAIN |
+| Android SDK | NEEDS_ANDROID_SDK |
+| Windows Tauri build | NEEDS_WINDOWS |
+| Real LAN mDNS test | NEEDS_REAL_LAN |
