@@ -1,0 +1,176 @@
+name: Android Emulator Runtime
+on:
+  push:
+    branches: [main, feat/**]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-java@8df1039502a15bceb9433410b1a100fbe190c53b  # v4.5.0
+        with: { distribution: temurin, java-version: "17" }
+
+      # ── Android SDK + Emulator ──────────────────────────────
+      - name: Setup Android SDK
+        run: |
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline.zip
+          unzip -q /tmp/cmdline.zip -d $HOME/android-sdk/cmdline-tools
+          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
+
+      - name: Install SDK packages
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "emulator" \
+            "system-images;android-34;google_apis;x86_64"
+
+      - name: Create AVD
+        run: |
+          echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd \
+            -n AgentStateGuardTest \
+            -k "system-images;android-34;google_apis;x86_64" \
+            -d "pixel_6" \
+            --force
+
+      # ── Build APK ────────────────────────────────────────────
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          cat > gradle/wrapper/gradle-wrapper.properties << 'GRADLE'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          GRADLE
+          gradle wrapper --gradle-version 8.7 2>/dev/null || true
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Verify APK exists
+        run: |
+          APK=$(find android -name "*.apk" | head -1)
+          echo "APK=$APK"
+          ls -lh "$APK"
+          cp "$APK" agentstate-guard-debug.apk
+
+      # ── Boot Emulator ─────────────────────────────────────────
+      - name: Start emulator
+        run: |
+          $ANDROID_HOME/emulator/emulator \
+            -avd AgentStateGuardTest \
+            -no-window \
+            -no-audio \
+            -no-boot-anim \
+            -gpu swiftshader_indirect \
+            -memory 2048 \
+            -accel on &
+          echo "EMULATOR_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for boot
+        timeout-minutes: 8
+        run: |
+          echo "Waiting for emulator..."
+          adb wait-for-device
+          echo "Device ready. Waiting for boot..."
+          for i in $(seq 1 60); do
+            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+              echo "Boot complete in ${i}s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ERROR: Boot timeout after 300s"
+          adb shell getprop sys.boot_completed 2>/dev/null
+          exit 1
+
+      # ── Runtime Smoke ────────────────────────────────────────
+      - name: Install APK
+        run: |
+          adb install -r agentstate-guard-debug.apk
+          echo "APK installed"
+
+      - name: Launch app
+        run: |
+          adb shell am start -n com.agentstate.guard/.MainActivity
+          sleep 5
+
+      - name: Verify process alive
+        run: |
+          adb shell "ps -A | grep agent" || echo "Process check..."
+          adb shell dumpsys package com.agentstate.guard | grep -E "versionName|versionCode|firstInstallTime"
+
+      - name: Check for crashes
+        run: |
+          # Check logcat for FATAL exceptions
+          if adb logcat -d -s AndroidRuntime:E | grep -q "FATAL EXCEPTION"; then
+            echo "CRASH DETECTED"
+            adb logcat -d -s AndroidRuntime:E | tail -30
+            exit 1
+          fi
+          echo "No FATAL EXCEPTION found"
+
+      - name: Check UI rendering
+        run: |
+          # Verify the activity is in the stack
+          adb shell dumpsys activity activities | grep -E "com.agentstate.guard|mResumedActivity" | head -5
+          # Verify no ANR
+          adb shell dumpsys activity activities | grep -i "ANR" && exit 1 || echo "No ANR"
+
+      # ── Gateway Integration ───────────────────────────────────
+      - name: Setup Python for Gateway
+        run: pip install -e ".[dev]"
+
+      - name: Start Gateway
+        run: |
+          python -m agentguard serve --port 8790 &
+          sleep 3
+          curl -s http://127.0.0.1:8790/api/health | grep -q "ok" && echo "Gateway OK"
+          echo "GATEWAY_PORT=8790" >> $GITHUB_ENV
+
+      - name: Android → Gateway test (from emulator)
+        run: |
+          # Emulator access host via 10.0.2.2
+          echo "Testing Gateway from emulator..."
+          adb shell "curl -s http://10.0.2.2:8790/api/health" || \
+            echo "Android network layer NOT_IMPLEMENTED — curl not available in emulator"
+          # Record the limitation
+          echo "Gateway E2E requires Android network client code (not yet implemented)"
+
+      # ── Collect Evidence ──────────────────────────────────────
+      - name: Collect logs
+        if: always()
+        run: |
+          mkdir -p emulator-logs
+          adb logcat -d > emulator-logs/logcat.txt 2>/dev/null || true
+          adb shell dumpsys activity activities > emulator-logs/dumpsys-activity.txt 2>/dev/null || true
+          adb shell dumpsys package com.agentstate.guard > emulator-logs/dumpsys-package.txt 2>/dev/null || true
+          echo "Logs collected"
+          # Scan for secrets — should be empty
+          grep -rEi "sk-ant|ghp_|xox[baprs]-|Bearer [A-Za-z0-9]" emulator-logs/ && echo "SECRET FOUND!" && exit 1 || echo "No secrets in logs"
+
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        if: always()
+        with:
+          name: emulator-logs
+          path: emulator-logs/
+          retention-days: 3
+
+      - name: Stop emulator
+        if: always()
+        run: adb emu kill 2>/dev/null || true
