@@ -196,8 +196,8 @@ class TestFullTransitionMatrix:
                     pass
 
             assert s.is_terminal, f"{terminal.value} should be terminal"
-            assert s.state == terminal or s.state in [PairState.EXPIRED],
-                   f"Expected {terminal.value}, got {s.state.value}"
+            assert s.state == terminal or s.state == PairState.EXPIRED, \
+                f"Expected {terminal.value} or expired, got {s.state.value}"
 
             # Try to reactivate — all must fail
             with pytest.raises(ValueError):

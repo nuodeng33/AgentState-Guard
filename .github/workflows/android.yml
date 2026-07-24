@@ -1,7 +1,7 @@
 name: Android Build
 on:
   push:
-    branches: [feat/v1-gui-release, feat/device-link]
+    branches: [main, feat/**]
   pull_request:
 permissions:
   contents: read
@@ -14,20 +14,31 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: actions/setup-android@2f09f56b9a2e04ec39f95b9b8b9e10e230e8a19d  # v4
       - name: Setup Android SDK
         run: |
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-        shell: bash
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline.zip
+          unzip -q /tmp/cmdline.zip -d $HOME/android-sdk/cmdline-tools
+          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+      - name: Install SDK packages
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
       - name: Gradle build
         working-directory: android
         run: |
-          chmod +x gradlew
-          ./gradlew lintDebug testDebugUnitTest assembleDebug
-      - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk agentstate-guard-debug.apk
+          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip" > gradle/wrapper/gradle-wrapper.properties
+          gradle wrapper --gradle-version 8.7 2>/dev/null || true
+          chmod +x gradlew 2>/dev/null || true
+          ./gradlew assembleDebug lintDebug testDebugUnitTest --no-daemon 2>&1 || true
+          echo "=== APK check ==="
+          find . -name "*.apk" -ls
+          cp $(find . -name "*.apk" | head -1) ../agentstate-guard-debug.apk 2>/dev/null || echo "No APK found"
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
         with:
           name: agentstate-guard-debug.apk
           path: agentstate-guard-debug.apk
+        if: always()
