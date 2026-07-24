@@ -31,7 +31,7 @@ function App() {
     <div style={{fontFamily:'system-ui,sans-serif',maxWidth:960,margin:'0 auto',padding:16}}>
       <h1>🛡️ AgentState Guard</h1>
       <nav style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
-        {['dashboard','checkpoints','transactions'].map(p=>
+        {['dashboard','checkpoints','transactions','settings'].map(p=>
           <button key={p} onClick={()=>setPage(p)}
             style={{background:p===page?'#2563eb':'#e5e7eb',color:p===page?'#fff':'#000',
               border:'none',padding:'6px 14px',borderRadius:6,cursor:'pointer'}}>{p}</button>
@@ -78,7 +78,71 @@ function App() {
           </div>
         )}
       </div>}
+
+      {page==='settings' && <AISettingsScreen />}
     </div>
   );
 }
 export default App;
+
+// ── AI Settings Screen ──────────────────────────────
+
+type AIProvider = 'deepseek' | 'openai_compatible' | 'custom';
+
+function AISettingsScreen() {
+  const [provider, setProvider] = useState<AIProvider>('deepseek');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [testResult, setTestResult] = useState('');
+
+  const presets: Record<AIProvider, { name: string; url: string }> = {
+    deepseek: { name: 'DeepSeek', url: 'https://api.deepseek.com/v1' },
+    openai_compatible: { name: 'OpenAI-Compatible', url: '' },
+    custom: { name: 'Custom', url: '' },
+  };
+
+  useEffect(() => {
+    setBaseUrl(presets[provider].url);
+  }, [provider]);
+
+  const testConnection = async () => {
+    try {
+      const resp = await fetch(baseUrl + '/models', {
+        headers: { Authorization: 'Bearer ' + apiKey }
+      });
+      const data = await resp.json();
+      setTestResult(resp.ok ? `Connected (${data.data?.length || 0} models)` : 'Failed: ' + resp.status);
+    } catch(e) {
+      setTestResult('Connection failed');
+    }
+  };
+
+  return (
+    <div style={{maxWidth: 480, margin: '16px auto'}}>
+      <h2>AI Provider Settings</h2>
+      <label>Provider</label>
+      <select value={provider} onChange={e => setProvider(e.target.value as AIProvider)}>
+        {Object.entries(presets).map(([k,v]) => <option key={k} value={k}>{v.name}</option>)}
+      </select>
+      <label>Base URL</label>
+      <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.deepseek.com/v1" />
+      <label>API Key</label>
+      <div style={{display:'flex', gap:8}}>
+        <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)}
+               placeholder="sk-..." style={{flex:1}} />
+        <button onClick={() => setShowKey(!showKey)}>{showKey ? 'Hide' : 'Show'}</button>
+      </div>
+      <label>Model</label>
+      <div style={{display:'flex', gap:8}}>
+        <input value={model} onChange={e => setModel(e.target.value)} placeholder="deepseek-chat" style={{flex:1}} />
+        <button onClick={testConnection}>Test</button>
+      </div>
+      {testResult && <div style={{marginTop: 8, color: testResult.includes('Connected') ? 'green' : 'red'}}>{testResult}</div>}
+      <p style={{color: '#6b7280', fontSize: 13, marginTop: 16}}>
+        API Key is held in memory only. Never saved to disk. Never sent to Android.
+      </p>
+    </div>
+  );
+}
