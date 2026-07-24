@@ -159,7 +159,7 @@ function DevicesScreen({ setPage }: { setPage: (p: string) => void }) {
     setMobileLinkEnabled(true);
     // Start pairing session via API
     try {
-      const resp = await fetch('/api/device-link/pair/start', { method: 'POST' });
+      const resp = await fetch('/device/v1/pair/start', { method: 'POST' });
       const data = await resp.json();
       setPairingSession(data);
     } catch(e) {}

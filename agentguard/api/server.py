@@ -137,6 +137,68 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
         finally:
             db.close()
 
+    # ---- Device Link Gateway (mounted at /device/v1/) ----
+
+    from ..device_link.gateway import DeviceLinkGateway
+    from ..device_link.crypto import generate_ecdsa_p256_keypair, public_key_to_der, random_session_id
+    from fastapi import APIRouter
+
+    # Generate in-memory ECDSA P-256 keys for the desktop identity
+    _dev_priv_pem, _dev_pub_pem = generate_ecdsa_p256_keypair()
+    _dev_pub_der = public_key_to_der(_dev_pub_pem)
+    _desktop_uuid = random_session_id()
+
+    _gateway = DeviceLinkGateway(
+        desktop_uuid=_desktop_uuid,
+        desktop_device_pubkey_der=_dev_pub_der,
+        desktop_device_privkey_pem=_dev_priv_pem,
+    )
+
+    _device_router = APIRouter(prefix="/device/v1")
+
+    @_device_router.post("/pair/start")
+    async def _device_pair_start():
+        return _gateway.pair_start()
+
+    @_device_router.post("/pair/{sid}/connect")
+    async def _device_pair_connect(sid: str, body: dict):
+        return _gateway.pair_first_connection(
+            sid, body.get("android_uuid", ""), body.get("nonce_hex", ""),
+        )
+
+    @_device_router.post("/pair/{sid}/sas")
+    async def _device_pair_sas(sid: str, body: dict):
+        return _gateway.pair_start_sas(sid, body.get("android_pubkey_der_hex", ""))
+
+    @_device_router.post("/pair/{sid}/confirm")
+    async def _device_pair_confirm(sid: str, body: dict):
+        return _gateway.pair_confirm(sid, body.get("confirm", False))
+
+    @_device_router.post("/pair/{sid}/complete")
+    async def _device_pair_complete(sid: str, body: dict):
+        return _gateway.pair_complete(
+            sid, body.get("android_uuid", ""),
+            body.get("android_pubkey_der_hex", ""),
+            body.get("display_name", ""),
+        )
+
+    @_device_router.get("/status")
+    async def _device_status():
+        return {
+            "desktop_uuid": _gateway.desktop_uuid,
+            "devices_bound": len(_gateway.devices.list()),
+            "active_pair_sessions": _gateway.pairing_mgr.active_sessions(),
+        }
+
+    @_device_router.get("/checkpoints")
+    async def _device_checkpoints():
+        return {
+            "checkpoints": [],
+            "bound_devices": _gateway.devices.list(),
+        }
+
+    app.include_router(_device_router)
+
     # --- Catch-all: serve SPA for non-API paths ---
     from fastapi.responses import HTMLResponse
     web_static = HERE.parent / "web_static"
