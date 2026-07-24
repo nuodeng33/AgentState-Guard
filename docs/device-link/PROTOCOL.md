@@ -3,6 +3,21 @@
 ## Version
 AgentState Device Link Protocol Version 1 (ASDL/1)
 
+## Time Semantics (PRECISE)
+- Pairing expiry: `age >= 120.000` → EXPIRED. `age < 120.000` → valid.
+- Challenge expiry: `age >= 300.000` → EXPIRED.
+- Session token expiry: `age >= 3600.000` → EXPIRED.
+- All times are monotonic clock seconds, not wall-clock.
+- Platforms MUST use `>=` (not `>`) for the expiry comparison.
+
+## ECDSA Wire Format
+- Signatures: **DER-encoded** (ASN.1 SEQUENCE { r, s }). Starts with `0x30`.
+- NOT fixed-length raw `r||s`.
+- Public keys: DER-encoded SubjectPublicKeyInfo (SPKI). Starts with `0x30`.
+- Kotlin `java.security.Signature` produces DER by default.
+- Python `cryptography` produces DER by default.
+- Test vector: cross-platform golden vectors in `docs/device-link/CRYPTO_TEST_VECTORS.md`.
+
 ## Transport
 - TLS 1.3 (mandatory)
 - HTTPS for request/response APIs
