@@ -145,6 +145,20 @@
         "hooks": [
           { "type": "command", "command": "node ~/.claude/skills/strategic-compact/suggest-compact.js" }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 scripts/retry_guard.py pre Bash \"$CLAUDE_COMMAND\"" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 scripts/retry_guard.py post Bash \"$CLAUDE_COMMAND\" \"$CLAUDE_EXIT_CODE\"" }
+        ]
       }
     ]
   }

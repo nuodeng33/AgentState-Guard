@@ -25,6 +25,34 @@ At phase completion, update: ACCEPTANCE_MATRIX.md, CURRENT_STATE.md, SESSION_HAN
 ## Permission Freeze
 Claude Code permissions must not be modified during v1.0 development. If a permission is insufficient, record in docs/ENVIRONMENT_GAPS.md and continue with other tasks.
 
+## Skill Routing Rules
+
+When encountering the following scenarios, invoke the corresponding skill FIRST:
+
+### Failure Investigation (mandatory before any fix)
+- ANY test/build/CI/runtime failure → invoke `failure-investigator`
+- Same failure attempted 3 times → stop and invoke `failure-investigator`
+- This enforces evidence collection before fix proposals
+
+### CI Evidence Audit
+- Parsing JUnit/Gradle/CI test results → invoke `ci-evidence-auditor`
+- Verifying test counts, NO-SOURCE, or artifact integrity → invoke `ci-evidence-auditor`
+- Never manually sum counts from different runs
+
+### Android Emulator Diagnostics
+- Emulator boot/ADB/KVM/AVD failure → invoke `android-emulator-forensics`
+- Never increase timeout as first response
+
+### Contract Drift
+- Python/Kotlin divergence, golden vector mismatch, protocol migration → invoke `contract-drift-debugger`
+- Never change assertions just to make tests pass
+
+### Task Prioritization
+- Choosing next engineering task → invoke `runtime-closure-orchestrator`
+
+### Context Budget
+- Context ~75-80% → invoke `strategic-compact` or `context-compression`, update SESSION_HANDOFF.md
+
 ## Mandatory Workflow: Every Feature & Bug Fix
 
 Every new requirement or bug fix MUST follow this 5-step pipeline. No step may be skipped.
