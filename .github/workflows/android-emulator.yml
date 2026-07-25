@@ -15,9 +15,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - uses: actions/setup-java@8df1039502a15bceb9433410b1a100fbe190c53b  # v4.5.0
-        with: { distribution: temurin, java-version: "17" }
+        with:
+          distribution: temurin
+          java-version: "17"
 
-      # ── Android SDK + Emulator ──────────────────────────────
+      # ── Android SDK ────────────────────────────────────────────
       - name: Setup Android SDK
         run: |
           mkdir -p $HOME/android-sdk/cmdline-tools
@@ -25,9 +27,12 @@ jobs:
           unzip -q /tmp/cmdline.zip -d $HOME/android-sdk/cmdline-tools
           mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
           echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
           echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           echo "$HOME/android-sdk/emulator" >> $GITHUB_PATH
+          # Tell Gradle where the SDK is
+          echo "sdk.dir=$HOME/android-sdk" > $GITHUB_WORKSPACE/android/local.properties
 
       - name: Install SDK packages
         run: |
@@ -47,18 +52,24 @@ jobs:
             -d "pixel_6" \
             --force
 
-      # ── Build APK ────────────────────────────────────────────
+      # ── KVM ────────────────────────────────────────────────────
+      # Without KVM the x86_64 emulator cannot boot.  GitHub-hosted
+      # runners have /dev/kvm; ensure the runner user can access it.
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            echo "KVM OK – /dev/kvm is accessible"
+            ls -la /dev/kvm
+          else
+            echo "WARNING: /dev/kvm not found — emulator will use software rendering"
+          fi
+
+      # ── Build APK ──────────────────────────────────────────────
       - name: Build debug APK
         working-directory: android
         run: |
-          cat > gradle/wrapper/gradle-wrapper.properties << 'GRADLE'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          GRADLE
-          gradle wrapper --gradle-version 8.7 2>/dev/null || true
+          gradle wrapper --gradle-version 8.7
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
@@ -68,42 +79,75 @@ jobs:
           echo "APK=$APK"
           ls -lh "$APK"
           cp "$APK" agentstate-guard-debug.apk
+          ls -lh agentstate-guard-debug.apk
 
-      # ── Boot Emulator ─────────────────────────────────────────
+      # ── Boot Emulator ──────────────────────────────────────────
       - name: Start emulator
         run: |
-          $ANDROID_HOME/emulator/emulator \
+          export ANDROID_EMULATOR_USE_SYSTEM_LIBS=1
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
+          nohup $ANDROID_HOME/emulator/emulator \
             -avd AgentStateGuardTest \
             -no-window \
             -no-audio \
             -no-boot-anim \
             -gpu swiftshader_indirect \
             -memory 2048 \
-            -accel on &
-          echo "EMULATOR_PID=$!" >> $GITHUB_ENV
+            -netdelay none \
+            -netspeed full \
+            -no-snapshot \
+            -verbose \
+            > emulator.log 2>&1 &
+          EMULATOR_PID=$!
+          echo "EMULATOR_PID=$EMULATOR_PID" >> $GITHUB_ENV
+          # Brief pause then confirm the process is alive
+          sleep 8
+          if kill -0 $EMULATOR_PID 2>/dev/null; then
+            echo "Emulator process $EMULATOR_PID is running"
+          else
+            echo "ERROR: Emulator process died during startup"
+            cat emulator.log
+            exit 1
+          fi
 
-      - name: Wait for boot
-        timeout-minutes: 8
+      - name: Wait for emulator boot
+        timeout-minutes: 10
         run: |
-          echo "Waiting for emulator..."
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          echo "Waiting for adb device..."
           adb wait-for-device
-          echo "Device ready. Waiting for boot..."
-          for i in $(seq 1 60); do
-            if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
-              echo "Boot complete in ${i}s"
+          echo "Device detected. Waiting for sys.boot_completed=1..."
+          for i in $(seq 1 120); do
+            BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$BOOT" = "1" ]; then
+              echo "Boot complete after ~${i}s"
+              sleep 3
               exit 0
             fi
+            # Verify emulator is still alive
+            kill -0 $EMULATOR_PID 2>/dev/null || {
+              echo "ERROR: Emulator PID $EMULATOR_PID died during boot"
+              cat emulator.log
+              exit 1
+            }
+            printf "." >&2
             sleep 5
           done
-          echo "ERROR: Boot timeout after 300s"
-          adb shell getprop sys.boot_completed 2>/dev/null
+          echo ""
+          echo "ERROR: Boot timeout"
+          echo "--- Device properties ---"
+          adb shell getprop 2>/dev/null | grep -E "sys\.(boot|init|power)" || true
+          echo "--- Emulator log tail ---"
+          tail -50 emulator.log
           exit 1
 
-      # ── Runtime Smoke ────────────────────────────────────────
+      # ── Runtime Smoke Tests ─────────────────────────────────────
       - name: Install APK
         run: |
           adb install -r agentstate-guard-debug.apk
-          echo "APK installed"
+          echo "APK installed successfully"
 
       - name: Launch app
         run: |
@@ -112,12 +156,11 @@ jobs:
 
       - name: Verify process alive
         run: |
-          adb shell "ps -A | grep agent" || echo "Process check..."
+          adb shell "ps -A | grep agent" || echo "(process may have exited — not an error)"
           adb shell dumpsys package com.agentstate.guard | grep -E "versionName|versionCode|firstInstallTime"
 
       - name: Check for crashes
         run: |
-          # Check logcat for FATAL exceptions
           if adb logcat -d -s AndroidRuntime:E | grep -q "FATAL EXCEPTION"; then
             echo "CRASH DETECTED"
             adb logcat -d -s AndroidRuntime:E | tail -30
@@ -127,12 +170,16 @@ jobs:
 
       - name: Check UI rendering
         run: |
-          # Verify the activity is in the stack
-          adb shell dumpsys activity activities | grep -E "com.agentstate.guard|mResumedActivity" | head -5
-          # Verify no ANR
-          adb shell dumpsys activity activities | grep -i "ANR" && exit 1 || echo "No ANR"
+          adb shell dumpsys activity activities | grep -E "com.agentstate.guard|mResumedActivity" | head -5 || \
+            echo "(activity info not found in dumpsys)"
+          if adb shell dumpsys activity activities | grep -qi "ANR"; then
+            echo "ANR DETECTED"
+            adb shell dumpsys activity activities | grep -i "ANR"
+            exit 1
+          fi
+          echo "No ANR"
 
-      # ── Gateway Integration ───────────────────────────────────
+      # ── Gateway Integration ─────────────────────────────────────
       - name: Setup Python for Gateway
         run: pip install -e ".[dev]"
 
@@ -143,26 +190,34 @@ jobs:
           curl -s http://127.0.0.1:8790/api/health | grep -q "ok" && echo "Gateway OK"
           echo "GATEWAY_PORT=8790" >> $GITHUB_ENV
 
-      - name: Android → Gateway test (from emulator)
+      - name: Android -> Gateway test (from emulator)
         run: |
-          # Emulator access host via 10.0.2.2
-          echo "Testing Gateway from emulator..."
+          echo "Testing Gateway from emulator via 10.0.2.2..."
           adb shell "curl -s http://10.0.2.2:8790/api/health" || \
-            echo "Android network layer NOT_IMPLEMENTED — curl not available in emulator"
-          # Record the limitation
+            echo "Android network layer NOT_IMPLEMENTED (curl not available in emulator by default)"
           echo "Gateway E2E requires Android network client code (not yet implemented)"
 
-      # ── Collect Evidence ──────────────────────────────────────
+      # ── Collect Evidence ───────────────────────────────────────
+      - name: Capture screenshot
+        if: always()
+        run: |
+          mkdir -p emulator-logs
+          adb shell screencap -p /sdcard/screenshot.png
+          adb pull /sdcard/screenshot.png emulator-logs/screenshot.png 2>/dev/null || \
+            echo "Screenshot capture failed (may not be supported)"
+
       - name: Collect logs
         if: always()
         run: |
           mkdir -p emulator-logs
-          adb logcat -d > emulator-logs/logcat.txt 2>/dev/null || true
+          adb logcat -d > emulator-logs/logcat.txt 2>/dev/null || echo "logcat capture failed"
           adb shell dumpsys activity activities > emulator-logs/dumpsys-activity.txt 2>/dev/null || true
           adb shell dumpsys package com.agentstate.guard > emulator-logs/dumpsys-package.txt 2>/dev/null || true
-          echo "Logs collected"
-          # Scan for secrets — should be empty
-          grep -rEi "sk-ant|ghp_|xox[baprs]-|Bearer [A-Za-z0-9]" emulator-logs/ && echo "SECRET FOUND!" && exit 1 || echo "No secrets in logs"
+          cp emulator.log emulator-logs/emulator.log 2>/dev/null || true
+          echo "Logs collected in emulator-logs/"
+          grep -rEi "sk-ant|ghp_|xox[baprs]-|Bearer [A-Za-z0-9]" emulator-logs/ && \
+            { echo "SECRET FOUND!"; exit 1; } || \
+            echo "No secrets in logs"
 
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
         if: always()
