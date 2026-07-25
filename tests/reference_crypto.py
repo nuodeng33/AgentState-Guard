@@ -89,8 +89,9 @@ TRANSCRIPT_A_PARAMS = {
 
 
 def compute_golden_vector_a():
+    from tests.reference_crypto import TRANSCRIPT_SECRET
     params = dict(TRANSCRIPT_A_PARAMS)
-    _secret = params.pop("pairing_secret")
+    _secret = TRANSCRIPT_SECRET
     t = ref_build_pairing_transcript(**params)
     sas = ref_derive_sas(_secret, t)
     return t, sas
@@ -118,7 +119,7 @@ def compute_all_one_field_changes():
     for field_name, new_value in fields_to_mutate:
         params = dict(base)
         params[field_name] = new_value
-        _secret = params.pop("pairing_secret")
+        _secret = TRANSCRIPT_SECRET
         t = ref_build_pairing_transcript(**params)
         sas = ref_derive_sas(_secret, t)
         results.append({
