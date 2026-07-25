@@ -6,7 +6,7 @@
     "frontendDist": "../../agentguard/web_static",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "cd ../../web && npm run dev",
-    "beforeBuildCommand": "cd ../../web && npm run build"
+    "beforeBuildCommand": "echo Frontend pre-built by CI"
   },
   "app": {
     "windows": [
@@ -24,6 +24,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ]
   }
 }
