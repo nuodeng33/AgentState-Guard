@@ -6,7 +6,6 @@ import pytest
 from agentguard.device_link.pairing import PairingSession, PairingManager, PairState
 
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
 class TestPairingStateMachine:
     def make_session(self, **kwargs):
         return PairingSession(
@@ -47,8 +46,12 @@ class TestPairingStateMachine:
         assert s.state == PairState.CONSUMED
         assert s.is_terminal
 
-    # test_expired removed — clock boundary covered in test_device_link_e2e.py
-        assert s.is_terminal
+    def test_expired_immediate(self):
+        from agentguard.device_link.crypto import FakeClock, DeterministicRandom
+        c=FakeClock(0); r=DeterministicRandom(42)
+        s = PairingSession("sid","duuid",b"pk","fp", expiry_seconds=120, clock=c, rng=r)
+        c.advance(121)
+        assert s.is_expired
 
     def test_cancelled(self):
         s = self.make_session()
@@ -97,7 +100,6 @@ class TestPairingStateMachine:
             s.consume()
 
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
 class TestPairingManager:
     def test_create_session(self):
         mgr = PairingManager()
