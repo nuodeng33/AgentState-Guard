@@ -258,7 +258,9 @@ jobs:
       - name: Verify artifacts
         shell: pwsh
         run: |
-          $exe = Get-ChildItem "desktop/src-tauri/target/debug/AgentState Guard.exe" -ErrorAction SilentlyContinue
+          # Debug build binary uses Cargo package name (agentstate-guard.exe),
+          # not the product name. Check both variants.
+          $exe = Get-ChildItem "desktop/src-tauri/target/debug/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           $msi = Get-ChildItem "desktop/src-tauri/target/debug/*.msi" -ErrorAction SilentlyContinue
           if (-not $exe) { Write-Host "ERROR: EXE not found"; exit 1 }
           Write-Host "EXE: $($exe.Name) $($exe.Length) bytes"
@@ -268,7 +270,7 @@ jobs:
         with:
           name: desktop-tauri-build
           path: |
-            desktop/src-tauri/target/debug/AgentState Guard.exe
+            desktop/src-tauri/target/debug/*.exe
             desktop/src-tauri/target/debug/*.msi
 
   # ── 5. Desktop Runtime Smoke ───────────────────────────────────
