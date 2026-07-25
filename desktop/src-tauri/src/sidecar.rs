@@ -13,7 +13,7 @@ use tauri::Manager;
 
 const SIDECAR_PORT: u16 = 8787;
 const SIDECAR_HOST: &str = "127.0.0.1";
-const READINESS_TIMEOUT_SECS: u64 = 15;
+const READINESS_TIMEOUT_SECS: u64 = 45;
 const READINESS_POLL_MS: u64 = 200;
 
 #[derive(Serialize, Clone)]
