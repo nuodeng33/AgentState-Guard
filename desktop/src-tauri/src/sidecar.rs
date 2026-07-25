@@ -4,6 +4,7 @@
 // and handles clean shutdown on app exit.
 
 use serde::Serialize;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -95,23 +96,24 @@ pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
     let pid = child.id();
     eprintln!("[sidecar] spawned PID={}", pid);
 
-    // Wait for readiness
-    let url = format!("http://{}:{}/api/health", host, port);
+    // Wait for readiness via TCP connect — more reliable than HTTP
+    // in the Tauri context where ureq may have proxy/network issues.
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
     let deadline = std::time::Instant::now() + Duration::from_secs(READINESS_TIMEOUT_SECS);
 
     loop {
-        if std::time::Instant::now() > deadline {
-            return Err(format!(
-                "SIDECAR_READINESS_TIMEOUT: {} not ready after {}s",
-                url, READINESS_TIMEOUT_SECS
-            ));
-        }
-        match ureq::get(&url).call() {
-            Ok(resp) if resp.status() == 200 => {
-                eprintln!("[sidecar] health OK (PID={})", pid);
+        match TcpStream::connect_timeout(&addr, Duration::from_secs(2)) {
+            Ok(_) => {
+                eprintln!("[sidecar] ready (PID={}, port={})", pid, port);
                 return Ok((child, pid));
             }
-            _ => {}
+            Err(_) => {}
+        }
+        if std::time::Instant::now() > deadline {
+            return Err(format!(
+                "SIDECAR_READINESS_TIMEOUT: {}:{} not reachable after {}s",
+                host, port, READINESS_TIMEOUT_SECS
+            ));
         }
         std::thread::sleep(Duration::from_millis(READINESS_POLL_MS));
     }
