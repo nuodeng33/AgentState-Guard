@@ -289,9 +289,15 @@ jobs:
       - name: Start Desktop EXE
         shell: pwsh
         run: |
-          $exe = Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.exe" | Select-Object -First 1
-          Write-Host "Starting: $($exe.FullName)"
-          $proc = Start-Process -FilePath $exe.FullName -NoNewWindow -PassThru
+          $target = "$env:RUNNER_TEMP\tauri-build\agentstate-guard.exe"
+          if (-not (Test-Path $target)) {
+            Write-Host "ERROR: agentstate-guard.exe not found in artifact"
+            Write-Host "Actual *.exe files:"
+            Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.exe" | ForEach-Object { Write-Host "  $($_.Name)" }
+            exit 1
+          }
+          Write-Host "Starting: $target"
+          $proc = Start-Process -FilePath $target -NoNewWindow -PassThru
           $proc.Id | Out-File -FilePath "$env:RUNNER_TEMP\tauri.pid"
           "TAURI_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
