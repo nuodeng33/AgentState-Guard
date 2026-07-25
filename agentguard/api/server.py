@@ -208,7 +208,7 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
     @_device_router.post("/pair/{sid}/connect")
     async def _device_pair_connect(sid: str, body: dict):
         return _gateway.pair_first_connection(
-            sid, body.get("android_uuid", ""), body.get("nonce_hex", ""),
+            sid, body.get("android_uuid", ""), body.get("nonce", ""),
         )
 
     @_device_router.post("/pair/{sid}/sas")
