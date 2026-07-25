@@ -174,8 +174,8 @@ class ReplayCache:
         self._cache.clear()
 
     def size(self) -> int:
-        self.check_and_record("__sweep__")
-        return len(self._cache)
+        now = self._clock.now()
+        return sum(1 for v in self._cache.values() if now - v <= self._ttl)
 
 
 # ---- ECDSA P-256 ----

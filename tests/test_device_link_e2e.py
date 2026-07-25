@@ -16,13 +16,13 @@ from agentguard.device_link.crypto import (
     generate_ecdsa_p256_keypair, public_key_to_der,
     sign_challenge, verify_signature, spki_fingerprint,
     derive_sas, build_pairing_transcript, FakeClock, DeterministicRandom,
-    generate_challenge, SecureRandom,
+    generate_challenge, SecureRandom, ReplayCache,
 )
 from agentguard.device_link.pairing import PairingSession, PairingManager, PairState, ALLOWED_TRANSITIONS
 from agentguard.device_link.gateway import DeviceLinkGateway, GatewayConfig
 from tests.reference_crypto import (
     ref_build_pairing_transcript, ref_derive_sas, ref_spki_fingerprint,
-    TRANSCRIPT_A_PARAMS,
+    TRANSCRIPT_A_PARAMS, TRANSCRIPT_SECRET,
 )
 
 
@@ -182,6 +182,18 @@ class TestFullTransitionMatrix:
             # Navigate to terminal via valid path
             if terminal == PairState.EXPIRED:
                 clock.advance(121)  # force expiry
+                s.set_state(PairState.EXPIRED)  # trigger terminal transition
+            elif terminal == PairState.FAILED:
+                # FAILED tracker needs max_sas_attempts=1 to trigger on single fail()
+                s = PairingSession("s", "d", b"p", "f", clock=clock, rng=rng,
+                                   max_sas_attempts=1)
+                try:
+                    s.set_state(PairState.FIRST_CONNECTION)
+                    s.set_state(PairState.SAS_PENDING)
+                    s.set_state(PairState.CONFIRMED_BOTH)
+                    s.fail()
+                except ValueError:
+                    pass
             else:
                 try:
                     s.set_state(PairState.FIRST_CONNECTION)
@@ -218,6 +230,8 @@ def _start_http_server(gateway, port):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             l = int(self.headers.get("Content-Length", 0))
+            if l > 1_000_000:  # Reject payloads > 1MB
+                self._r(413, {"error":"Payload too large"}); return
             b = self.rfile.read(l) if l else b"{}"
             try: d = json.loads(b)
             except: self._r(400, {"error":"Bad JSON"}); return
@@ -237,6 +251,7 @@ def _start_http_server(gateway, port):
 def _route_pairing(gw, path, method, data):
     p = path.split("/")
     if path == "/device/v1/pair/start": return gw.pair_start()
+    if path == "/device/v1/status": return gw.get_status()
     if "connect" in path: return gw.pair_first_connection(p[4], data.get("android_uuid",""), data.get("nonce",""))
     if "sas" in path: return gw.pair_start_sas(p[4], data.get("android_pubkey_der_hex",""))
     if "confirm" in path: return gw.pair_confirm(p[4], data.get("confirm",False))
@@ -432,7 +447,7 @@ class TestSecretLeakFull:
 class TestMutations:
     """Verify that key security code paths are covered by failing tests."""
 
-    def setup(self):
+    def setup_method(self, method):
         self.clock = FakeClock(0)
         self.rng = DeterministicRandom(42)
 
@@ -453,8 +468,9 @@ class TestMutations:
     def test_transcript_field_mutation_killed(self):
         """If a field were dropped from transcript, SAS would differ."""
         base = dict(TRANSCRIPT_A_PARAMS)
-        secret = base.pop("pairing_secret")
         t_full = ref_build_pairing_transcript(**base)
+        secret = TRANSCRIPT_SECRET
+        sas_full = ref_derive_sas(secret, t_full)
         # Remove android_uuid
         del base["android_uuid"]
         with pytest.raises(TypeError):
@@ -463,9 +479,10 @@ class TestMutations:
         # For fields that ARE passed, transcript must change
         base_alt = dict(TRANSCRIPT_A_PARAMS)
         base_alt["android_uuid"] = "00000000-0000-0000-0000-000000000000"
-        _secret = base_alt.pop("pairing_secret")
         t_alt = ref_build_pairing_transcript(**base_alt)
+        sas_alt = ref_derive_sas(secret, t_alt)
         assert t_full != t_alt
+        assert sas_full != sas_alt
 
     def test_terminal_reactivation_mutation_killed(self):
         """Terminal states must reject all new transitions."""

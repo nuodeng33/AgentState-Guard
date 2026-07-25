@@ -214,3 +214,12 @@ class DeviceLinkGateway:
 
     def list_bound_devices(self) -> list:
         return self.devices.list()
+
+    # ---- Status ----
+
+    def get_status(self) -> dict:
+        return {
+            "status": "active",
+            "desktop_uuid": self.desktop_uuid,
+            "bound_devices": len(self.devices._devices),
+        }
