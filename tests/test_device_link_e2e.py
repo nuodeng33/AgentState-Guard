@@ -210,6 +210,40 @@ class TestFullTransitionMatrix:
             with pytest.raises(ValueError):
                 s.set_state(PairState.SAS_PENDING)
 
+# ── HTTP Server Helper for Gateway E2E ────────────────────────
+def _start_http_server(gateway, port):
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import json
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            l = int(self.headers.get("Content-Length", 0))
+            b = self.rfile.read(l) if l else b"{}"
+            try: d = json.loads(b)
+            except: self._r(400, {"error":"Bad JSON"}); return
+            r = _route_pairing(gateway, self.path, "POST", d)
+            self._r(200 if "error" not in r else r.get("code",500), r)
+        def do_GET(self):
+            r = _route_pairing(gateway, self.path, "GET", {})
+            self._r(200 if "error" not in r else r.get("code",500), r)
+        def _r(self, s, d):
+            self.send_response(s); self.send_header("Content-Type","application/json")
+            self.end_headers(); self.wfile.write(json.dumps(d).encode())
+        def log_message(self, *a): pass
+    s = HTTPServer(("127.0.0.1", port), Handler)
+    t = threading.Thread(target=s.serve_forever, daemon=True); t.start()
+    return s, t
+
+def _route_pairing(gw, path, method, data):
+    p = path.split("/")
+    if path == "/device/v1/pair/start": return gw.pair_start()
+    if "connect" in path: return gw.pair_first_connection(p[4], data.get("android_uuid",""), data.get("nonce",""))
+    if "sas" in path: return gw.pair_start_sas(p[4], data.get("android_pubkey_der_hex",""))
+    if "confirm" in path: return gw.pair_confirm(p[4], data.get("confirm",False))
+    if "complete" in path: return gw.pair_complete(p[4], data.get("android_uuid",""), data.get("android_pubkey_der_hex",""), data.get("display_name",""))
+    if method == "GET" and "pair" in path: return gw.pair_poll(p[4])
+    return {"error":"Not found","code":404}
+
 
 # ── Real Gateway E2E over HTTP ─────────────────────────────────
 
