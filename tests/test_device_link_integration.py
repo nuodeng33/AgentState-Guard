@@ -29,7 +29,7 @@ def _free_port():
     return port
 
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled for Q1 reclassification
 class TestGatewayRealIntegration:
     """Real Gateway over HTTP on 127.0.0.1."""
 
