@@ -241,7 +241,7 @@ jobs:
 
       - name: Start Gateway
         run: |
-          python -m agentguard serve --port 8790 &
+          python -m agentguard serve --port 8790 --directory "$PWD" &
           GATEWAY_PID=$!
           echo "GATEWAY_PID=$GATEWAY_PID" >> $GITHUB_ENV
           sleep 3
