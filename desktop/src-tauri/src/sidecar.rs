@@ -4,12 +4,12 @@
 // and handles clean shutdown on app exit.
 
 use serde::Serialize;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Manager;
 
-const SIDECAR_BIN: &str = "bin/agentguard-sidecar";
 const SIDECAR_PORT: u16 = 8787;
 const SIDECAR_HOST: &str = "127.0.0.1";
 const READINESS_TIMEOUT_SECS: u64 = 15;
@@ -24,12 +24,62 @@ pub struct SidecarState {
 
 pub struct SidecarProcess(pub Mutex<Option<Child>>);
 
+/// Resolve the sidecar binary relative to the current executable,
+/// not the working directory. This works whether the app is run
+/// from a build directory, an artifact download, or an MSI install.
+fn resolve_sidecar() -> Result<PathBuf, String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("Failed to get executable path: {}", e))?
+        .parent()
+        .ok_or_else(|| "Executable has no parent directory".to_string())?
+        .to_path_buf();
+
+    // On Windows Tauri 2 appends the target triple to externalBin names.
+    // Try the triple-suffixed variant first, then the plain name.
+    let candidates: &[&str] = if cfg!(target_os = "windows") {
+        &[
+            "agentguard-sidecar-x86_64-pc-windows-msvc.exe",
+            "agentguard-sidecar.exe",
+        ]
+    } else if cfg!(target_os = "macos") {
+        &[
+            "agentguard-sidecar-aarch64-apple-darwin",
+            "agentguard-sidecar-x86_64-apple-darwin",
+            "agentguard-sidecar",
+        ]
+    } else {
+        &[
+            "agentguard-sidecar-x86_64-unknown-linux-gnu",
+            "agentguard-sidecar",
+        ]
+    };
+
+    for name in candidates {
+        let path = exe_dir.join(name);
+        if path.exists() {
+            eprintln!("[sidecar] resolved: {}", path.display());
+            return Ok(path);
+        }
+    }
+
+    // Diagnostic: list the directory contents
+    eprintln!("[sidecar] ERROR: not found in {}", exe_dir.display());
+    if let Ok(entries) = std::fs::read_dir(&exe_dir) {
+        for entry in entries.flatten() {
+            eprintln!("[sidecar]   {}", entry.file_name().to_string_lossy());
+        }
+    }
+
+    Err(format!("Sidecar binary not found in {}", exe_dir.display()))
+}
+
 /// Spawn the sidecar process and wait for it to become ready.
 pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
     let port = SIDECAR_PORT;
     let host = SIDECAR_HOST;
 
-    let child = Command::new(SIDECAR_BIN)
+    let sidecar_path = resolve_sidecar()?;
+    let child = Command::new(&sidecar_path)
         .arg("--directory")
         .arg(data_dir)
         .arg("serve")
