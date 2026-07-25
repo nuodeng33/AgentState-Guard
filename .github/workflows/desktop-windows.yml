@@ -284,7 +284,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: desktop-tauri-build
-          path: $env:RUNNER_TEMP\tauri-build
+          path: ${{ runner.temp }}\tauri-build
 
       - name: Start Desktop EXE
         shell: pwsh
@@ -352,7 +352,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: desktop-tauri-build
-          path: $env:RUNNER_TEMP\tauri-build
+          path: ${{ runner.temp }}\tauri-build
 
       - name: Install MSI
         shell: pwsh
