@@ -204,9 +204,11 @@ jobs:
           }
           Write-Host "Sidecar terminated: no orphan"
 
-          $remaining = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+          # Wait for OS to release port (TIME_WAIT transients are OK)
+          Start-Sleep -Seconds 5
+          $remaining = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Where-Object { $_.State -ne "TimeWait" }
           if ($remaining) {
-            Write-Host "FAIL: Port $port still in use"
+            Write-Host "FAIL: Port $port still in use (state=$($remaining.State))"
             exit 1
           }
           Write-Host "Port $port closed: clean shutdown"
