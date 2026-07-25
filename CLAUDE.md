@@ -102,3 +102,8 @@ Every new requirement or bug fix MUST follow this 5-step pipeline. No step may b
 When compacted, preserve: product goal, current phase, active requirement IDs, security boundaries, decisions, files changed, test results, Git HEAD, next action.
 
 After compaction, read CURRENT_STATE.md, SESSION_HANDOFF.md, ACCEPTANCE_MATRIX.md, and active phase contract before continuing.
+
+## Skill Assessment (2026-07-25)
+- 5 project skills (.claude/skills/) + superpowers (systematic-debugging, TDD, verification) + built-in (strategic-compact, context-compression) → sufficient for Runtime Closure
+- Marketplace skills (code-review, claude-md-improver, claude-security) deferred to PR phase
+- No new marketplace plugins enabled during Core CI + Android Runtime phase
