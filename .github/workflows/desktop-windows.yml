@@ -179,10 +179,16 @@ jobs:
           Write-Host "Bind OK: 127.0.0.1:$port"
 
           Write-Host "=== Testing API endpoints ==="
-          $s = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" -UseBasicParsing
+          # First get session token for authenticated endpoints
+          $sessionResp = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/session" -UseBasicParsing
+          $sessionData = $sessionResp.Content | ConvertFrom-Json
+          $token = $sessionData.token
+          $headers = @{ "X-Session-Token" = $token }
+
+          $s = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" -UseBasicParsing -Headers $headers
           if ($s.StatusCode -eq 200) { Write-Host "Status API OK" } else { Write-Host "FAILED"; exit 1 }
 
-          $v = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/versions" -UseBasicParsing
+          $v = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/versions" -UseBasicParsing -Headers $headers
           if ($v.StatusCode -eq 200) { Write-Host "Versions API OK" } else { Write-Host "FAILED"; exit 1 }
 
           Write-Host "SIDECAR_STANDALONE_RUNTIME_VERIFIED"
