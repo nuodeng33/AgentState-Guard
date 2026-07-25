@@ -45,7 +45,10 @@ jobs:
             "system-images;android-34;google_apis;x86_64"
 
       - name: Create AVD
+        env:
+          ANDROID_AVD_HOME: ${{ env.HOME }}/.android/avd
         run: |
+          mkdir -p $ANDROID_AVD_HOME
           echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd \
             -n AgentStateGuardTest \
             -k "system-images;android-34;google_apis;x86_64" \
@@ -67,35 +70,9 @@ jobs:
           if echo "$EMU_LIST" | grep -qi "AgentStateGuardTest"; then
             echo "emulator -list-avds: AVD found"
           else
-            echo "WARNING: emulator -list-avds does not show AgentStateGuardTest"
-          fi
-          echo "--- Check ini files ---"
-          echo "HOME=$HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "--- HOME .android/avd ---"
-          ls -la $HOME/.android/avd/ 2>/dev/null || echo "(no such directory)"
-          echo "--- ANDROID_SDK_ROOT .android/avd ---"
-          ls -la $ANDROID_SDK_ROOT/.android/avd/ 2>/dev/null || echo "(no such directory)"
-          # If the ini exists under SDK root but not HOME, symlink it
-          if [ -f "$ANDROID_SDK_ROOT/.android/avd/AgentStateGuardTest.ini" ] && [ ! -f "$HOME/.android/avd/AgentStateGuardTest.ini" ]; then
-            echo "FIX: Creating symlink from SDK root avd to HOME avd"
-            mkdir -p $HOME/.android/avd
-            ln -sf "$ANDROID_SDK_ROOT/.android/avd/AgentStateGuardTest.ini" "$HOME/.android/avd/AgentStateGuardTest.ini"
-            ln -sf "$ANDROID_SDK_ROOT/.android/avd/AgentStateGuardTest.avd" "$HOME/.android/avd/AgentStateGuardTest.avd" 2>/dev/null || true
-            ls -la $HOME/.android/avd/
-            echo "Symlink created"
-          fi
-          # Final verification with emulator -list-avds
-          echo "--- Final emulator -list-avds ---"
-          EMU_LIST2=$($ANDROID_HOME/emulator/emulator -list-avds 2>&1)
-          echo "$EMU_LIST2"
-          if echo "$EMU_LIST2" | grep -qi "AgentStateGuardTest"; then
-            echo "emulator -list-avds: AVD confirmed"
-          else
-            echo "ERROR: Still cannot find AVD after symlink attempt"
-            # Last resort: check actual ini content
-            find $HOME -name "AgentStateGuardTest.ini" -type f 2>/dev/null
-            find $ANDROID_SDK_ROOT -name "AgentStateGuardTest.ini" -type f 2>/dev/null
+            echo "ERROR: emulator -list-avds does not show AgentStateGuardTest"
+            echo "--- AVD directory contents ---"
+            ls -la $ANDROID_AVD_HOME/
             exit 1
           fi
           echo "AVD created and verified successfully"
@@ -131,9 +108,12 @@ jobs:
 
       # ── Boot Emulator ──────────────────────────────────────────
       - name: Start emulator
+        env:
+          ANDROID_AVD_HOME: ${{ env.HOME }}/.android/avd
         run: |
           export ANDROID_EMULATOR_USE_SYSTEM_LIBS=1
           export ANDROID_HOME=$HOME/android-sdk
+          export ANDROID_AVD_HOME=$HOME/.android/avd
           export PATH=$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH
           START_TS=$(date +%s)
           echo "EMULATOR_START_TS=$START_TS" >> $GITHUB_ENV
