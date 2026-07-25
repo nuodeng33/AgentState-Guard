@@ -234,7 +234,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: agentguard-sidecar-exe
-          path: desktop/src-tauri/
+          path: desktop/src-tauri/bin/
 
       - name: Rename sidecar for Tauri externalBin
         shell: pwsh
@@ -243,9 +243,9 @@ jobs:
             $_.ToString().Split(":")[1].Trim()
           }
           Write-Host "Target triple: $triple"
-          "RUST_TARGET_TRIPLE=$triple" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $src = "desktop/src-tauri/agentguard-sidecar.exe"
-          $dst = "desktop/src-tauri/agentguard-sidecar-$triple.exe"
+          $dir = "desktop/src-tauri/bin"
+          $src = "$dir\agentguard-sidecar.exe"
+          $dst = "$dir\agentguard-sidecar-$triple.exe"
           Move-Item -Path $src -Destination $dst -Force
           Write-Host "Renamed: $dst"
 
@@ -319,14 +319,17 @@ jobs:
       - name: Test status API
         shell: pwsh
         run: |
-          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing
+          $sessionResp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/session" -UseBasicParsing
+          $token = ($sessionResp.Content | ConvertFrom-Json).token
+          $headers = @{ "X-Session-Token" = $token }
+          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing -Headers $headers
           if ($resp.StatusCode -eq 200) { Write-Host "Status API OK" } else { exit 1 }
 
       - name: Shutdown Tauri
         shell: pwsh
         run: |
-          $pid = Get-Content "$env:RUNNER_TEMP\tauri.pid" -ErrorAction SilentlyContinue
-          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+          $tauriPid = Get-Content "$env:RUNNER_TEMP\tauri.pid" -ErrorAction SilentlyContinue
+          if ($tauriPid) { taskkill /F /T /PID $tauriPid 2>$null | Out-Null }
 
       - name: Verify no orphan
         shell: pwsh
@@ -390,14 +393,17 @@ jobs:
               if ($resp.StatusCode -eq 200) { Write-Host "Installed EXE health OK after ${i}s"; break }
             } catch { Start-Sleep -Seconds 1 }
           }
-          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing
+          $sessionResp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/session" -UseBasicParsing
+          $token = ($sessionResp.Content | ConvertFrom-Json).token
+          $headers = @{ "X-Session-Token" = $token }
+          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing -Headers $headers
           if ($resp.StatusCode -eq 200) { Write-Host "Installed EXE status API OK" }
 
       - name: Shutdown installed EXE
         shell: pwsh
         run: |
-          $pid = Get-Content "$env:RUNNER_TEMP\installed.pid" -ErrorAction SilentlyContinue
-          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+          $installedPid = Get-Content "$env:RUNNER_TEMP\installed.pid" -ErrorAction SilentlyContinue
+          if ($installedPid) { taskkill /F /T /PID $installedPid 2>$null | Out-Null }
 
       - name: Uninstall MSI
         shell: pwsh
