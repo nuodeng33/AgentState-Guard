@@ -102,6 +102,10 @@ jobs:
           path: dist/agentguard-sidecar.exe
 
   # ── 3. Sidecar Standalone Smoke ────────────────────────────────
+  # All steps within a single PowerShell block so the sidecar process
+  # stays alive across the entire test sequence (start → health → API
+  # → shutdown → orphan check). Cross-step process lifetime is handled
+  # by keeping everything in one step.
   sidecar-smoke:
     runs-on: windows-latest
     needs: [sidecar-build]
@@ -114,96 +118,92 @@ jobs:
           name: agentguard-sidecar-exe
           path: .
 
-      - name: Start sidecar
+      - name: Sidecar standalone runtime smoke
         shell: pwsh
         run: |
           $tmp = "$env:RUNNER_TEMP\agentguard-test"
+          $port = $env:SIDECAR_PORT
+          $exe = ".\agentguard-sidecar.exe"
           New-Item -ItemType Directory -Force -Path $tmp
-          # Run sidecar directly without redirecting stderr so we can see crashes
-          Start-Process -FilePath ".\agentguard-sidecar.exe" `
-            -ArgumentList "--directory","$tmp","serve","--host","127.0.0.1","--port","$env:SIDECAR_PORT" `
-            -NoNewWindow -PassThru | Tee-Object -Variable proc | Out-Null
-          $proc.Id | Out-File -FilePath "$tmp\sidecar.pid"
-          Write-Host "SIDECAR_PID=$($proc.Id)"
-          "SIDECAR_TEMP=$tmp" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          Write-Host "=== Starting sidecar ==="
+          $proc = Start-Process -FilePath $exe `
+            -ArgumentList "--directory","$tmp","serve","--host","127.0.0.1","--port","$port" `
+            -NoNewWindow -PassThru
+          $sidecarPid = $proc.Id
+          Write-Host "SIDECAR_PID=$sidecarPid"
           Start-Sleep -Seconds 2
-          # Quick check: is process still alive?
-          $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+
+          # Verify process is alive
+          $alive = Get-Process -Id $sidecarPid -ErrorAction SilentlyContinue
           if (-not $alive) {
-            Write-Host "ERROR: Sidecar died immediately!"
-            # Try running once to capture output
-            & .\agentguard-sidecar.exe --directory "$tmp" serve --host 127.0.0.1 --port $env:SIDECAR_PORT 2>&1 | Select-Object -First 30
+            Write-Host "ERROR: Sidecar died immediately"
+            & $exe --directory "$tmp" serve --host 127.0.0.1 --port $port 2>&1 | Select-Object -First 30
             exit 1
           }
-          Write-Host "Sidecar process $($proc.Id) is alive"
+          Write-Host "Sidecar process $sidecarPid is alive"
 
-      - name: Wait for health (30s timeout)
-        shell: pwsh
-        run: |
-          $url = "http://127.0.0.1:$env:SIDECAR_PORT/api/health"
-          $sidecarPid = Get-Content "$env:SIDECAR_TEMP\sidecar.pid"
+          Write-Host "=== Waiting for health endpoint ==="
+          $healthy = $false
           for ($i = 0; $i -lt 30; $i++) {
-            # Check if sidecar process is still alive
             $alive = Get-Process -Id $sidecarPid -ErrorAction SilentlyContinue
             if (-not $alive) {
               Write-Host "ERROR: Sidecar PID $sidecarPid died during startup"
-              if (Test-Path "$env:SIDECAR_TEMP\sidecar.err") {
-                Write-Host "=== stderr ==="
-                Get-Content "$env:SIDECAR_TEMP\sidecar.err"
-              }
-              if (Test-Path "$env:SIDECAR_TEMP\sidecar.log") {
-                Write-Host "=== stdout ==="
-                Get-Content "$env:SIDECAR_TEMP\sidecar.log"
-              }
               exit 1
             }
             try {
-              $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
-              if ($resp.StatusCode -eq 200) { Write-Host "Health OK after ${i}s"; return }
+              $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/health" -UseBasicParsing -TimeoutSec 2
+              if ($resp.StatusCode -eq 200) {
+                Write-Host "Health OK after ${i}s"
+                $healthy = $true
+                break
+              }
             } catch { }
             Start-Sleep -Seconds 1
           }
-          Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"
-          if (Test-Path "$env:SIDECAR_TEMP\sidecar.err") { Write-Host "=== stderr ==="; Get-Content "$env:SIDECAR_TEMP\sidecar.err" }
-          if (Test-Path "$env:SIDECAR_TEMP\sidecar.log") { Write-Host "=== stdout ==="; Get-Content "$env:SIDECAR_TEMP\sidecar.log" }
-          exit 1
+          if (-not $healthy) {
+            Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"
+            exit 1
+          }
 
-      - name: Verify bind address (must be 127.0.0.1)
-        shell: pwsh
-        run: |
-          $listeners = Get-NetTCPConnection -LocalPort $env:SIDECAR_PORT -ErrorAction SilentlyContinue
+          Write-Host "=== Verifying bind address ==="
+          $listeners = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+          $securityOk = $true
           foreach ($l in $listeners) {
             if ($l.LocalAddress -ne "127.0.0.1") {
-              Write-Host "SECURITY_BOUNDARY_FAILURE: bound to $($l.LocalAddress)"; exit 1
+              Write-Host "SECURITY_BOUNDARY_FAILURE: $($l.LocalAddress)"
+              $securityOk = $false
             }
           }
-          Write-Host "Bind OK: 127.0.0.1:$env:SIDECAR_PORT"
+          if (-not $securityOk) { exit 1 }
+          Write-Host "Bind OK: 127.0.0.1:$port"
 
-      - name: Test real API (status)
-        shell: pwsh
-        run: |
-          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing
-          if ($resp.StatusCode -eq 200) { Write-Host "Status API OK" } else { exit 1 }
+          Write-Host "=== Testing API endpoints ==="
+          $s = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/status" -UseBasicParsing
+          if ($s.StatusCode -eq 200) { Write-Host "Status API OK" } else { Write-Host "FAILED"; exit 1 }
 
-      - name: Test real API (versions)
-        shell: pwsh
-        run: |
-          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/versions" -UseBasicParsing
-          if ($resp.StatusCode -eq 200) { Write-Host "Versions API OK" } else { exit 1 }
+          $v = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/versions" -UseBasicParsing
+          if ($v.StatusCode -eq 200) { Write-Host "Versions API OK" } else { Write-Host "FAILED"; exit 1 }
 
-      - name: Shutdown sidecar
-        shell: pwsh
-        run: |
-          $pid = Get-Content "$env:SIDECAR_TEMP\sidecar.pid" -ErrorAction SilentlyContinue
-          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+          Write-Host "SIDECAR_STANDALONE_RUNTIME_VERIFIED"
 
-      - name: Verify no orphan
-        shell: pwsh
-        run: |
-          Start-Sleep -Seconds 1
-          $p = Get-Process -Name "agentguard-sidecar" -ErrorAction SilentlyContinue
-          if ($p) { Write-Host "FAIL: SIDECAR_PROCESS_LEAK"; exit 1 }
-          Write-Host "Clean shutdown: no orphan"
+          Write-Host "=== Shutting down sidecar ==="
+          Stop-Process -Id $sidecarPid -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+
+          $orphan = Get-Process -Id $sidecarPid -ErrorAction SilentlyContinue
+          if ($orphan) {
+            Write-Host "FAIL: SIDECAR_PROCESS_LEAK"
+            exit 1
+          }
+          Write-Host "Sidecar terminated: no orphan"
+
+          $remaining = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+          if ($remaining) {
+            Write-Host "FAIL: Port $port still in use"
+            exit 1
+          }
+          Write-Host "Port $port closed: clean shutdown"
 
   # ── 4. Tauri Build ─────────────────────────────────────────────
   tauri-build:
