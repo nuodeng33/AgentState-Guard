@@ -45,9 +45,8 @@ jobs:
             "system-images;android-34;google_apis;x86_64"
 
       - name: Create AVD
-        env:
-          ANDROID_AVD_HOME: ${{ env.HOME }}/.android/avd
         run: |
+          export ANDROID_AVD_HOME=$HOME/.android/avd
           mkdir -p $ANDROID_AVD_HOME
           echo "no" | $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager create avd \
             -n AgentStateGuardTest \
@@ -108,8 +107,6 @@ jobs:
 
       # ── Boot Emulator ──────────────────────────────────────────
       - name: Start emulator
-        env:
-          ANDROID_AVD_HOME: ${{ env.HOME }}/.android/avd
         run: |
           export ANDROID_EMULATOR_USE_SYSTEM_LIBS=1
           export ANDROID_HOME=$HOME/android-sdk
