@@ -85,7 +85,6 @@ TRANSCRIPT_A_PARAMS = {
     "nonce_desktop": b"n1" * 8,
     "nonce_android": b"n2" * 8,
     "expiry": 9999999999,
-    "pairing_secret": b"x" * 32,
 }
 
 
@@ -129,3 +128,6 @@ def compute_all_one_field_changes():
         })
 
     return results
+
+# Shared test secret (not a transcript parameter)
+TRANSCRIPT_SECRET = b"x" * 32
