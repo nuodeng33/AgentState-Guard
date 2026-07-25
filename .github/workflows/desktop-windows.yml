@@ -194,8 +194,9 @@ jobs:
           Write-Host "SIDECAR_STANDALONE_RUNTIME_VERIFIED"
 
           Write-Host "=== Shutting down sidecar ==="
-          Stop-Process -Id $sidecarPid -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
+          # Kill entire process tree (uvicorn may have child processes)
+          taskkill /F /T /PID $sidecarPid 2>$null | Out-Null
+          Start-Sleep -Seconds 3
 
           $orphan = Get-Process -Id $sidecarPid -ErrorAction SilentlyContinue
           if ($orphan) {
