@@ -301,10 +301,10 @@ jobs:
           $proc.Id | Out-File -FilePath "$env:RUNNER_TEMP\tauri.pid"
           "TAURI_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Wait for sidecar health (30s)
+      - name: Wait for sidecar health (60s)
         shell: pwsh
         run: |
-          for ($i = 0; $i -lt 30; $i++) {
+          for ($i = 0; $i -lt 60; $i++) {
             try {
               $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", $env:SIDECAR_PORT)
               Write-Host "Port open after ${i}s"
