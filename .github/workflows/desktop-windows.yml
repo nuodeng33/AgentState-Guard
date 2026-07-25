@@ -119,13 +119,23 @@ jobs:
         run: |
           $tmp = "$env:RUNNER_TEMP\agentguard-test"
           New-Item -ItemType Directory -Force -Path $tmp
-          $proc = Start-Process -FilePath ".\agentguard-sidecar.exe" `
+          # Run sidecar directly without redirecting stderr so we can see crashes
+          Start-Process -FilePath ".\agentguard-sidecar.exe" `
             -ArgumentList "--directory","$tmp","serve","--host","127.0.0.1","--port","$env:SIDECAR_PORT" `
-            -NoNewWindow -PassThru `
-            -RedirectStandardOutput "$tmp\sidecar.log" -RedirectStandardError "$tmp\sidecar.err"
+            -NoNewWindow -PassThru | Tee-Object -Variable proc | Out-Null
           $proc.Id | Out-File -FilePath "$tmp\sidecar.pid"
           Write-Host "SIDECAR_PID=$($proc.Id)"
           "SIDECAR_TEMP=$tmp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Start-Sleep -Seconds 2
+          # Quick check: is process still alive?
+          $alive = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+          if (-not $alive) {
+            Write-Host "ERROR: Sidecar died immediately!"
+            # Try running once to capture output
+            & .\agentguard-sidecar.exe --directory "$tmp" serve --host 127.0.0.1 --port $env:SIDECAR_PORT 2>&1 | Select-Object -First 30
+            exit 1
+          }
+          Write-Host "Sidecar process $($proc.Id) is alive"
 
       - name: Wait for health (30s timeout)
         shell: pwsh
