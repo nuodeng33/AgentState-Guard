@@ -87,8 +87,8 @@ pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
         .arg(host)
         .arg("--port")
         .arg(port.to_string())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .spawn()
         .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
 
