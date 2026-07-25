@@ -50,7 +50,18 @@ jobs:
             -n AgentStateGuardTest \
             -k "system-images;android-34;google_apis;x86_64" \
             -d "pixel_6" \
+            --abi x86_64 \
             --force
+          echo "--- Verify AVD exists ---"
+          $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager list avd | grep -i "AgentStateGuardTest" || {
+            echo "ERROR: AVD 'AgentStateGuardTest' was not created!"
+            echo "--- AVD list ---"
+            $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager list avd
+            echo "--- Emulator AVD list ---"
+            $ANDROID_HOME/emulator/emulator -list-avds
+            exit 1
+          }
+          echo "AVD created successfully"
 
       # ── KVM ────────────────────────────────────────────────────
       # Without KVM the x86_64 emulator cannot boot.  GitHub-hosted
