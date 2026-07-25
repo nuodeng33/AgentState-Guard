@@ -101,6 +101,8 @@ class PairingSession:
 
     def first_connection(self, android_uuid: str, nonce_android: bytes) -> None:
         self._transition(PairState.FIRST_CONNECTION)
+        if self.is_terminal:
+            raise ValueError(f"Cannot transition from {self.state.value}")
         self.android_uuid = android_uuid
         self.nonce_android = nonce_android
         self.state = PairState.FIRST_CONNECTION
@@ -124,10 +126,14 @@ class PairingSession:
 
     def confirm(self) -> None:
         self._transition(PairState.CONFIRMED_BOTH)
+        if self.is_terminal:
+            raise ValueError(f"Session in terminal state {self.state.value}")
         self.state = PairState.CONFIRMED_BOTH
 
     def consume(self) -> None:
         self._transition(PairState.CONSUMED)
+        if self.is_terminal:
+            raise ValueError(f"Session in terminal state {self.state.value}")
         self.state = PairState.CONSUMED
 
     def reject(self) -> None:
