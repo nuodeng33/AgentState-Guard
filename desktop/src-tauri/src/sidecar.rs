@@ -4,17 +4,13 @@
 // and handles clean shutdown on app exit.
 
 use serde::Serialize;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
 use tauri::Manager;
 
 const SIDECAR_PORT: u16 = 8787;
 const SIDECAR_HOST: &str = "127.0.0.1";
-const READINESS_TIMEOUT_SECS: u64 = 45;
-const READINESS_POLL_MS: u64 = 200;
 
 #[derive(Serialize, Clone)]
 pub struct SidecarState {
@@ -74,20 +70,18 @@ fn resolve_sidecar() -> Result<PathBuf, String> {
     Err(format!("Sidecar binary not found in {}", exe_dir.display()))
 }
 
-/// Spawn the sidecar process and wait for it to become ready.
+/// Spawn the sidecar process. Readiness is verified externally by the
+/// CI smoke test (TcpClient check) — not by blocking inside setup().
 pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
-    let port = SIDECAR_PORT;
-    let host = SIDECAR_HOST;
-
     let sidecar_path = resolve_sidecar()?;
     let child = Command::new(&sidecar_path)
         .arg("--directory")
         .arg(data_dir)
         .arg("serve")
         .arg("--host")
-        .arg(host)
+        .arg(SIDECAR_HOST)
         .arg("--port")
-        .arg(port.to_string())
+        .arg(SIDECAR_PORT.to_string())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
@@ -95,28 +89,7 @@ pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
 
     let pid = child.id();
     eprintln!("[sidecar] spawned PID={}", pid);
-
-    // Wait for readiness via TCP connect — more reliable than HTTP
-    // in the Tauri context where ureq may have proxy/network issues.
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
-    let deadline = std::time::Instant::now() + Duration::from_secs(READINESS_TIMEOUT_SECS);
-
-    loop {
-        match TcpStream::connect_timeout(&addr, Duration::from_secs(2)) {
-            Ok(_) => {
-                eprintln!("[sidecar] ready (PID={}, port={})", pid, port);
-                return Ok((child, pid));
-            }
-            Err(_) => {}
-        }
-        if std::time::Instant::now() > deadline {
-            return Err(format!(
-                "SIDECAR_READINESS_TIMEOUT: {}:{} not reachable after {}s",
-                host, port, READINESS_TIMEOUT_SECS
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(READINESS_POLL_MS));
-    }
+    Ok((child, pid))
 }
 
 /// Terminate a sidecar process and wait for it to exit.
