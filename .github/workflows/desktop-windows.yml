@@ -1,3 +1,16 @@
+# Desktop Windows — Sidecar build, Tauri build, runtime smoke, MSI lifecycle
+#
+# Jobs (sequential by dependency):
+#   1. frontend-build  — npm build Vue frontend
+#   2. sidecar-build   — PyInstaller -> agentguard-sidecar.exe
+#   3. sidecar-smoke   — standalone sidecar: health, API, shutdown, no-orphan
+#   4. tauri-build     — cargo tauri build (needs frontend + sidecar artifacts)
+#   5. runtime-smoke   — run AgentState Guard.exe, verify sidecar lifecycle
+#   6. msi-smoke       — msiexec install, run installed EXE, uninstall
+#
+# Concurrency note: Windows runners on the free plan are limited.
+# Avoid pushing multiple commits in quick succession.
+
 name: Desktop Windows
 on:
   push:
@@ -6,50 +19,89 @@ on:
 permissions:
   contents: read
 
-defaults:
-  run:
-    shell: pwsh
-
 env:
   SIDECAR_PORT: 8787
 
 jobs:
-  # ── Sidecar Build (PyInstaller) ───────────────────────────────
+  # ── 1. Frontend Build ──────────────────────────────────────────
+  frontend-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npx vite build
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: desktop-web-build
+          path: agentguard/web_static/
+
+  # ── 2. Sidecar Build (PyInstaller) ─────────────────────────────
   sidecar-build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup Python
-        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d  # v4.5.0
+        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d
         with:
           python-version: "3.11"
 
-      - name: Create sidecar entry point
-        shell: cmd
-        run: copy desktop\src-tauri\desktop_sidecar.py agentguard-sidecar.py
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "$env:GITHUB_WORKSPACE"
+          pip install pyinstaller
 
       - name: Build sidecar EXE
-        run: pyinstaller --onefile --name agentguard-sidecar --hidden-import uvicorn --hidden-import uvicorn.logging --hidden-import uvicorn.loops --hidden-import uvicorn.loops.auto --hidden-import uvicorn.protocols --hidden-import uvicorn.protocols.http --hidden-import uvicorn.protocols.http.auto --hidden-import uvicorn.protocols.websocket --hidden-import uvicorn.protocols.websocket.auto --hidden-import fastapi --hidden-import pydantic --hidden-import cryptography --hidden-import cryptography.hazmat --hidden-import cryptography.hazmat.backends.openssl --hidden-import cryptography.hazmat.primitives --collect-data agentguard agentguard-sidecar.py
+        # Use python -m PyInstaller to avoid PATH issues on Windows
+        # where Scripts directory may not be in PATH after pip install
+        shell: pwsh
+        run: |
+          python -m PyInstaller `
+            --onefile `
+            --name agentguard-sidecar `
+            --hidden-import uvicorn `
+            --hidden-import uvicorn.logging `
+            --hidden-import uvicorn.loops `
+            --hidden-import uvicorn.loops.auto `
+            --hidden-import uvicorn.protocols `
+            --hidden-import uvicorn.protocols.http `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websocket `
+            --hidden-import uvicorn.protocols.websocket.auto `
+            --hidden-import fastapi `
+            --hidden-import pydantic `
+            --hidden-import cryptography `
+            --hidden-import cryptography.hazmat `
+            --hidden-import cryptography.hazmat.backends.openssl `
+            --hidden-import cryptography.hazmat.primitives `
+            --collect-data agentguard `
+            desktop/src-tauri/desktop_sidecar.py
 
       - name: Verify EXE
+        shell: pwsh
         run: |
           $path = "dist\agentguard-sidecar.exe"
-          if (Test-Path $path) {
-            $item = Get-Item $path
-            $hash = Get-FileHash $path -Algorithm SHA256
-            Write-Host "EXE OK: $($item.Length) bytes SHA256=$($hash.Hash)"
-          } else {
-            Write-Host "ERROR: EXE not found"
-            exit 1
-          }
+          if (-not (Test-Path $path)) { Write-Host "ERROR: EXE not found"; exit 1 }
+          $item = Get-Item $path
+          $hash = Get-FileHash $path -Algorithm SHA256
+          Write-Host "EXE OK: $($item.Length) bytes SHA256=$($hash.Hash)"
 
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: agentguard-sidecar-exe
           path: dist/agentguard-sidecar.exe
 
-  # ── Sidecar Standalone Smoke ──────────────────────────────────
+  # ── 3. Sidecar Standalone Smoke ────────────────────────────────
   sidecar-smoke:
     runs-on: windows-latest
     needs: [sidecar-build]
@@ -63,6 +115,7 @@ jobs:
           path: .
 
       - name: Start sidecar
+        shell: pwsh
         run: |
           $tmp = "$env:RUNNER_TEMP\agentguard-test"
           New-Item -ItemType Directory -Force -Path $tmp
@@ -72,60 +125,250 @@ jobs:
             -RedirectStandardOutput "$tmp\sidecar.log" -RedirectStandardError "$tmp\sidecar.err"
           $proc.Id | Out-File -FilePath "$tmp\sidecar.pid"
           Write-Host "SIDECAR_PID=$($proc.Id)"
-          echo "SIDECAR_TEMP=$tmp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SIDECAR_TEMP=$tmp" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Wait for health
+      - name: Wait for health (30s timeout)
+        shell: pwsh
         run: |
-          $timeout = 30
           $url = "http://127.0.0.1:$env:SIDECAR_PORT/api/health"
-          for ($i = 0; $i -lt $timeout; $i++) {
+          for ($i = 0; $i -lt 30; $i++) {
             try {
               $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
-              if ($resp.StatusCode -eq 200) {
-                Write-Host "Health OK after ${i}s"
-                return
-              }
+              if ($resp.StatusCode -eq 200) { Write-Host "Health OK after ${i}s"; return }
             } catch { }
             Start-Sleep -Seconds 1
           }
-          Write-Host "ERROR: Health timeout"
+          Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"
           Get-Content "$env:SIDECAR_TEMP\sidecar.log" -Tail 30
           exit 1
 
-      - name: Verify bind address
+      - name: Verify bind address (must be 127.0.0.1)
+        shell: pwsh
         run: |
           $listeners = Get-NetTCPConnection -LocalPort $env:SIDECAR_PORT -ErrorAction SilentlyContinue
           foreach ($l in $listeners) {
             if ($l.LocalAddress -ne "127.0.0.1") {
-              Write-Host "SECURITY_BOUNDARY_FAILURE: $($l.LocalAddress)"
-              exit 1
+              Write-Host "SECURITY_BOUNDARY_FAILURE: bound to $($l.LocalAddress)"; exit 1
             }
           }
           Write-Host "Bind OK: 127.0.0.1:$env:SIDECAR_PORT"
 
-      - name: Test status API
+      - name: Test real API (status)
+        shell: pwsh
         run: |
           $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing
           if ($resp.StatusCode -eq 200) { Write-Host "Status API OK" } else { exit 1 }
 
-      - name: Test versions API
+      - name: Test real API (versions)
+        shell: pwsh
         run: |
           $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/versions" -UseBasicParsing
           if ($resp.StatusCode -eq 200) { Write-Host "Versions API OK" } else { exit 1 }
 
       - name: Shutdown sidecar
+        shell: pwsh
         run: |
           $pid = Get-Content "$env:SIDECAR_TEMP\sidecar.pid" -ErrorAction SilentlyContinue
-          if ($pid) {
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-            Write-Host "Terminated PID $pid"
-          }
+          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
 
-      - name: Verify orphan
+      - name: Verify no orphan
+        shell: pwsh
         run: |
+          Start-Sleep -Seconds 1
           $p = Get-Process -Name "agentguard-sidecar" -ErrorAction SilentlyContinue
-          if ($p) {
-            Write-Host "FAIL: SIDECAR_PROCESS_LEAK"
-            exit 1
+          if ($p) { Write-Host "FAIL: SIDECAR_PROCESS_LEAK"; exit 1 }
+          Write-Host "Clean shutdown: no orphan"
+
+  # ── 4. Tauri Build ─────────────────────────────────────────────
+  tauri-build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    needs: [frontend-build, sidecar-build]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: dtolnay/rust-toolchain@stable
+        with: { toolchain: stable }
+
+      - name: Download frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-web-build
+          path: agentguard/web_static/
+
+      - name: Download sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: agentguard-sidecar-exe
+          path: desktop/src-tauri/
+
+      - name: Rename sidecar for Tauri externalBin
+        shell: pwsh
+        run: |
+          $triple = rustc -Vv | Select-String "host:" | ForEach-Object {
+            $_.ToString().Split(":")[1].Trim()
           }
-          Write-Host "No orphan: clean shutdown"
+          Write-Host "Target triple: $triple"
+          "RUST_TARGET_TRIPLE=$triple" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $src = "desktop/src-tauri/agentguard-sidecar.exe"
+          $dst = "desktop/src-tauri/agentguard-sidecar-$triple.exe"
+          Move-Item -Path $src -Destination $dst -Force
+          Write-Host "Renamed: $dst"
+
+      - name: Build Tauri
+        working-directory: desktop/src-tauri
+        run: |
+          cargo install tauri-cli --version "^2"
+          cargo tauri build --debug
+
+      - name: Verify artifacts
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "desktop/src-tauri/target/debug/AgentState Guard.exe" -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem "desktop/src-tauri/target/debug/*.msi" -ErrorAction SilentlyContinue
+          if (-not $exe) { Write-Host "ERROR: EXE not found"; exit 1 }
+          Write-Host "EXE: $($exe.Name) $($exe.Length) bytes"
+          if ($msi) { Write-Host "MSI: $($msi.Name) $($msi.Length) bytes" }
+
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: desktop-tauri-build
+          path: |
+            desktop/src-tauri/target/debug/AgentState Guard.exe
+            desktop/src-tauri/target/debug/*.msi
+
+  # ── 5. Desktop Runtime Smoke ───────────────────────────────────
+  runtime-smoke:
+    runs-on: windows-latest
+    needs: [tauri-build]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Download Tauri build
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-tauri-build
+          path: $env:RUNNER_TEMP\tauri-build
+
+      - name: Start Desktop EXE
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.exe" | Select-Object -First 1
+          Write-Host "Starting: $($exe.FullName)"
+          $proc = Start-Process -FilePath $exe.FullName -NoNewWindow -PassThru
+          $proc.Id | Out-File -FilePath "$env:RUNNER_TEMP\tauri.pid"
+          "TAURI_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Wait for sidecar health (30s)
+        shell: pwsh
+        run: |
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/health" -UseBasicParsing -TimeoutSec 2
+              if ($resp.StatusCode -eq 200) { Write-Host "Health OK after ${i}s"; return }
+            } catch { }
+            Start-Sleep -Seconds 1
+          }
+          Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"; exit 1
+
+      - name: Verify bind (127.0.0.1)
+        shell: pwsh
+        run: |
+          $l = Get-NetTCPConnection -LocalPort $env:SIDECAR_PORT -ErrorAction SilentlyContinue
+          foreach ($x in $l) { if ($x.LocalAddress -ne "127.0.0.1") { Write-Host "SECURITY: $($x.LocalAddress)"; exit 1 } }
+          Write-Host "Bind OK"
+
+      - name: Test status API
+        shell: pwsh
+        run: |
+          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing
+          if ($resp.StatusCode -eq 200) { Write-Host "Status API OK" } else { exit 1 }
+
+      - name: Shutdown Tauri
+        shell: pwsh
+        run: |
+          $pid = Get-Content "$env:RUNNER_TEMP\tauri.pid" -ErrorAction SilentlyContinue
+          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+
+      - name: Verify no orphan
+        shell: pwsh
+        run: |
+          Start-Sleep -Seconds 2
+          $p = Get-Process -Name "agentguard-sidecar" -ErrorAction SilentlyContinue
+          if ($p) { Write-Host "FAIL: SIDECAR_PROCESS_LEAK"; exit 1 }
+          Write-Host "Clean shutdown"
+
+  # ── 6. MSI Install / Uninstall ─────────────────────────────────
+  msi-smoke:
+    runs-on: windows-latest
+    needs: [tauri-build]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Download Tauri build
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-tauri-build
+          path: $env:RUNNER_TEMP\tauri-build
+
+      - name: Install MSI
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.msi" | Select-Object -First 1
+          if (-not $msi) { Write-Host "ERROR: No MSI found"; exit 1 }
+          Write-Host "Installing: $($msi.FullName)"
+          $p = Start-Process msiexec -ArgumentList "/i","``"$($msi.FullName)``"","/quiet","/norestart" -NoNewWindow -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Host "MSI_INSTALL_FAILURE: $($p.ExitCode)"; exit 1 }
+
+      - name: Find installed EXE
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "$env:LOCALAPPDATA\Programs\AgentState Guard\AgentState Guard.exe",
+            "${env:ProgramFiles}\AgentState Guard\AgentState Guard.exe"
+          )
+          $found = $false
+          foreach ($p in $candidates) {
+            if (Test-Path $p) { Write-Host "Installed: $p"; "INSTALLED_EXE=$p" | Out-File -FilePath $env:GITHUB_ENV -Append; $found = $true; break }
+          }
+          if (-not $found) {
+            $exe = Get-ChildItem -Recurse "$env:LOCALAPPDATA\Programs" -Filter "AgentState Guard.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($exe) { Write-Host "Found: $($exe.FullName)"; "INSTALLED_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append; $found = $true }
+          }
+          if (-not $found) { Write-Host "ERROR: Installed EXE not found"; exit 1 }
+
+      - name: Run installed EXE
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "$env:INSTALLED_EXE" -NoNewWindow -PassThru
+          $proc.Id | Out-File -FilePath "$env:RUNNER_TEMP\installed.pid"
+
+      - name: Verify installed EXE works
+        shell: pwsh
+        run: |
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/health" -UseBasicParsing -TimeoutSec 2
+              if ($resp.StatusCode -eq 200) { Write-Host "Installed EXE health OK after ${i}s"; break }
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing
+          if ($resp.StatusCode -eq 200) { Write-Host "Installed EXE status API OK" }
+
+      - name: Shutdown installed EXE
+        shell: pwsh
+        run: |
+          $pid = Get-Content "$env:RUNNER_TEMP\installed.pid" -ErrorAction SilentlyContinue
+          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+
+      - name: Uninstall MSI
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.msi" | Select-Object -First 1
+          $p = Start-Process msiexec -ArgumentList "/x","``"$($msi.FullName)``"","/quiet","/norestart" -NoNewWindow -Wait -PassThru
+          Write-Host "Uninstall exit: $($p.ExitCode)"
+
+      - name: Verify uninstalled
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:INSTALLED_EXE") { Write-Host "FAIL: EXE still present"; exit 1 }
+          Write-Host "Uninstall OK"
