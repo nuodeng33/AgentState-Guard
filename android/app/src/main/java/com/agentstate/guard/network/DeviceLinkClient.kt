@@ -56,7 +56,8 @@ class DeviceLinkClient(
             put("display_name", displayName)
         }
         val json = post("/device/v1/pair/$sessionId/complete", body)
-        sessionToken = json.optString("session_token", null)
+        val token = json.optString("session_token")
+        sessionToken = token.ifEmpty { null }
         return json.optString("status", "")
     }
 

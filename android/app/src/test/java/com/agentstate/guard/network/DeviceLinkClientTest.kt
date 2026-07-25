@@ -115,7 +115,7 @@ class MockHttpServer {
                 }
             }
         }
-        thread!!.daemon = true
+        thread!!.setDaemon(true)
         thread!!.start()
     }
 
