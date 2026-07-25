@@ -52,16 +52,53 @@ jobs:
             -d "pixel_6" \
             --abi x86_64 \
             --force
-          echo "--- Verify AVD exists ---"
-          $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager list avd | grep -i "AgentStateGuardTest" || {
-            echo "ERROR: AVD 'AgentStateGuardTest' was not created!"
-            echo "--- AVD list ---"
-            $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager list avd
-            echo "--- Emulator AVD list ---"
-            $ANDROID_HOME/emulator/emulator -list-avds
+          echo "--- avdmanager create exit code: $? ---"
+          echo "--- Verify AVD via avdmanager ---"
+          $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager list avd
+          if $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager list avd | grep -qi "AgentStateGuardTest"; then
+            echo "avdmanager: AVD found in avdmanager list"
+          else
+            echo "ERROR: avdmanager list avd does not show AgentStateGuardTest"
             exit 1
-          }
-          echo "AVD created successfully"
+          fi
+          echo "--- Verify AVD via emulator -list-avds ---"
+          EMU_LIST=$($ANDROID_HOME/emulator/emulator -list-avds 2>&1)
+          echo "$EMU_LIST"
+          if echo "$EMU_LIST" | grep -qi "AgentStateGuardTest"; then
+            echo "emulator -list-avds: AVD found"
+          else
+            echo "WARNING: emulator -list-avds does not show AgentStateGuardTest"
+          fi
+          echo "--- Check ini files ---"
+          echo "HOME=$HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "--- HOME .android/avd ---"
+          ls -la $HOME/.android/avd/ 2>/dev/null || echo "(no such directory)"
+          echo "--- ANDROID_SDK_ROOT .android/avd ---"
+          ls -la $ANDROID_SDK_ROOT/.android/avd/ 2>/dev/null || echo "(no such directory)"
+          # If the ini exists under SDK root but not HOME, symlink it
+          if [ -f "$ANDROID_SDK_ROOT/.android/avd/AgentStateGuardTest.ini" ] && [ ! -f "$HOME/.android/avd/AgentStateGuardTest.ini" ]; then
+            echo "FIX: Creating symlink from SDK root avd to HOME avd"
+            mkdir -p $HOME/.android/avd
+            ln -sf "$ANDROID_SDK_ROOT/.android/avd/AgentStateGuardTest.ini" "$HOME/.android/avd/AgentStateGuardTest.ini"
+            ln -sf "$ANDROID_SDK_ROOT/.android/avd/AgentStateGuardTest.avd" "$HOME/.android/avd/AgentStateGuardTest.avd" 2>/dev/null || true
+            ls -la $HOME/.android/avd/
+            echo "Symlink created"
+          fi
+          # Final verification with emulator -list-avds
+          echo "--- Final emulator -list-avds ---"
+          EMU_LIST2=$($ANDROID_HOME/emulator/emulator -list-avds 2>&1)
+          echo "$EMU_LIST2"
+          if echo "$EMU_LIST2" | grep -qi "AgentStateGuardTest"; then
+            echo "emulator -list-avds: AVD confirmed"
+          else
+            echo "ERROR: Still cannot find AVD after symlink attempt"
+            # Last resort: check actual ini content
+            find $HOME -name "AgentStateGuardTest.ini" -type f 2>/dev/null
+            find $ANDROID_SDK_ROOT -name "AgentStateGuardTest.ini" -type f 2>/dev/null
+            exit 1
+          fi
+          echo "AVD created and verified successfully"
 
       # ── KVM ────────────────────────────────────────────────────
       # Without KVM the x86_64 emulator cannot boot.  GitHub-hosted
@@ -263,17 +300,17 @@ jobs:
         if: always()
         run: |
           mkdir -p emulator-logs
-          adb shell screencap -p /sdcard/screenshot.png
-          adb pull /sdcard/screenshot.png emulator-logs/screenshot.png 2>/dev/null || \
+          timeout 10 adb shell screencap -p /sdcard/screenshot.png
+          timeout 10 adb pull /sdcard/screenshot.png emulator-logs/screenshot.png 2>/dev/null || \
             echo "Screenshot capture failed (may not be supported)"
 
       - name: Collect logs
         if: always()
         run: |
           mkdir -p emulator-logs
-          adb logcat -d > emulator-logs/logcat.txt 2>/dev/null || echo "logcat capture failed"
-          adb shell dumpsys activity activities > emulator-logs/dumpsys-activity.txt 2>/dev/null || true
-          adb shell dumpsys package com.agentstate.guard > emulator-logs/dumpsys-package.txt 2>/dev/null || true
+          timeout 10 adb logcat -d > emulator-logs/logcat.txt 2>/dev/null || echo "logcat capture failed or timed out"
+          timeout 10 adb shell dumpsys activity activities > emulator-logs/dumpsys-activity.txt 2>/dev/null || true
+          timeout 10 adb shell dumpsys package com.agentstate.guard > emulator-logs/dumpsys-package.txt 2>/dev/null || true
           cp emulator.log emulator-logs/emulator.log 2>/dev/null || true
           echo "Logs collected in emulator-logs/"
           grep -rEi "sk-ant|ghp_|xox[baprs]-|Bearer [A-Za-z0-9]" emulator-logs/ && \
