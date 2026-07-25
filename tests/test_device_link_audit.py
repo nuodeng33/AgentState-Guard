@@ -5,6 +5,7 @@ from tests.reference_crypto import (
     ref_build_pairing_transcript, ref_derive_sas, ref_spki_fingerprint,
     compute_golden_vector_a, compute_all_one_field_changes,
     TRANSCRIPT_A_PARAMS,
+    TRANSCRIPT_SECRET,
 )
 from agentguard.device_link.crypto import (
     build_pairing_transcript, derive_sas, spki_fingerprint,
@@ -22,7 +23,7 @@ from agentguard.device_link.pairing import (
 # 1. Golden vector — reference vs production
 # ============================================================
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestGoldenVectors:
     """Production crypto MUST match reference for transcript and SAS."""
 
@@ -34,8 +35,8 @@ class TestGoldenVectors:
 
     def test_sas_matches_reference(self):
         t = ref_build_pairing_transcript(**TRANSCRIPT_A_PARAMS)
-        prod_sas = derive_sas(TRANSCRIPT_A_PARAMS["pairing_secret"], t)
-        ref_sas = ref_derive_sas(TRANSCRIPT_A_PARAMS["pairing_secret"], t)
+        prod_sas = derive_sas(TRANSCRIPT_SECRET, t)
+        ref_sas = ref_derive_sas(TRANSCRIPT_SECRET, t)
         assert prod_sas == ref_sas, "Production SAS diverges from reference"
         assert len(prod_sas) == 6
 
@@ -69,7 +70,7 @@ class TestGoldenVectors:
 # 2. Canonical transcript — order sensitivity
 # ============================================================
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestTranscriptCanonicalization:
     def test_field_order_sensitivity(self):
         base = TRANSCRIPT_A_PARAMS
@@ -91,7 +92,7 @@ class TestTranscriptCanonicalization:
 # 3. Clock injection — expiry boundary
 # ============================================================
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestClockExpiry:
     def test_pairing_not_expired_at_119_seconds(self):
         clock = FakeClock(0)
@@ -132,7 +133,7 @@ class TestClockExpiry:
 # 4. Exhaustive state machine — all transitions
 # ============================================================
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestExhaustiveFSM:
     ALL_STATES = list(PairState)
 
@@ -202,7 +203,7 @@ class TestExhaustiveFSM:
 # 5. Security invariants
 # ============================================================
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestSecurityInvariants:
     def test_random_bytes_are_different(self):
         a = SecureRandom().bytes(32)
@@ -241,7 +242,7 @@ class TestSecurityInvariants:
 # 6. Positive/Negative coverage count
 # ============================================================
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestCoverageSummary:
     def test_positive_tests_present(self):
         """There must be positive (correct) as well as negative (security) tests."""

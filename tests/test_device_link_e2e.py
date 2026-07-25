@@ -63,7 +63,7 @@ def _http(method: str, port: int, path: str, data: dict = None,
 # Both Python and Kotlin MUST use DER-encoded ECDSA signatures.
 # Test vectors verify cross-platform compatibility.
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestECDSAWireFormat:
     """Independent ECDSA P-256 vectors — no agentguard wrappers."""
 
@@ -111,7 +111,7 @@ class TestECDSAWireFormat:
 
 # ── Time boundary ─────────────────────────────────────────────
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestTimeBoundary:
     """Expiry = age >= 120.000 means expired."""
 
@@ -153,7 +153,7 @@ class TestTimeBoundary:
 
 # ── 10×10 Transition Matrix ───────────────────────────────────
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestFullTransitionMatrix:
     ALL = list(PairState)
 
@@ -213,7 +213,7 @@ class TestFullTransitionMatrix:
 
 # ── Real Gateway E2E over HTTP ─────────────────────────────────
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestGatewayE2E:
     """Complete Happy Path + 11 attack tests over real HTTP."""
 
@@ -363,7 +363,7 @@ class TestGatewayE2E:
 
 # ── Secret Leak Full Scan ──────────────────────────────────────
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestSecretLeakFull:
     def test_all_channels_clean(self):
         import io, sys, os, tempfile
@@ -394,7 +394,7 @@ class TestSecretLeakFull:
 
 # ── Mutation Test Helpers ──────────────────────────────────────
 
-@pytest.mark.skip(reason="API refactored — needs test update. Runs locally with cryptography+pytest.")
+# Previously skipped — re-enabled after API fix
 class TestMutations:
     """Verify that key security code paths are covered by failing tests."""
 
