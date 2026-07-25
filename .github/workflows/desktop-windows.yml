@@ -131,7 +131,22 @@ jobs:
         shell: pwsh
         run: |
           $url = "http://127.0.0.1:$env:SIDECAR_PORT/api/health"
+          $pid = Get-Content "$env:SIDECAR_TEMP\sidecar.pid"
           for ($i = 0; $i -lt 30; $i++) {
+            # Check if sidecar process is still alive
+            $alive = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            if (-not $alive) {
+              Write-Host "ERROR: Sidecar PID $pid died during startup"
+              if (Test-Path "$env:SIDECAR_TEMP\sidecar.err") {
+                Write-Host "=== stderr ==="
+                Get-Content "$env:SIDECAR_TEMP\sidecar.err"
+              }
+              if (Test-Path "$env:SIDECAR_TEMP\sidecar.log") {
+                Write-Host "=== stdout ==="
+                Get-Content "$env:SIDECAR_TEMP\sidecar.log"
+              }
+              exit 1
+            }
             try {
               $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
               if ($resp.StatusCode -eq 200) { Write-Host "Health OK after ${i}s"; return }
@@ -139,7 +154,8 @@ jobs:
             Start-Sleep -Seconds 1
           }
           Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"
-          Get-Content "$env:SIDECAR_TEMP\sidecar.log" -Tail 30
+          if (Test-Path "$env:SIDECAR_TEMP\sidecar.err") { Write-Host "=== stderr ==="; Get-Content "$env:SIDECAR_TEMP\sidecar.err" }
+          if (Test-Path "$env:SIDECAR_TEMP\sidecar.log") { Write-Host "=== stdout ==="; Get-Content "$env:SIDECAR_TEMP\sidecar.log" }
           exit 1
 
       - name: Verify bind address (must be 127.0.0.1)
@@ -261,6 +277,7 @@ jobs:
       - name: Wait for sidecar health (30s)
         shell: pwsh
         run: |
+          $sid = "$env:RUNNER_TEMP\tauri-build"
           for ($i = 0; $i -lt 30; $i++) {
             try {
               $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/health" -UseBasicParsing -TimeoutSec 2
@@ -268,6 +285,9 @@ jobs:
             } catch { }
             Start-Sleep -Seconds 1
           }
+          # On timeout, collect diagnostics
+          if (Test-Path "$sid\sidecar.err") { Write-Host "=== stderr ==="; Get-Content "$sid\sidecar.err" }
+          if (Test-Path "$sid\emulator.log") { Write-Host "=== sidecar log ==="; Get-Content "$sid\emulator.log" -Tail 30 }
           Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"; exit 1
 
       - name: Verify bind (127.0.0.1)
