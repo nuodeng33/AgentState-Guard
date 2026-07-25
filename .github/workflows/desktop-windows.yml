@@ -7,7 +7,6 @@ permissions:
   contents: read
 
 env:
-  SIDECAR_NAME: agentguard-sidecar
   SIDECAR_PORT: 8787
   SIDECAR_DIR: ${{ runner.temp }}\agentguard-test
 
@@ -36,7 +35,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
@@ -46,6 +45,7 @@ jobs:
           pip install pyinstaller
 
       - name: Build sidecar EXE
+        shell: cmd
         run: |
           pyinstaller ^
             --onefile ^
@@ -69,6 +69,7 @@ jobs:
             desktop/src-tauri/desktop_sidecar.py
 
       - name: Verify EXE
+        shell: cmd
         run: |
           dir dist\agentguard-sidecar.exe
           certutil -hashfile dist\agentguard-sidecar.exe SHA256
@@ -216,25 +217,15 @@ jobs:
           cargo tauri build --debug
 
       - name: Verify Tauri artifacts
-        shell: powershell
+        shell: cmd
         run: |
-          Get-ChildItem -Path "desktop/src-tauri/target/debug" -Filter "*.exe" | ForEach-Object {
-            Write-Host "EXE: $($_.Name) $($_.Length) bytes"
-          }
-          Get-ChildItem -Path "desktop/src-tauri/target/debug" -Filter "*.msi" | ForEach-Object {
-            Write-Host "MSI: $($_.Name) $($_.Length) bytes"
-          }
-          # Record main EXE and MSI for subsequent jobs
-          $mainExe = Get-ChildItem -Path "desktop/src-tauri/target/debug" -Filter "AgentState Guard.exe" | Select-Object -First 1
-          $msi = Get-ChildItem -Path "desktop/src-tauri/target/debug" -Filter "*.msi" | Select-Object -First 1
-          Write-Host "MAIN_EXE=$($mainExe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "MSI_PATH=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-
+          dir "desktop\src-tauri\target\debug\*.exe" /b
+          dir "desktop\src-tauri\target\debug\*.msi" /b
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: desktop-tauri-build
           path: |
-            desktop/src-tauri/target/debug/AgentState Guard.exe
+            desktop/src-tauri/target/debug/*.exe
             desktop/src-tauri/target/debug/*.msi
 
   # ── Desktop Runtime Smoke ─────────────────────────────────────
