@@ -248,9 +248,13 @@ class TestCoverageSummary:
         """Verify that the audit suite includes real positive-path tests alongside security tests."""
         import inspect
         import tests.test_device_link_audit as mod
-        funcs = inspect.getmembers(mod, inspect.isfunction)
-        test_count = sum(1 for name, _ in funcs if name.startswith("test_"))
-        assert test_count >= 3, (
-            f"Expected at least 3 test functions in audit suite, found {test_count}. "
+        count = 0
+        for name, obj in inspect.getmembers(mod):
+            if inspect.isclass(obj) and name.startswith("Test"):
+                for m_name, _ in inspect.getmembers(obj, inspect.isfunction):
+                    if m_name.startswith("test_"):
+                        count += 1
+        assert count >= 3, (
+            f"Expected at least 3 test methods in audit suite, found {count}. "
             "Both positive and negative test coverage is required."
         )
