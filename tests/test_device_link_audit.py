@@ -245,6 +245,12 @@ class TestSecurityInvariants:
 # Previously skipped — re-enabled after API fix
 class TestCoverageSummary:
     def test_positive_tests_present(self):
-        """There must be positive (correct) as well as negative (security) tests."""
-        # This file alone contains 20+ assertions across both categories
-        pass
+        """Verify that the audit suite includes real positive-path tests alongside security tests."""
+        import inspect
+        import tests.test_device_link_audit as mod
+        funcs = inspect.getmembers(mod, inspect.isfunction)
+        test_count = sum(1 for name, _ in funcs if name.startswith("test_"))
+        assert test_count >= 3, (
+            f"Expected at least 3 test functions in audit suite, found {test_count}. "
+            "Both positive and negative test coverage is required."
+        )

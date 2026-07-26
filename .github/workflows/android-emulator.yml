@@ -257,9 +257,10 @@ jobs:
         run: |
           echo "Running DeviceLinkClient instrumented test against Gateway..."
           cd android
-          ./gradlew connectedDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.gateway_host=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.gateway_port=8790 2>&1 || true
+          ./gradlew connectedDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.gateway_host=10.0.2.2 -Pandroid.testInstrumentationRunnerArguments.gateway_port=8790 2>&1
+          GRADLE_EXIT=$?
           # Show test results regardless of pass/fail
-          echo "--- Instrumented test results ---"
+          echo "--- Instrumented test results (exit=$GRADLE_EXIT) ---"
           find . -path "*/test-results/*" -name "*.xml" | head -5
           for f in $(find . -path "*/test-results/*" -name "*.xml" | head -5); do
             echo "=== $(basename $f) ==="
@@ -267,6 +268,7 @@ jobs:
           done
           echo "--- Gradle test output summary ---"
           grep -r "testCount\|tests ran\|FAILED\|PASSED\|tests=" app/build/reports/ 2>/dev/null | head -20 || echo "(no reports)"
+          exit $GRADLE_EXIT
           # Fallback: verify Gateway is reachable from emulator via basic HTTP
           echo "--- Network reachability check ---"
           adb shell "echo 'GET /device/v1/pair/start' | nc 10.0.2.2 8790" 2>/dev/null && echo "Gateway reachable via nc" || \
