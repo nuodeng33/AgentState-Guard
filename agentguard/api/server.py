@@ -12,6 +12,7 @@ from ..device_link.errors import DeviceLinkError, invalid_request
 from ..device_link.models import (
     AuthChallengeRequest,
     AuthResponseRequest,
+    EmptyRequest,
     PairCompleteRequest,
     PairConfirmRequest,
     PairConnectRequest,
@@ -31,6 +32,10 @@ def _is_loopback_host(host: str) -> bool:
         return host.lower() == "localhost"
 
 
+def _is_device_link_path(path: str) -> bool:
+    return path == "/device/v1" or path.startswith("/device/v1/")
+
+
 class DeviceLinkBoundaryMiddleware:
     """Enforce the Device Link peer, origin, and streaming body boundary."""
 
@@ -41,7 +46,7 @@ class DeviceLinkBoundaryMiddleware:
     async def __call__(self, scope, receive, send):
         if (
             scope["type"] != "http"
-            or not scope.get("path", "").startswith("/device/v1/")
+            or not _is_device_link_path(scope.get("path", ""))
         ):
             await self.app(scope, receive, send)
             return
@@ -63,7 +68,10 @@ class DeviceLinkBoundaryMiddleware:
         }
         origin = headers.get("origin")
         if origin:
-            origin_host = urlsplit(origin).hostname or ""
+            try:
+                origin_host = urlsplit(origin).hostname or ""
+            except (UnicodeError, ValueError):
+                origin_host = ""
             if not _is_loopback_host(origin_host):
                 await self._reject(
                     send,
@@ -366,7 +374,7 @@ def create_app(
     _device_router = APIRouter(prefix="/device/v1")
 
     @_device_router.post("/pair/start")
-    async def _device_pair_start():
+    async def _device_pair_start(body: EmptyRequest | None = None):
         return _gateway.pair_start()
 
     def _session_id(value: str) -> str:
@@ -463,6 +471,12 @@ def create_app(
 
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str):
+        if full_path == "device/v1" or full_path.startswith("device/v1/"):
+            return _device_error(
+                404,
+                "DEVICE_ROUTE_NOT_FOUND",
+                "Device Link route not found",
+            )
         if full_path.startswith(("api/", "_docs")):
             return JSONResponse({"error": "Not found"}, status_code=404)
         if not web_static.is_dir():

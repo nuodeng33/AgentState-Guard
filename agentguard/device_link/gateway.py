@@ -453,6 +453,8 @@ class DeviceLinkGateway:
                     f"Pairing session is {session.state.value}, not confirmed"
                 )
             public_key_der = bytes.fromhex(android_pubkey_der_hex)
+            if not is_p256_public_key_der(public_key_der):
+                raise invalid_request("Public key must be DER SPKI P-256")
             if (
                 session.android_uuid != android_uuid
                 or session.android_pubkey_der != public_key_der

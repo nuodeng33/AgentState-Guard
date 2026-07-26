@@ -195,34 +195,19 @@ class PairingSession:
 
     def reject(self) -> None:
         with self._lock:
-            self._transition(
-                PairState.REJECTED,
-                force_expiry_check=False,
-            )
+            self._transition(PairState.REJECTED)
             self.state = PairState.REJECTED
 
     def cancel(self) -> None:
         with self._lock:
-            self._transition(
-                PairState.CANCELLED,
-                force_expiry_check=False,
-            )
+            self._transition(PairState.CANCELLED)
             self.state = PairState.CANCELLED
 
     def fail(self) -> None:
         with self._lock:
-            if self.is_terminal:
-                raise state_conflict(
-                    f"Terminal state {self.state.value} cannot transition"
-                )
-            if self.state != PairState.SAS_PENDING:
-                raise state_conflict("SAS failure is not expected in this state")
+            self._transition(PairState.FAILED)
             self.sas_attempts += 1
             if self.sas_attempts >= self.max_sas_attempts:
-                self._transition(
-                    PairState.FAILED,
-                    force_expiry_check=False,
-                )
                 self.state = PairState.FAILED
 
     def expire_if_needed(self) -> bool:

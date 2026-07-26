@@ -138,6 +138,39 @@ def test_real_http_status_and_strict_request_validation():
         assert unknown_field.status_code == 400
         assert _error_code(unknown_field) == "DEVICE_INVALID_REQUEST"
 
+        whitespace_hex = client.post(
+            f"/device/v1/pair/{sid}/connect",
+            json={
+                "android_uuid": "android-001",
+                "nonce": "aa" * 16 + "  " + "aa" * 16,
+            },
+        )
+        assert whitespace_hex.status_code == 400
+        assert _error_code(whitespace_hex) == "DEVICE_INVALID_REQUEST"
+
+
+def test_pair_start_rejects_unknown_body_fields():
+    with _client(_gateway()) as client:
+        response = client.post(
+            "/device/v1/pair/start",
+            json={"ignored": True},
+        )
+        assert response.status_code == 400
+        assert _error_code(response) == "DEVICE_INVALID_REQUEST"
+
+
+def test_pairing_expiry_boundary_is_410():
+    clock = FakeClock(100)
+    gateway = _gateway(clock=clock, pair_ttl=5)
+    with _client(gateway) as client:
+        session_id = client.post(
+            "/device/v1/pair/start",
+        ).json()["session_id"]
+        clock.advance(5)
+        response = client.get(f"/device/v1/pair/{session_id}")
+        assert response.status_code == 410
+        assert _error_code(response) == "PAIR_SESSION_EXPIRED"
+
 
 def test_capacity_is_429_and_has_no_hidden_session():
     gateway = _gateway(max_pair_sessions=5)
@@ -169,6 +202,66 @@ def test_pair_complete_rejects_identity_substitution_without_side_effects():
         assert _error_code(substituted) == "PAIR_IDENTITY_MISMATCH"
         assert gateway.devices.list() == []
         assert gateway.pairing_mgr.get(sid).state.value == "confirmed_both"
+
+
+def test_pair_complete_maps_invalid_der_to_400_before_identity_comparison():
+    gateway = _gateway()
+    with _client(gateway) as client:
+        sid, _, _ = _pair_through_confirmation(client)
+        response = client.post(
+            f"/device/v1/pair/{sid}/complete",
+            json={
+                "android_uuid": "android-001",
+                "android_pubkey_der_hex": "00",
+                "display_name": "Invalid Key",
+                "protocol_version": 1,
+            },
+        )
+        assert response.status_code == 400
+        assert _error_code(response) == "DEVICE_INVALID_REQUEST"
+        assert gateway.devices.list() == []
+        assert gateway.pairing_mgr.get(sid).state.value == "confirmed_both"
+
+
+def test_pair_complete_maps_valid_substituted_p256_key_to_409():
+    gateway = _gateway()
+    with _client(gateway) as client:
+        sid, _, _ = _pair_through_confirmation(client)
+        _, substituted_public = generate_ecdsa_p256_keypair()
+        response = client.post(
+            f"/device/v1/pair/{sid}/complete",
+            json={
+                "android_uuid": "android-001",
+                "android_pubkey_der_hex": public_key_to_der(
+                    substituted_public
+                ).hex(),
+                "display_name": "Substituted Key",
+                "protocol_version": 1,
+            },
+        )
+        assert response.status_code == 409
+        assert _error_code(response) == "PAIR_IDENTITY_MISMATCH"
+        assert gateway.devices.list() == []
+        assert gateway.pairing_mgr.get(sid).state.value == "confirmed_both"
+
+
+@pytest.mark.parametrize("wrong_version", [True, 1.0])
+def test_protocol_version_rejects_bool_and_float(wrong_version):
+    gateway = _gateway()
+    with _client(gateway) as client:
+        sid, _, public_der = _pair_through_confirmation(client)
+        response = client.post(
+            f"/device/v1/pair/{sid}/complete",
+            json={
+                "android_uuid": "android-001",
+                "android_pubkey_der_hex": public_der.hex(),
+                "display_name": "Test Android",
+                "protocol_version": wrong_version,
+            },
+        )
+        assert response.status_code == 400
+        assert _error_code(response) == "DEVICE_INVALID_REQUEST"
+        assert gateway.devices.list() == []
 
 
 def test_terminal_pairing_state_cannot_be_overwritten():
@@ -504,12 +597,41 @@ def test_device_link_is_loopback_only():
         assert _error_code(response) == "DEVICE_LOOPBACK_REQUIRED"
 
 
+def test_entire_device_namespace_is_gated_and_unknown_routes_are_json_404():
+    gateway = _gateway()
+    with _client(gateway) as client:
+        for path in (
+            "/device/v1",
+            "/device/v1/",
+            "/device/v1/no-such-route",
+        ):
+            response = client.get(path)
+            assert response.status_code == 404
+            assert _error_code(response) == "DEVICE_ROUTE_NOT_FOUND"
+
+    with _client(gateway, peer="192.0.2.10") as remote:
+        response = remote.get("/device/v1")
+        assert response.status_code == 403
+        assert _error_code(response) == "DEVICE_LOOPBACK_REQUIRED"
+
+
 def test_remote_browser_origin_is_rejected_on_loopback_socket():
     gateway = _gateway()
     with _client(gateway) as client:
         response = client.post(
             "/device/v1/pair/start",
             headers={"Origin": "https://attacker.example"},
+        )
+        assert response.status_code == 403
+        assert _error_code(response) == "DEVICE_ORIGIN_FORBIDDEN"
+
+
+def test_malformed_browser_origin_is_stable_403():
+    gateway = _gateway()
+    with _client(gateway) as client:
+        response = client.post(
+            "/device/v1/pair/start",
+            headers={"Origin": "http://["},
         )
         assert response.status_code == 403
         assert _error_code(response) == "DEVICE_ORIGIN_FORBIDDEN"
@@ -540,7 +662,8 @@ def test_payload_exactly_one_mib_is_accepted():
             content=b"x" * (1024 * 1024),
             headers={"Content-Type": "application/octet-stream"},
         )
-        assert response.status_code == 200
+        assert response.status_code == 400
+        assert _error_code(response) == "DEVICE_INVALID_REQUEST"
 
 
 def test_remote_server_startup_is_fail_closed(monkeypatch):

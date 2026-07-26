@@ -182,6 +182,27 @@ class TestTransitionMatrix:
         with pytest.raises(ValueError):
             session.fail()
 
+    @pytest.mark.parametrize("event", ["reject", "cancel", "fail"])
+    def test_expiry_cannot_be_overwritten_by_terminal_event(self, event):
+        clock = FakeClock(0)
+        session = PairingSession(
+            "s",
+            "d",
+            b"p",
+            "f",
+            expiry_seconds=5,
+            clock=clock,
+            rng=DeterministicRandom(42),
+        )
+        if event == "fail":
+            session.set_state(PairState.FIRST_CONNECTION)
+            session.set_state(PairState.SAS_PENDING)
+        clock.advance(5)
+
+        with pytest.raises(ValueError):
+            getattr(session, event)()
+        assert session.state == PairState.EXPIRED
+
 
 class TestIndependentVectorsAndLeaks:
     def test_pairing_transcript_and_sas_match_reference(self):

@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+)
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _LOWER_HEX_32_RE = re.compile(r"^[0-9a-f]{32}$")
+_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
+ProtocolVersion = Annotated[StrictInt, Field(ge=1, le=1)]
 
 
 def validate_identifier(value: str) -> str:
@@ -25,7 +34,7 @@ def validate_session_id(value: str) -> str:
 
 def _validate_hex(value: str, *, exact_bytes: int | None = None,
                   max_bytes: int | None = None, field_name: str = "value") -> str:
-    if len(value) % 2 or not value:
+    if len(value) % 2 or not value or not _HEX_RE.fullmatch(value):
         raise ValueError(f"{field_name} must be non-empty hexadecimal")
     try:
         decoded = bytes.fromhex(value)
@@ -40,6 +49,10 @@ def _validate_hex(value: str, *, exact_bytes: int | None = None,
 
 class StrictDeviceModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class EmptyRequest(StrictDeviceModel):
+    pass
 
 
 class PairConnectRequest(StrictDeviceModel):
@@ -78,7 +91,7 @@ class PairCompleteRequest(StrictDeviceModel):
     android_uuid: str
     android_pubkey_der_hex: str
     display_name: Annotated[str, Field(min_length=1, max_length=128)]
-    protocol_version: Literal[1]
+    protocol_version: ProtocolVersion
 
     @field_validator("android_uuid")
     @classmethod
@@ -94,10 +107,18 @@ class PairCompleteRequest(StrictDeviceModel):
             field_name="public key DER",
         )
 
+    @field_validator("display_name")
+    @classmethod
+    def _display_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("display name must not be blank")
+        return normalized
+
 
 class AuthChallengeRequest(StrictDeviceModel):
     device_uuid: str
-    protocol_version: Literal[1]
+    protocol_version: ProtocolVersion
 
     @field_validator("device_uuid")
     @classmethod
@@ -109,7 +130,7 @@ class AuthResponseRequest(StrictDeviceModel):
     device_uuid: str
     challenge_id: str
     signature: str
-    protocol_version: Literal[1]
+    protocol_version: ProtocolVersion
 
     @field_validator("device_uuid")
     @classmethod
