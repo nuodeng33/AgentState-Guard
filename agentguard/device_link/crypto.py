@@ -6,13 +6,11 @@ Production defaults: SystemClock + SecureRandom.
 
 import hashlib
 import hmac
-import os
 import secrets
 import struct
+import threading
 import time
-from abc import ABC, abstractmethod, abstractproperty
-from typing import Dict, Tuple
-
+from abc import ABC, abstractmethod
 
 # ---- Injectables ----
 
@@ -156,35 +154,45 @@ def generate_challenge(rng: RandomSource = None) -> bytes:
 
 class ReplayCache:
     def __init__(self, ttl_seconds: float = 300.0, clock: Clock = None):
-        self._cache: Dict[str, float] = {}
+        self._cache: dict[str, float] = {}
         self._ttl = ttl_seconds
         self._clock = clock or SystemClock()
+        self._lock = threading.RLock()
 
     def check_and_record(self, nonce_hex: str) -> bool:
-        now = self._clock.now()
-        expired = [k for k, v in self._cache.items() if now - v > self._ttl]
-        for k in expired:
-            del self._cache[k]
-        if nonce_hex in self._cache:
-            return False
-        self._cache[nonce_hex] = now
-        return True
+        with self._lock:
+            now = self._clock.now()
+            expired = [
+                k for k, recorded_at in self._cache.items()
+                if now - recorded_at >= self._ttl
+            ]
+            for key in expired:
+                del self._cache[key]
+            if nonce_hex in self._cache:
+                return False
+            self._cache[nonce_hex] = now
+            return True
 
     def clear(self) -> None:
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
     def size(self) -> int:
-        now = self._clock.now()
-        return sum(1 for v in self._cache.values() if now - v <= self._ttl)
+        with self._lock:
+            now = self._clock.now()
+            return sum(
+                1 for recorded_at in self._cache.values()
+                if now - recorded_at < self._ttl
+            )
 
 
 # ---- ECDSA P-256 ----
 
 
-def generate_ecdsa_p256_keypair() -> Tuple[bytes, bytes]:
+def generate_ecdsa_p256_keypair() -> tuple[bytes, bytes]:
     """Returns (private_key_pem, public_key_pem)."""
-    from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives import serialization as _ser
+    from cryptography.hazmat.primitives.asymmetric import ec
 
     priv = ec.generate_private_key(ec.SECP256R1())
     priv_pem = priv.private_bytes(
@@ -200,24 +208,56 @@ def generate_ecdsa_p256_keypair() -> Tuple[bytes, bytes]:
 
 
 def sign_challenge(private_key_pem: bytes, data: bytes) -> bytes:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives import serialization as _ser
     from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives import hashes, serialization as _ser
 
     priv = _ser.load_pem_private_key(private_key_pem, password=None)
     assert isinstance(priv, ec.EllipticCurvePrivateKey)
     return priv.sign(data, ec.ECDSA(hashes.SHA256()))
 
 
-def verify_signature(public_key_pem: bytes, data: bytes, signature: bytes) -> bool:
+def verify_signature_der(public_key_der: bytes, data: bytes, signature: bytes) -> bool:
+    """Verify ECDSA-SHA256 with a DER SPKI P-256 public key.
+
+    The wire contract is deliberately single-format. PEM and keys on other
+    curves fail closed instead of being guessed or coerced.
+    """
+    from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives import serialization as _ser
     from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives import hashes, serialization as _ser
 
     try:
-        pub = _ser.load_pem_public_key(public_key_pem)
-        assert isinstance(pub, ec.EllipticCurvePublicKey)
+        pub = _ser.load_der_public_key(public_key_der)
+        if not isinstance(pub, ec.EllipticCurvePublicKey):
+            return False
+        if not isinstance(pub.curve, ec.SECP256R1):
+            return False
         pub.verify(signature, data, ec.ECDSA(hashes.SHA256()))
         return True
-    except Exception:
+    except (InvalidSignature, UnsupportedAlgorithm, TypeError, ValueError):
+        return False
+
+
+def verify_signature(public_key_der: bytes, data: bytes, signature: bytes) -> bool:
+    """Compatibility name for the DER-only verification contract."""
+    return verify_signature_der(public_key_der, data, signature)
+
+
+def is_p256_public_key_der(public_key_der: bytes) -> bool:
+    """Return whether *public_key_der* is a DER SPKI P-256 public key."""
+    from cryptography.exceptions import UnsupportedAlgorithm
+    from cryptography.hazmat.primitives import serialization as _ser
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    try:
+        pub = _ser.load_der_public_key(public_key_der)
+        return (
+            isinstance(pub, ec.EllipticCurvePublicKey)
+            and isinstance(pub.curve, ec.SECP256R1)
+        )
+    except (UnsupportedAlgorithm, TypeError, ValueError):
         return False
 
 

@@ -1,23 +1,33 @@
 """Phase 0.2 — Comprehensive adversarial audit of crypto + pairing + gateway."""
 
+from typing import ClassVar
+
 import pytest
-from tests.reference_crypto import (
-    ref_build_pairing_transcript, ref_derive_sas, ref_spki_fingerprint,
-    compute_golden_vector_a, compute_all_one_field_changes,
-    TRANSCRIPT_A_PARAMS,
-    TRANSCRIPT_SECRET,
-)
+
 from agentguard.device_link.crypto import (
-    build_pairing_transcript, derive_sas, spki_fingerprint,
-    canonical_concat, encode_uint16_be, encode_utf8,
-    FakeClock, DeterministicRandom, ReplayCache,
-    SecureRandom, format_sas,
+    DeterministicRandom,
+    FakeClock,
+    ReplayCache,
+    SecureRandom,
+    build_pairing_transcript,
+    canonical_concat,
+    derive_sas,
+    spki_fingerprint,
 )
 from agentguard.device_link.pairing import (
-    PairingSession, PairState, ALLOWED_TRANSITIONS,
-    is_valid_transition, TERMINAL_STATES,
+    ALLOWED_TRANSITIONS,
+    TERMINAL_STATES,
+    PairingSession,
+    PairState,
 )
-
+from tests.reference_crypto import (
+    TRANSCRIPT_A_PARAMS,
+    TRANSCRIPT_SECRET,
+    compute_all_one_field_changes,
+    ref_build_pairing_transcript,
+    ref_derive_sas,
+    ref_spki_fingerprint,
+)
 
 # ============================================================
 # 1. Golden vector — reference vs production
@@ -56,7 +66,7 @@ class TestGoldenVectors:
         """The reference crypto MUST be independent."""
         import tests.reference_crypto as rc
         src = rc.__file__
-        with open(src) as f:
+        with open(src, encoding="utf-8") as f:
             content = f.read()
         import_lines = [l.strip() for l in content.split('\n')
                          if l.strip().startswith(('import ', 'from '))]
@@ -135,7 +145,7 @@ class TestClockExpiry:
 
 # Previously skipped — re-enabled after API fix
 class TestExhaustiveFSM:
-    ALL_STATES = list(PairState)
+    ALL_STATES: ClassVar = list(PairState)
 
     def make_session(self, **kw):
         clock = FakeClock(0)
@@ -247,4 +257,3 @@ class TestCoverageSummary:
     def test_positive_tests_present(self):
         """There must be positive (correct) as well as negative (security) tests."""
         # This file alone contains 20+ assertions across both categories
-        pass
