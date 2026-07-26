@@ -1,5 +1,9 @@
 # Device Link Pairing Protocol
 
+> **FUTURE FLOW.** P0-A preserves the current SAS implementation but does not
+> verify independent cross-participant or double confirmation. The executable
+> runtime contract is in `API_CONTRACT.md` and `PROTOCOL.md`.
+
 ## Overview
 One-time device pairing using QR code + Short Authentication String (SAS).
 

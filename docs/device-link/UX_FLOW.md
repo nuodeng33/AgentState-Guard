@@ -1,5 +1,7 @@
 # Device Link UX Flows
 
+> **FUTURE UX.** This flow is not physical end-to-end evidence for P0-A.
+
 ## Desktop — First Launch
 ```
 App opens → Dashboard

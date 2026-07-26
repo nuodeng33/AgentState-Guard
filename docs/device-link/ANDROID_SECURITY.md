@@ -1,5 +1,8 @@
 # Android Security Architecture
 
+> **NOT VERIFIED BY P0-A.** This is a target Android design. Keystore-backed
+> identity and physical Android-to-desktop closure remain incomplete.
+
 ## Keystore
 - Ed25519 key pair generated inside Android Keystore
 - `KeyGenParameterSpec.Builder` with:

@@ -1,5 +1,9 @@
 # Desktop Security Architecture (Windows)
 
+> **DESIGN TARGET.** The current P0-A runtime uses ephemeral in-memory P-256
+> identity and loopback HTTP. Persistent identity, DPAPI, TLS, and certificate
+> pinning are not implemented by this phase.
+
 ## Private Key Protection
 - Ed25519 key pair generated on first Device Link enable
 - Private key encrypted via Windows DPAPI (`CryptProtectData`)

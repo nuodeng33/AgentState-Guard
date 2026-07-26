@@ -2,7 +2,7 @@
 
 ## Status
 
-IN_PROGRESS
+COMPLETE
 
 This is a bounded security-correction phase. It does not declare Device Link
 production-ready and it does not reopen the cryptographic or transport design.
@@ -113,3 +113,14 @@ agent, so commits remain local for review.
 - Documentation reports the final security status as **PARTIAL** because
   independent SAS confirmation, double confirmation, TLS, pinning, Android
   Keystore, persistence, and physical end-to-end validation remain incomplete.
+
+## Closeout evidence
+
+- Implementation commits: `7c4277d`, `20331bb`.
+- Device Link targeted suite: 107 passed, 0 failed/error/skipped.
+- Full Python on Windows: 246 total, 229 passed, 17 failed.
+- Baseline failure comparison: 3 resolved, 0 new.
+- Changed-scope Ruff and compileall: passed.
+- Independent verification: no remaining P0-A blocker.
+- Android execution: blocked by missing Gradle launcher/wrapper JAR and Java 8.
+- Overall Device Link security status: **PARTIAL**.

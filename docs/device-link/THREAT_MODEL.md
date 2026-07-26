@@ -1,5 +1,8 @@
 # Device Link Threat Model — ASDL/1
 
+> **DESIGN TARGET.** Entries relying on TLS, LAN binding, pinning, mDNS, or
+> Android Keystore are planned mitigations, not current P0-A guarantees.
+
 ## Trust Boundaries
 
 ```

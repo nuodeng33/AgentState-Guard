@@ -1,69 +1,71 @@
 # Current State
 
 **Version:** 0.9.0.dev0
-**Branch:** feat/device-link
-**HEAD:** e6267ea (Core CI fix batch)
 
-## Core CI Status
+**Branch:** `feat/device-link`
+
+**P0-A start:** `1ae3ad8086ae9c3e2713190b16d013d622037169`
+
+**Phase contract:** `a0a13e9`
+
+**P0-A implementation:** `7c4277d`, `20331bb`
+
+**Security status:** **PARTIAL**
+
+## Device Link P0-A
+
+Implemented and locally verified:
+
+- DER SubjectPublicKeyInfo P-256-only signature verification.
+- Monotonic terminal pairing state and atomic five-session capacity.
+- Pair-completion identity binding with no mismatch side effects.
+- Digest-only, expiring, replacing, revocable in-memory session tokens.
+- Server-issued, device-bound, expiring, attempt-bounded, one-time challenges.
+- Domain-separated, length-prefixed authentication message.
+- Real FastAPI statuses and strict request models.
+- Loopback peer/startup gate plus remote browser-origin rejection.
+- Streaming 1 MiB request-body cap.
+- Minimal concurrency correctness for capacity, completion, and replay.
+- Production FastAPI security tests; fake HTTP security routers removed.
+
+Not implemented or not verified:
+
+- Independent cross-participant SAS and double confirmation.
+- TLS, mDNS, certificate pinning, or secure LAN exposure.
+- Android cryptography/Keystore runtime closure.
+- Persistent device/token/challenge/revocation state.
+- Physical Android-to-Windows end-to-end validation.
+
+## Verification
 
 | Check | Result |
-|-------|--------|
-| Full pytest (local) | **227 passed, 0 failed, 0 skipped** |
-| commit | e6267ea |
-| GitHub Core CI | PENDING (pushed, awaiting runner) |
+| --- | --- |
+| Starting targeted Device Link baseline | 88 tests: 86 passed, 2 failed |
+| P0-A targeted suite | 107 passed, 0 failed, 0 skipped |
+| Starting full Python baseline on Windows | 227 tests: 207 passed, 20 failed |
+| Full Python after implementation | 246 tests: 229 passed, 17 failed |
+| Failure-set comparison | 3 baseline failures resolved, 0 new failures |
+| Ruff on changed Device Link/server/tests | passed |
+| GitHub combined status at starting commit | no status contexts returned |
+| Android tests | blocked: no Gradle launcher/wrapper JAR; Java 8 only |
 
-## Changes in e6267ea (committed)
+The remaining 17 failures are pre-existing Windows/POSIX assumptions:
+`os.fchmod`, Unix command names, `/tmp`, and POSIX path/whitelist semantics.
+They are outside P0-A and were not hidden or reclassified as pass.
 
-All 9 previous Core CI failures resolved:
+## Runtime boundary
 
-| # | Test | Type | Fix |
-|---|------|------|-----|
-| 1 | test_replay_cache_evicts_properly | B | size() counts live entries only |
-| 2 | test_terminal_reject_all_events | A | EXPIRED + FAILED paths trigger state transition |
-| 3 | test_full_pairing_flow | B | Added gw.get_status() + /device/v1/status route |
-| 4 | test_unauthenticated_read_rejected | B | Same as #3 |
-| 5 | test_oversized_payload_rejected | C | 1MB Content-Length cap in HTTP handler |
-| 6 | test_replay_mutation_killed | A | Added ReplayCache import |
-| 7 | test_expiry_mutation_killed | A | setup() → setup_method() |
-| 8 | test_transcript_field_mutation_killed | A | Use TRANSCRIPT_SECRET (separated const) |
-| 9 | test_terminal_reactivation_mutation_killed | A | Same as #7 |
+The current gateway is local-only HTTP. Older documents describing LAN
+HTTPS/WSS, Ed25519, mDNS, pinning, or Keystore are future design targets unless
+explicitly marked otherwise. The executable contracts are
+`docs/device-link/API_CONTRACT.md` and `docs/device-link/PROTOCOL.md`.
 
-## Android Runtime Closure (pending commit)
+## Next permitted work
 
-| Change | Status |
-|--------|--------|
-| DeviceLinkClientTest.kt (JVM, 7 tests) | WRITTEN |
-| DeviceLinkClientInstrumentedTest.kt (emulator) | WRITTEN |
-| build.gradle.kts: androidTest deps | WRITTEN |
-| server.py: nonce_hex → nonce (field name mismatch) | WRITTEN |
-| emulator.yml: boot progress + logcat streaming | WRITTEN |
-| emulator.yml: DeviceLinkClient instrumented test step | WRITTEN |
+P0-A containment is complete. Any P0-B, TLS/SAS/Android compatibility work, or
+remote transport work requires a new phase contract.
 
-## Device Link MVP (14 requirements)
-
-| ID | Description | Status |
-|----|-------------|--------|
-| DL-MVP-001..016 | 14 read-only MVP reqs | DESCRIBED in MVP_SPEC |
-
-## Source Lines
-| Module | Lines |
-|--------|-------|
-| crypto.py | 230 |
-| pairing.py | 195 |
-| gateway.py | 224 |
-| api/server.py | 285 |
-| **Total** | **934** |
-
-## Test Assertions
-| File | Count |
-|------|-------|
-| test_device_link_crypto.py | 19 |
-| test_device_link_pairing.py | 17 |
-| test_device_link_audit.py | 20+ |
-| test_device_link_integration.py | 7 (HTTP) |
-| test_device_link_e2e.py | 28+ |
-| DeviceLinkClientTest.kt (JVM) | 7 |
-| DeviceLinkClientInstrumentedTest.kt | 1 |
-| **Total** | **99+** |
-
-## Next Phase: Phase 1 (Tauri scaffold) + Runtime Closure
+The Android client is not compatible with the P0-A runtime contract: complete
+omits `protocol_version`, tests use a 16-byte nonce and a non-DER dummy key,
+the emulator endpoint cannot reach a loopback-only gateway, and no
+challenge/response client flow exists.

@@ -1,5 +1,10 @@
 # Device Link Cryptography — Updated Architecture
 
+> **DESIGN TARGET, NOT CURRENT RUNTIME.** For behavior implemented and
+> verified in P0-A, use `API_CONTRACT.md`, `PROTOCOL.md`, and
+> `ACCEPTANCE_MATRIX.md`. TLS, LAN discovery, pinning, Keystore, and other
+> future guarantees below are not yet implemented.
+
 ## Key Algorithms (corrected)
 
 | Purpose | Algorithm | Platform |
