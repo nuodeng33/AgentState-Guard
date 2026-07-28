@@ -5,6 +5,8 @@ import androidx.test.filters.LargeTest
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.Assert.*
+import java.security.KeyPairGenerator
+import java.security.spec.ECGenParameterSpec
 
 /**
  * Instrumented test that exercises DeviceLinkClient against the Python Gateway
@@ -39,8 +41,11 @@ class DeviceLinkClientInstrumentedTest {
         assertTrue("connect state should be first_connection or created",
             connState in setOf("first_connection", "created"))
 
-        // 3. Send pubkey + get SAS
-        val pubkeyDerHex = "04" + "a".repeat(128)  // dummy P-256 uncompressed key
+        // 3. Send a DER-encoded P-256 SubjectPublicKeyInfo key and get SAS.
+        val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+        keyPairGenerator.initialize(ECGenParameterSpec("secp256r1"))
+        val pubkeyDerHex = keyPairGenerator.generateKeyPair().public.encoded
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         val sas = client.pairSas(sid, pubkeyDerHex)
         assertNotNull("SAS must not be null", sas)
         assertTrue("SAS should be 7 chars (XXX XXX)", sas.length == 7)

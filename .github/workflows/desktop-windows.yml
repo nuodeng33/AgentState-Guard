@@ -260,18 +260,25 @@ jobs:
         run: |
           # Debug build binary uses Cargo package name (agentstate-guard.exe),
           # not the product name. Check both variants.
-          $exe = Get-ChildItem "desktop/src-tauri/target/debug/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $msi = Get-ChildItem "desktop/src-tauri/target/debug/*.msi" -ErrorAction SilentlyContinue
-          if (-not $exe) { Write-Host "ERROR: EXE not found"; exit 1 }
+          $exe = Get-Item "desktop/src-tauri/target/debug/agentstate-guard.exe" -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem "desktop/src-tauri/target/debug/bundle/msi/*.msi" -ErrorAction SilentlyContinue
+          if (-not $exe) { Write-Host "ERROR: agentstate-guard.exe not found"; exit 1 }
+          if (-not $msi) { Write-Host "ERROR: MSI not found"; exit 1 }
           Write-Host "EXE: $($exe.Name) $($exe.Length) bytes"
-          if ($msi) { Write-Host "MSI: $($msi.Name) $($msi.Length) bytes" }
+          $msi | ForEach-Object { Write-Host "MSI: $($_.FullName) $($_.Length) bytes" }
+
+      - name: Stage runtime sidecar
+        shell: pwsh
+        run: |
+          Copy-Item "desktop/src-tauri/bin/agentguard-sidecar-*.exe" "desktop/src-tauri/target/debug/"
+          Get-ChildItem "desktop/src-tauri/target/debug/agentguard-sidecar-*.exe" | ForEach-Object { Write-Host "Runtime sidecar: $($_.Name)" }
 
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: desktop-tauri-build
           path: |
             desktop/src-tauri/target/debug/*.exe
-            desktop/src-tauri/target/debug/*.msi
+            desktop/src-tauri/target/debug/bundle/msi/*.msi
 
   # ── 5. Desktop Runtime Smoke ───────────────────────────────────
   runtime-smoke:
@@ -290,9 +297,15 @@ jobs:
         shell: pwsh
         run: |
           $target = "$env:RUNNER_TEMP\tauri-build\agentstate-guard.exe"
+          $sidecar = Get-ChildItem "$env:RUNNER_TEMP\tauri-build\agentguard-sidecar-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not (Test-Path $target)) {
             Write-Host "ERROR: agentstate-guard.exe not found in artifact"
             Write-Host "Actual *.exe files:"
+            Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.exe" | ForEach-Object { Write-Host "  $($_.Name)" }
+            exit 1
+          }
+          if (-not $sidecar) {
+            Write-Host "ERROR: runtime sidecar not found in artifact"
             Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.exe" | ForEach-Object { Write-Host "  $($_.Name)" }
             exit 1
           }
@@ -305,15 +318,23 @@ jobs:
         shell: pwsh
         run: |
           for ($i = 0; $i -lt 60; $i++) {
-            try {
-              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", $env:SIDECAR_PORT)
-              Write-Host "Port open after ${i}s"
-              $tcp.Dispose()
-              return
-            } catch { }
+            if ($proc = Get-Process -Id $env:TAURI_PID -ErrorAction SilentlyContinue) {
+              try {
+                $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", $env:SIDECAR_PORT)
+                Write-Host "Port open after ${i}s"
+                $tcp.Dispose()
+                return
+              } catch { }
+            } else {
+              Write-Host "ERROR: TAURI_PROCESS_EXITED"
+              Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.exe" | ForEach-Object { Write-Host "  $($_.Name)" }
+              exit 1
+            }
             Start-Sleep -Seconds 1
           }
-          Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"; exit 1
+          Write-Host "ERROR: SIDECAR_READINESS_TIMEOUT"
+          Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.exe" | ForEach-Object { Write-Host "  $($_.Name)" }
+          exit 1
 
       - name: Verify bind (127.0.0.1)
         shell: pwsh
@@ -365,7 +386,7 @@ jobs:
       - name: Install MSI
         shell: pwsh
         run: |
-          $msi = Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.msi" | Select-Object -First 1
+          $msi = Get-ChildItem "$env:RUNNER_TEMP\tauri-build" -Recurse -Filter "*.msi" | Select-Object -First 1
           if (-not $msi) { Write-Host "ERROR: No MSI found"; exit 1 }
           Write-Host "Installing: $($msi.FullName)"
           $p = Start-Process msiexec -ArgumentList "/i","``"$($msi.FullName)``"","/quiet","/norestart" -NoNewWindow -Wait -PassThru
@@ -418,7 +439,7 @@ jobs:
       - name: Uninstall MSI
         shell: pwsh
         run: |
-          $msi = Get-ChildItem "$env:RUNNER_TEMP\tauri-build\*.msi" | Select-Object -First 1
+          $msi = Get-ChildItem "$env:RUNNER_TEMP\tauri-build" -Recurse -Filter "*.msi" | Select-Object -First 1
           $p = Start-Process msiexec -ArgumentList "/x","``"$($msi.FullName)``"","/quiet","/norestart" -NoNewWindow -Wait -PassThru
           Write-Host "Uninstall exit: $($p.ExitCode)"
 
