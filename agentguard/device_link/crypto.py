@@ -91,7 +91,13 @@ def random_bytes(n: int = 32, rng: RandomSource = None) -> bytes:
 
 
 def random_session_id(rng: RandomSource = None) -> str:
+    """Generate the 16-byte identifier used by the pairing wire contract."""
     return (rng or SecureRandom()).bytes(16).hex()
+
+
+def random_token(rng: RandomSource = None) -> str:
+    """Generate a 32-byte bearer token; tokens are not session identifiers."""
+    return (rng or SecureRandom()).bytes(32).hex()
 
 
 # ---- Fingerprint ----
@@ -162,7 +168,7 @@ class ReplayCache:
 
     def check_and_record(self, nonce_hex: str) -> bool:
         now = self._clock.now()
-        expired = [k for k, v in self._cache.items() if now - v > self._ttl]
+        expired = [k for k, v in self._cache.items() if now - v >= self._ttl]
         for k in expired:
             del self._cache[k]
         if nonce_hex in self._cache:
@@ -175,7 +181,21 @@ class ReplayCache:
 
     def size(self) -> int:
         now = self._clock.now()
-        return sum(1 for v in self._cache.values() if now - v <= self._ttl)
+        return sum(1 for v in self._cache.values() if now - v < self._ttl)
+
+
+def validate_ecdsa_p256_public_key_der(public_key_der: bytes) -> bool:
+    """Return whether bytes are a DER-encoded P-256 SPKI public key."""
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization as _ser
+
+    try:
+        key = _ser.load_der_public_key(public_key_der)
+        return isinstance(key, ec.EllipticCurvePublicKey) and isinstance(
+            key.curve, ec.SECP256R1,
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 # ---- ECDSA P-256 ----
@@ -208,12 +228,15 @@ def sign_challenge(private_key_pem: bytes, data: bytes) -> bytes:
     return priv.sign(data, ec.ECDSA(hashes.SHA256()))
 
 
-def verify_signature(public_key_pem: bytes, data: bytes, signature: bytes) -> bool:
+def verify_signature(public_key: bytes, data: bytes, signature: bytes) -> bool:
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives import hashes, serialization as _ser
 
     try:
-        pub = _ser.load_pem_public_key(public_key_pem)
+        try:
+            pub = _ser.load_der_public_key(public_key)
+        except ValueError:
+            pub = _ser.load_pem_public_key(public_key)
         assert isinstance(pub, ec.EllipticCurvePublicKey)
         pub.verify(signature, data, ec.ECDSA(hashes.SHA256()))
         return True

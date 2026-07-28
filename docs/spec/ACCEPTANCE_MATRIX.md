@@ -31,6 +31,7 @@
 | ASG-SEC-003 | IMPLEMENTED | v0.2 | test_whitelist | test_restore | — | whitelist module | pre-v1-gui | Traversal tested |
 | ASG-SEC-004 | NOT_STARTED | — | — | — | — | — | — | — |
 | ASG-SEC-005 | NOT_STARTED | — | — | — | — | — | — | — |
+| DL-AUDIT-001 | VERIFIED_LOCALLY | device_link + FastAPI + Android dev transport | 117 targeted / 281 full | production FastAPI + Android JVM 11 | — | 2026-07-27 stable-baseline log | pending | Stable development baseline only; TLS/pinning, dual SAS, mutual challenge auth, full contract migration remain |
 | ASG-TEST-001 | PARTIAL | v0.2 | 107 tests | — | — | pytest | pre-v1-gui | Needs more |
 | ASG-TEST-002 | NOT_STARTED | — | — | — | — | — | — | — |
 | ASG-TEST-003 | NOT_STARTED | — | — | — | — | — | — | — |

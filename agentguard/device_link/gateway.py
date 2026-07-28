@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 from .crypto import (
     generate_challenge, verify_signature, spki_fingerprint,
-    random_session_id,
+    random_token, validate_ecdsa_p256_public_key_der,
 )
 from .pairing import PairingManager, PairState
 
@@ -19,11 +19,16 @@ from .pairing import PairingManager, PairState
 class DeviceRegistry:
     """Stores bound device metadata. Non-sensitive fields only."""
 
-    def __init__(self):
+    def __init__(self, single_device: bool = False):
         self._devices: Dict[str, dict] = {}
+        self._single_device = single_device
 
     def add(self, device_uuid: str, pubkey_der: bytes, display_name: str,
             permissions: list, protocol_version: int) -> None:
+        if device_uuid in self._devices:
+            raise ValueError("Device UUID already bound")
+        if self._single_device and self._devices:
+            raise ValueError("Maximum devices already bound")
         fp = spki_fingerprint(pubkey_der)
         self._devices[device_uuid] = {
             "uuid": device_uuid,
@@ -59,6 +64,7 @@ class GatewayConfig:
         self.max_pair_sessions = kwargs.get("max_pair_sessions", 5)
         self.pair_ttl = kwargs.get("pair_ttl", 120)
         self.max_sas_attempts = kwargs.get("max_sas_attempts", 3)
+        self.challenge_ttl = kwargs.get("challenge_ttl", 300)
         self.session_ttl = kwargs.get("session_ttl", 3600)
         self.single_device = kwargs.get("single_device", False)
 
@@ -80,15 +86,21 @@ class DeviceLinkGateway:
         self.desktop_tls_spki_fp = desktop_tls_spki_fp
         self.config = config or GatewayConfig()
         self.pairing_mgr = PairingManager(max_sessions=self.config.max_pair_sessions)
-        self.devices = DeviceRegistry()
+        self.devices = DeviceRegistry(single_device=self.config.single_device)
         self._sessions: Dict[str, dict] = {}
+        self._challenges: Dict[str, dict] = {}
 
     # ---- Pairing ----
 
     def pair_start(self) -> dict:
-        session = self.pairing_mgr.create_session(
-            self.desktop_uuid, self.desktop_pubkey_der, self.desktop_tls_spki_fp,
-        )
+        try:
+            session = self.pairing_mgr.create_session(
+                self.desktop_uuid, self.desktop_pubkey_der, self.desktop_tls_spki_fp,
+                expiry_seconds=self.config.pair_ttl,
+                max_sas_attempts=self.config.max_sas_attempts,
+            )
+        except ValueError as exc:
+            return {"error": str(exc), "code": 423}
         return {
             "session_id": session.session_id,
             "expires_in_s": session.expiry_seconds,
@@ -102,7 +114,7 @@ class DeviceLinkGateway:
         if not session:
             return {"error": "Session not found", "code": 404}
         if session.is_expired and not session.is_terminal:
-            session.set_state(PairState.EXPIRED)
+            session.expire_if_needed()
         return {"session_id": session.session_id, "state": session.state.value}
 
     def pair_first_connection(self, session_id: str, android_uuid: str,
@@ -120,19 +132,25 @@ class DeviceLinkGateway:
         session = self.pairing_mgr.get(session_id)
         if not session:
             return {"error": "Session not found", "code": 404}
-        session.set_android_pubkey(bytes.fromhex(android_pubkey_der_hex))
         try:
+            pubkey_der = bytes.fromhex(android_pubkey_der_hex)
+            if not validate_ecdsa_p256_public_key_der(pubkey_der):
+                return {"error": "Invalid P-256 DER public key", "code": 400}
+            session.set_android_pubkey(pubkey_der)
             sas = session.start_sas()
             return {"sas": sas, "state": session.state.value}
         except ValueError as e:
-            return {"error": str(e), "code": 409}
+            return {"error": str(e), "code": 400}
 
     def pair_confirm(self, session_id: str, confirm: bool) -> dict:
         session = self.pairing_mgr.get(session_id)
         if not session:
             return {"error": "Session not found", "code": 404}
         if not confirm:
-            session.reject()
+            try:
+                session.reject()
+            except ValueError as e:
+                return {"error": str(e), "code": 409}
             return {"state": session.state.value}
         try:
             session.confirm()
@@ -147,16 +165,34 @@ class DeviceLinkGateway:
             return {"error": "Session not found", "code": 404}
         if session.state != PairState.CONFIRMED_BOTH:
             return {"error": f"Not confirmed: {session.state.value}", "code": 409}
-        pubkey_der = bytes.fromhex(android_pubkey_der_hex)
-        self.devices.add(android_uuid, pubkey_der, display_name,
-                         permissions=["read"], protocol_version=1)
-        session.consume()
-        token = random_session_id()
+        if not session.android_uuid or not session.android_pubkey_der:
+            return {"error": "Pairing identity is incomplete", "code": 409}
+        try:
+            submitted_pubkey = bytes.fromhex(android_pubkey_der_hex)
+            if not validate_ecdsa_p256_public_key_der(submitted_pubkey):
+                return {"error": "Invalid P-256 DER public key", "code": 400}
+        except ValueError as exc:
+            return {"error": str(exc), "code": 400}
+        if android_uuid != session.android_uuid or submitted_pubkey != session.android_pubkey_der:
+            return {"error": "Pairing identity mismatch", "code": 409}
+
+        bound_uuid = session.android_uuid
+        bound_pubkey = session.android_pubkey_der
+        try:
+            session.consume()
+        except ValueError as exc:
+            return {"error": str(exc), "code": 409}
+        try:
+            self.devices.add(bound_uuid, bound_pubkey, display_name,
+                             permissions=["read"], protocol_version=1)
+        except ValueError as exc:
+            return {"error": str(exc), "code": 409}
+        token = random_token()
         self._sessions[token] = {
-            "device_uuid": android_uuid,
-            "expires": int(_time.time()) + self.config.session_ttl,
+            "device_uuid": bound_uuid,
+            "expires": _time.monotonic() + self.config.session_ttl,
         }
-        self.devices.update_last_seen(android_uuid)
+        self.devices.update_last_seen(bound_uuid)
         return {
             "status": "bound",
             "session_token": token,
@@ -171,23 +207,51 @@ class DeviceLinkGateway:
         if not dev:
             return {"error": "Device not bound", "code": 403}
         challenge = generate_challenge()
-        return {"desktop_challenge": challenge.hex(), "desktop_uuid": self.desktop_uuid}
+        challenge_hex = challenge.hex()
+        self._challenges[challenge_hex] = {
+            "device_uuid": device_uuid,
+            "challenge": challenge,
+            "issued_at": _time.monotonic(),
+            "expires_at": _time.monotonic() + self.config.challenge_ttl,
+            "consumed": False,
+        }
+        return {"desktop_challenge": challenge_hex, "desktop_uuid": self.desktop_uuid}
 
     def auth_response(self, device_uuid: str, challenge_resp_hex: str,
                       nonce_hex: str) -> dict:
         dev = self.devices.get(device_uuid)
         if not dev:
             return {"error": "Device not bound", "code": 403}
+        try:
+            nonce = bytes.fromhex(nonce_hex)
+            signature = bytes.fromhex(challenge_resp_hex)
+        except ValueError as exc:
+            return {"error": str(exc), "code": 400}
+
+        challenge = self._challenges.get(nonce_hex)
+        if not challenge:
+            return {"error": "Challenge not found", "code": 401}
+        if challenge["device_uuid"] != device_uuid:
+            return {"error": "Challenge identity mismatch", "code": 403}
+        if challenge["consumed"]:
+            return {"error": "Challenge already consumed", "code": 401}
+        if _time.monotonic() >= challenge["expires_at"]:
+            challenge["consumed"] = True
+            return {"error": "Challenge expired", "code": 401}
+        if nonce != challenge["challenge"]:
+            return {"error": "Challenge mismatch", "code": 401}
+
         verified = verify_signature(
-            bytes.fromhex(dev["pubkey_der_hex"]), bytes.fromhex(nonce_hex),
-            bytes.fromhex(challenge_resp_hex),
+            bytes.fromhex(dev["pubkey_der_hex"]), challenge["challenge"], signature,
         )
         if not verified:
             return {"error": "Signature verification failed", "code": 401}
-        token = random_session_id()
+
+        challenge["consumed"] = True
+        token = random_token()
         self._sessions[token] = {
             "device_uuid": device_uuid,
-            "expires": int(_time.time()) + self.config.session_ttl,
+            "expires": _time.monotonic() + self.config.session_ttl,
         }
         self.devices.update_last_seen(device_uuid)
         return {"session_token": token}
@@ -196,7 +260,7 @@ class DeviceLinkGateway:
         session = self._sessions.get(token)
         if not session:
             return None
-        if int(_time.time()) > session["expires"]:
+        if _time.monotonic() >= session["expires"]:
             del self._sessions[token]
             return None
         return session["device_uuid"]

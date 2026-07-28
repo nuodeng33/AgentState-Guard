@@ -182,7 +182,8 @@ class TestFullTransitionMatrix:
             # Navigate to terminal via valid path
             if terminal == PairState.EXPIRED:
                 clock.advance(121)  # force expiry
-                s.set_state(PairState.EXPIRED)  # trigger terminal transition
+                with pytest.raises(ValueError, match="expired"):
+                    s.set_state(PairState.EXPIRED)
             elif terminal == PairState.FAILED:
                 # FAILED tracker needs max_sas_attempts=1 to trigger on single fail()
                 s = PairingSession("s", "d", b"p", "f", clock=clock, rng=rng,
@@ -190,23 +191,21 @@ class TestFullTransitionMatrix:
                 try:
                     s.set_state(PairState.FIRST_CONNECTION)
                     s.set_state(PairState.SAS_PENDING)
-                    s.set_state(PairState.CONFIRMED_BOTH)
                     s.fail()
                 except ValueError:
                     pass
             else:
                 try:
-                    s.set_state(PairState.FIRST_CONNECTION)
-                    s.set_state(PairState.SAS_PENDING)
-                    s.set_state(PairState.CONFIRMED_BOTH)
-                    if terminal == PairState.CONSUMED:
-                        s.set_state(PairState.CONSUMED)
+                    if terminal == PairState.REJECTED:
+                        s.reject()
                     elif terminal == PairState.CANCELLED:
                         s.cancel()
-                    elif terminal == PairState.REJECTED:
-                        s.reject()
-                    elif terminal == PairState.FAILED:
-                        s.fail()
+                    else:
+                        s.set_state(PairState.FIRST_CONNECTION)
+                        s.set_state(PairState.SAS_PENDING)
+                        if terminal == PairState.CONSUMED:
+                            s.set_state(PairState.CONFIRMED_BOTH)
+                            s.set_state(PairState.CONSUMED)
                 except ValueError:
                     pass
 

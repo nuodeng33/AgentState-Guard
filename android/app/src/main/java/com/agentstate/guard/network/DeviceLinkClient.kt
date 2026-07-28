@@ -81,7 +81,7 @@ class DeviceLinkClient(
         conn.connectTimeout = timeoutMs
         conn.readTimeout = timeoutMs
         conn.setRequestProperty("Content-Type", "application/json")
-        sessionToken?.let { conn.setRequestProperty("X-Session-Token", it) }
+        sessionToken?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
         if (body != null && method == "POST") {
             conn.doOutput = true
             conn.outputStream.write(body.toString().toByteArray())

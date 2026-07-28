@@ -67,3 +67,10 @@ All 9 previous Core CI failures resolved:
 | **Total** | **99+** |
 
 ## Next Phase: Phase 1 (Tauri scaffold) + Runtime Closure
+
+## Device Link Stable Development Baseline — 2026-07-27
+
+- Independent adversarial review rejected the first audit patch because FastAPI treated `Request` as a query parameter, pairing expiry could be overwritten, `pair_ttl` was not propagated, expired sessions occupied capacity, and the Android HTTPS-only client could not connect to the HTTP development server.
+- Closed the immediate regressions: production Bearer routes now return 401/200 rather than 422; pairing terminal states are absorbing and clear secrets; configured pair TTL and expired-session capacity cleanup are enforced; `pair_complete` consumes before binding so expiry leaves no registry side effect; Android development transport is interoperable over HTTP while retaining `Authorization: Bearer`.
+- Fresh local evidence: **281 Python tests passed**; all seven Device Link Python files passed (**117 tests**); Android JVM JUnit XML reports **11 passed, 0 failed, 0 skipped**; `compileall` and `git diff --check` passed.
+- Stable development baseline: **YES**. Merge-ready: **NO** because TLS 1.3/server certificate handling/SPKI pinning, real dual SAS confirmation, complete mutual challenge transcript, UUID canonicalization, and full ASDL/1 route/schema convergence remain open.

@@ -85,10 +85,21 @@ class PairingSession:
     def is_terminal(self) -> bool:
         return self.state in TERMINAL_STATES
 
-    def _transition(self, target: PairState, force_expiry_check: bool = True) -> None:
-        if force_expiry_check and self.is_expired and not self.is_terminal:
+    def _clear_secret_if_terminal(self) -> None:
+        if self.state in TERMINAL_STATES:
+            self.pairing_secret = b""
+
+    def expire_if_needed(self) -> bool:
+        """Enter the absorbing expiry state and clear secret material once due."""
+        if self.is_expired and not self.is_terminal:
             self.state = PairState.EXPIRED
-            return
+            self._clear_secret_if_terminal()
+            return True
+        return False
+
+    def _transition(self, target: PairState, force_expiry_check: bool = True) -> None:
+        if force_expiry_check and self.expire_if_needed():
+            raise ValueError("Pairing session expired")
         if self.is_terminal:
             raise ValueError(f"Terminal state {self.state.value}: cannot transition to {target.value}")
         if not is_valid_transition(self.state, target):
@@ -98,21 +109,32 @@ class PairingSession:
         """Generic transition through the validation table."""
         self._transition(new_state)
         self.state = new_state
+        self._clear_secret_if_terminal()
 
     def first_connection(self, android_uuid: str, nonce_android: bytes) -> None:
         self._transition(PairState.FIRST_CONNECTION)
         if self.is_terminal:
             raise ValueError(f"Cannot transition from {self.state.value}")
+        if self.is_expired:
+            self._transition(PairState.EXPIRED)
+            raise ValueError("Pairing session expired")
         self.android_uuid = android_uuid
         self.nonce_android = nonce_android
         self.state = PairState.FIRST_CONNECTION
 
     def set_android_pubkey(self, pubkey_der: bytes) -> None:
+        if self.expire_if_needed():
+            raise ValueError("Pairing session expired")
+        if self.state != PairState.FIRST_CONNECTION:
+            raise ValueError(f"Invalid transition: {self.state.value} → set_android_pubkey")
+        if self.android_pubkey_der is not None and self.android_pubkey_der != pubkey_der:
+            raise ValueError("Android public key cannot be replaced")
         self.android_pubkey_der = pubkey_der
 
     def start_sas(self) -> str:
         self._transition(PairState.SAS_PENDING)
-        assert self.android_uuid and self.nonce_android and self.android_pubkey_der
+        if not self.android_uuid or self.nonce_android is None or self.android_pubkey_der is None:
+            raise ValueError("Pairing identity is incomplete")
         transcript = build_pairing_transcript(
             1, self.session_id, self.desktop_uuid, self.android_uuid,
             self.desktop_pubkey_der, self.android_pubkey_der,
@@ -135,29 +157,28 @@ class PairingSession:
         if self.is_terminal:
             raise ValueError(f"Session in terminal state {self.state.value}")
         self.state = PairState.CONSUMED
+        self._clear_secret_if_terminal()
 
     def reject(self) -> None:
-        try:
-            self._transition(PairState.REJECTED, force_expiry_check=False)
-        except ValueError:
-            pass
+        self._transition(PairState.REJECTED)
         self.state = PairState.REJECTED
+        self._clear_secret_if_terminal()
 
     def cancel(self) -> None:
-        try:
-            self._transition(PairState.CANCELLED, force_expiry_check=False)
-        except ValueError:
-            pass
+        self._transition(PairState.CANCELLED)
         self.state = PairState.CANCELLED
+        self._clear_secret_if_terminal()
 
     def fail(self) -> None:
+        if self.expire_if_needed():
+            raise ValueError("Pairing session expired")
+        if self.state != PairState.SAS_PENDING:
+            raise ValueError(f"Invalid transition: {self.state.value} → failed")
         self.sas_attempts += 1
         if self.sas_attempts >= self.max_sas_attempts:
-            try:
-                self._transition(PairState.FAILED, force_expiry_check=False)
-            except ValueError:
-                pass
+            self._transition(PairState.FAILED, force_expiry_check=False)
             self.state = PairState.FAILED
+            self._clear_secret_if_terminal()
 
 
 class PairingManager:
@@ -170,19 +191,20 @@ class PairingManager:
     def create_session(
         self, desktop_uuid: str, desktop_pubkey_der: bytes,
         desktop_tls_spki_fp: str,
+        expiry_seconds: int = 120, max_sas_attempts: int = 3,
         clock: Clock = None, rng: RandomSource = None,
     ) -> PairingSession:
+        for session in self._sessions.values():
+            session.expire_if_needed()
         to_del = [sid for sid, s in self._sessions.items() if s.is_terminal]
         for sid in to_del:
             del self._sessions[sid]
         if len(self._sessions) >= self._max:
-            for sid in list(self._sessions.keys()):
-                if self._sessions[sid].is_terminal:
-                    del self._sessions[sid]
-                    break
+            raise ValueError("Maximum active pairing sessions reached")
         sid = (rng or SecureRandom()).bytes(16).hex()
         session = PairingSession(
             sid, desktop_uuid, desktop_pubkey_der, desktop_tls_spki_fp,
+            expiry_seconds=expiry_seconds, max_sas_attempts=max_sas_attempts,
             clock=clock, rng=rng,
         )
         self._sessions[sid] = session
@@ -190,11 +212,13 @@ class PairingManager:
 
     def get(self, session_id: str) -> Optional[PairingSession]:
         s = self._sessions.get(session_id)
-        if s and s.is_expired and not s.is_terminal:
-            s.set_state(PairState.EXPIRED)
+        if s:
+            s.expire_if_needed()
         return s
 
     def active_sessions(self) -> int:
+        for session in self._sessions.values():
+            session.expire_if_needed()
         to_del = [sid for sid, s in self._sessions.items() if s.is_terminal]
         for sid in to_del:
             del self._sessions[sid]

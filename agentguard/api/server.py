@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from fastapi import Request
+
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
 
@@ -201,34 +203,66 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
     _device_router = APIRouter(prefix="/device/v1")
 
+    def _device_auth_token(request: Request) -> Optional[str]:
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token or " " in token:
+            return None
+        return _gateway.validate_token(token)
+
+    def _device_result(result: dict):
+        if "error" in result:
+            raise HTTPException(status_code=result.get("code", 400), detail=result["error"])
+        return result
+
     @_device_router.post("/pair/start")
     async def _device_pair_start():
-        return _gateway.pair_start()
+        return _device_result(_gateway.pair_start())
 
     @_device_router.post("/pair/{sid}/connect")
     async def _device_pair_connect(sid: str, body: dict):
-        return _gateway.pair_first_connection(
+        return _device_result(_gateway.pair_first_connection(
             sid, body.get("android_uuid", ""), body.get("nonce", ""),
-        )
+        ))
 
     @_device_router.post("/pair/{sid}/sas")
     async def _device_pair_sas(sid: str, body: dict):
-        return _gateway.pair_start_sas(sid, body.get("android_pubkey_der_hex", ""))
+        return _device_result(_gateway.pair_start_sas(
+            sid, body.get("android_pubkey_der_hex", ""),
+        ))
 
     @_device_router.post("/pair/{sid}/confirm")
     async def _device_pair_confirm(sid: str, body: dict):
-        return _gateway.pair_confirm(sid, body.get("confirm", False))
+        return _device_result(_gateway.pair_confirm(
+            sid, body.get("confirm", False),
+        ))
 
     @_device_router.post("/pair/{sid}/complete")
     async def _device_pair_complete(sid: str, body: dict):
-        return _gateway.pair_complete(
+        return _device_result(_gateway.pair_complete(
             sid, body.get("android_uuid", ""),
             body.get("android_pubkey_der_hex", ""),
             body.get("display_name", ""),
-        )
+        ))
+
+    @_device_router.post("/auth/challenge")
+    async def _device_auth_challenge(body: dict):
+        return _device_result(_gateway.auth_challenge(
+            body.get("device_uuid", ""),
+        ))
+
+    @_device_router.post("/auth/response")
+    async def _device_auth_response(body: dict):
+        return _device_result(_gateway.auth_response(
+            body.get("device_uuid", ""),
+            body.get("challenge_response", ""),
+            body.get("nonce", ""),
+        ))
 
     @_device_router.get("/status")
-    async def _device_status():
+    async def _device_status(request: Request):
+        if _device_auth_token(request) is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
         return {
             "desktop_uuid": _gateway.desktop_uuid,
             "devices_bound": len(_gateway.devices.list()),
@@ -236,7 +270,9 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
         }
 
     @_device_router.get("/checkpoints")
-    async def _device_checkpoints():
+    async def _device_checkpoints(request: Request):
+        if _device_auth_token(request) is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
         return {
             "checkpoints": [],
             "bound_devices": _gateway.devices.list(),
