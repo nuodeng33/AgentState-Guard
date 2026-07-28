@@ -241,17 +241,57 @@ jobs:
 
       - name: Start Gateway
         run: |
-          python -m agentguard --directory "$PWD" serve --port 8790 &
+          set -Eeuo pipefail
+          mkdir -p emulator-logs
+          GATEWAY_LOG="$PWD/emulator-logs/gateway.log"
+          GATEWAY_PID=""
+          cleanup_gateway() {
+            if [ -n "$GATEWAY_PID" ] && kill -0 "$GATEWAY_PID" 2>/dev/null; then
+              kill "$GATEWAY_PID" 2>/dev/null || true
+              wait "$GATEWAY_PID" 2>/dev/null || true
+            fi
+          }
+          trap cleanup_gateway ERR
+
+          python -m agentguard --directory "$PWD" serve --port 8790 >"$GATEWAY_LOG" 2>&1 &
           GATEWAY_PID=$!
-          echo "GATEWAY_PID=$GATEWAY_PID" >> $GITHUB_ENV
-          sleep 3
-          # Verify health endpoint
-          curl -s http://127.0.0.1:8790/api/health | grep -q "ok" && echo "Health endpoint OK"
-          # Verify device link endpoint
-          START_RESP=$(curl -s -X POST http://127.0.0.1:8790/device/v1/pair/start)
-          echo "pair/start response: $START_RESP"
-          echo "$START_RESP" | grep -q "session_id" && echo "Device link endpoint OK"
-          echo "GATEWAY_PORT=8790" >> $GITHUB_ENV
+          echo "GATEWAY_PID=$GATEWAY_PID" >> "$GITHUB_ENV"
+          echo "GATEWAY_PORT=8790" >> "$GITHUB_ENV"
+          echo "Gateway launcher PID: $GATEWAY_PID"
+
+          HEALTH_BODY="$RUNNER_TEMP/gateway-health.json"
+          HEALTH_STATUS="000"
+          for attempt in $(seq 1 30); do
+            if ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
+              echo "ERROR: GATEWAY_PROCESS_EXITED"
+              cat "$GATEWAY_LOG" || true
+              exit 1
+            fi
+            HEALTH_STATUS=$(curl --silent --show-error --output "$HEALTH_BODY" --write-out "%{http_code}" --max-time 2 http://127.0.0.1:8790/api/health || true)
+            if [ "$HEALTH_STATUS" = "200" ] && grep -q '"status"[[:space:]]*:[[:space:]]*"ok"' "$HEALTH_BODY"; then
+              echo "Health endpoint OK after attempt $attempt"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$HEALTH_STATUS" != "200" ] || ! grep -q '"status"[[:space:]]*:[[:space:]]*"ok"' "$HEALTH_BODY"; then
+            echo "ERROR: GATEWAY_HEALTH_CHECK_FAILED status=$HEALTH_STATUS"
+            cat "$HEALTH_BODY" 2>/dev/null || true
+            ss -ltnp '( sport = :8790 )' || true
+            cat "$GATEWAY_LOG" || true
+            exit 1
+          fi
+
+          PAIR_BODY="$RUNNER_TEMP/gateway-pair-start.json"
+          PAIR_STATUS=$(curl --silent --show-error --output "$PAIR_BODY" --write-out "%{http_code}" --max-time 5 -X POST http://127.0.0.1:8790/device/v1/pair/start || true)
+          echo "pair/start status: $PAIR_STATUS"
+          cat "$PAIR_BODY" || true
+          if [ "$PAIR_STATUS" != "200" ] || ! grep -q '"session_id"' "$PAIR_BODY"; then
+            echo "ERROR: GATEWAY_PAIR_START_FAILED"
+            cat "$GATEWAY_LOG" || true
+            exit 1
+          fi
+          trap - ERR
 
       - name: Android -> Gateway test (instrumented via DeviceLinkClient)
         run: |
@@ -302,6 +342,14 @@ jobs:
           name: emulator-logs
           path: emulator-logs/
           retention-days: 3
+
+      - name: Stop Gateway
+        if: always()
+        run: |
+          if [ -n "${GATEWAY_PID:-}" ] && kill -0 "$GATEWAY_PID" 2>/dev/null; then
+            kill "$GATEWAY_PID" 2>/dev/null || true
+            wait "$GATEWAY_PID" 2>/dev/null || true
+          fi
 
       - name: Stop emulator
         if: always()
