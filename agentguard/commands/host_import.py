@@ -6,10 +6,8 @@ Only allows a whitelisted set of fields for safety.
 
 import json
 import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
-from ..core.sanitizer import sanitize_text, MASK
+from ..core.sanitizer import sanitize_text
 
 ALLOWED_HOST_FIELDS = {
     "docker_version", "docker_available",
@@ -27,7 +25,7 @@ ALLOWED_CONTAINER_FIELDS = {
 ALLOWED_MOUNT_FIELDS = {"source", "destination", "mode"}
 
 
-def cmd_host_import(stdin_data: Optional[str] = None) -> Dict[str, object]:
+def cmd_host_import(stdin_data: str | None = None) -> dict[str, object]:
     """Import host state from stdin JSON.
 
     Validates all fields against the allowlist. Rejects any disallowed fields.
@@ -56,12 +54,24 @@ def cmd_host_import(stdin_data: Optional[str] = None) -> Dict[str, object]:
         "host_data": cleaned,
         "fields_received": len(cleaned),
         "fields_rejected": len(data) - len(cleaned),
+        "discovery_import": {
+            "schema_version": "legacy-1",
+            "status": "DEGRADED",
+            "reason_code": "LEGACY_HOST_IMPORT_UNBOUND",
+            "source_kind": "HOST_PROBE",
+            "trust_level": "UNVERIFIED",
+            "source_binding_id": None,
+            "source_authenticated": False,
+            "imported": True,
+            "self_visible": False,
+            "warnings": [{"code": "LEGACY_INPUT_DEGRADED"}],
+        },
     }
 
 
-def _validate_host_data(raw: dict) -> Dict[str, object]:
+def _validate_host_data(raw: dict) -> dict[str, object]:
     """Strip disallowed fields and validate allowed ones."""
-    result: Dict[str, object] = {}
+    result: dict[str, object] = {}
 
     for key, value in raw.items():
         if key not in ALLOWED_HOST_FIELDS:
@@ -86,9 +96,9 @@ def _validate_host_data(raw: dict) -> Dict[str, object]:
     return result
 
 
-def _validate_container(c: dict) -> Dict[str, object]:
+def _validate_container(c: dict) -> dict[str, object]:
     """Validate and sanitize a container entry."""
-    result: Dict[str, object] = {}
+    result: dict[str, object] = {}
     for key, value in c.items():
         if key not in ALLOWED_CONTAINER_FIELDS:
             continue
