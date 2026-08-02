@@ -30,6 +30,11 @@ _FIXED_COMMANDS = {
 _DISTRO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._()+-]{0,127}\Z")
 _MAX_CONFIGURED_OUTPUT = 1024 * 1024
 PROBE_MODULE_MISSING_EXIT = 42
+_WSL_ACCESS_DENIED_CODE = "Wsl/EnumerateDistros/Service/E_ACCESSDENIED"
+_WSL_ACCESS_DENIED_REASON = "WSL_E_ACCESSDENIED"
+_WSL_ACCESS_DENIED_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_./-]){re.escape(_WSL_ACCESS_DENIED_CODE)}(?![A-Za-z0-9_./-])"
+)
 _PROBE_MODULE = "agentguard.discovery.probes.wsl_probe"
 _PROBE_BOOTSTRAP = f"""import importlib.util
 import runpy
@@ -190,6 +195,15 @@ class WslCommandRunner:
             )
 
         if completed.returncode != 0:
+            if self._contains_access_denied_code(stdout_bytes, stderr_bytes):
+                return self._failure(
+                    selected,
+                    CapabilityStatus.PERMISSION_DENIED,
+                    DiscoveryErrorCode.PERMISSION_DENIED,
+                    "Permission was denied by the WSL discovery service",
+                    returncode=completed.returncode,
+                    reason_code=_WSL_ACCESS_DENIED_REASON,
+                )
             return self._failure(
                 selected,
                 CapabilityStatus.ERROR,
@@ -254,6 +268,17 @@ class WslCommandRunner:
         if odd_bytes and odd_bytes.count(0) * 2 >= len(odd_bytes):
             return output.decode("utf-16le", errors="strict")
         return output.decode("utf-8", errors="strict")
+
+    @classmethod
+    def _contains_access_denied_code(cls, *outputs: bytes) -> bool:
+        for output in outputs:
+            try:
+                decoded = cls._decode(output)
+            except UnicodeError:
+                continue
+            if _WSL_ACCESS_DENIED_PATTERN.search(decoded):
+                return True
+        return False
 
     @staticmethod
     def _failure(

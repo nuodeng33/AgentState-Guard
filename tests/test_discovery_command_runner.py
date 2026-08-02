@@ -28,6 +28,18 @@ class RecordingExecutor:
         return self.result or subprocess.CompletedProcess(argv, 0, stdout=b"", stderr=b"")
 
 
+def _nonzero_execution(*, stdout=b"", stderr=b""):
+    completed = subprocess.CompletedProcess(
+        ["wsl.exe"],
+        0xFFFFFFFF,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    return WslCommandRunner(executor=RecordingExecutor(result=completed)).run(
+        CommandId.WSL_LIST_VERBOSE
+    )
+
+
 def test_allowlisted_list_command_uses_fixed_argv_without_shell_or_inherited_environment():
     executor = RecordingExecutor()
     runner = WslCommandRunner(executor=executor)
@@ -199,6 +211,109 @@ def test_nonzero_exit_is_structured_without_stderr_contents():
     assert result.error is not None
     assert result.error.code is DiscoveryErrorCode.COLLECTOR_FAILURE
     assert "do-not-record" not in str(result.to_dict())
+
+
+def test_utf16le_stdout_access_denial_machine_code_maps_to_permission_denied():
+    result = _nonzero_execution(
+        stdout="Wsl/EnumerateDistros/Service/E_ACCESSDENIED".encode("utf-16le")
+    )
+
+    assert result.status is CapabilityStatus.PERMISSION_DENIED
+    assert result.error is not None
+    assert result.error.code is DiscoveryErrorCode.PERMISSION_DENIED
+    assert result.error.details["reason_code"] == "WSL_E_ACCESSDENIED"
+
+
+def test_utf16_bom_stderr_access_denial_machine_code_maps_to_permission_denied():
+    result = _nonzero_execution(
+        stderr="Wsl/EnumerateDistros/Service/E_ACCESSDENIED".encode("utf-16")
+    )
+
+    assert result.status is CapabilityStatus.PERMISSION_DENIED
+    assert result.error is not None
+    assert result.error.code is DiscoveryErrorCode.PERMISSION_DENIED
+    assert result.error.details["reason_code"] == "WSL_E_ACCESSDENIED"
+
+
+def test_utf8_access_denial_machine_code_maps_to_permission_denied():
+    result = _nonzero_execution(
+        stdout=b"Wsl/EnumerateDistros/Service/E_ACCESSDENIED"
+    )
+
+    assert result.status is CapabilityStatus.PERMISSION_DENIED
+    assert result.error is not None
+    assert result.error.code is DiscoveryErrorCode.PERMISSION_DENIED
+
+
+def test_localized_access_denied_text_without_machine_code_is_not_classified():
+    result = _nonzero_execution(stdout="拒绝访问".encode("utf-16le"))
+
+    assert result.status is CapabilityStatus.ERROR
+    assert result.error is not None
+    assert result.error.code is DiscoveryErrorCode.COLLECTOR_FAILURE
+    assert result.error.details["reason_code"] is None
+
+
+def test_unknown_wsl_machine_code_remains_collector_failure():
+    result = _nonzero_execution(
+        stdout=b"Wsl/EnumerateDistros/Service/E_FUTURE_FAILURE"
+    )
+
+    assert result.status is CapabilityStatus.ERROR
+    assert result.error is not None
+    assert result.error.code is DiscoveryErrorCode.COLLECTOR_FAILURE
+    assert result.error.details["reason_code"] is None
+
+
+def test_access_denied_prefix_of_future_machine_code_is_not_whitelisted():
+    result = _nonzero_execution(
+        stdout=b"Wsl/EnumerateDistros/Service/E_ACCESSDENIED_FUTURE"
+    )
+
+    assert result.status is CapabilityStatus.ERROR
+    assert result.error is not None
+    assert result.error.code is DiscoveryErrorCode.COLLECTOR_FAILURE
+    assert result.error.details["reason_code"] is None
+
+
+def test_access_denial_machine_code_is_not_classified_after_output_limit():
+    code = b"Wsl/EnumerateDistros/Service/E_ACCESSDENIED"
+    completed = subprocess.CompletedProcess(
+        ["wsl.exe"],
+        0xFFFFFFFF,
+        stdout=code + b"x",
+        stderr=b"",
+    )
+    runner = WslCommandRunner(
+        executor=RecordingExecutor(result=completed),
+        max_output_bytes=len(code),
+    )
+
+    result = runner.run(CommandId.WSL_LIST_VERBOSE)
+
+    assert result.status is CapabilityStatus.ERROR
+    assert result.error is not None
+    assert result.error.code is DiscoveryErrorCode.INVALID_DATA
+    assert result.error.details["reason_code"] == "OUTPUT_TOO_LARGE"
+    assert result.stdout == ""
+
+
+def test_classified_failure_serializes_only_stable_reason_code():
+    raw_context = (
+        "private-prefix token=do-not-store "
+        "Wsl/EnumerateDistros/Service/E_ACCESSDENIED private-suffix"
+    )
+
+    result = _nonzero_execution(stderr=raw_context.encode("utf-8"))
+    encoded = str(result.to_dict())
+
+    assert result.stdout == ""
+    assert "WSL_E_ACCESSDENIED" in encoded
+    assert "Wsl/EnumerateDistros/Service/E_ACCESSDENIED" not in encoded
+    assert "private-prefix" not in encoded
+    assert "private-suffix" not in encoded
+    assert "do-not-store" not in encoded
+    assert "environment" not in encoded.lower()
 
 
 def test_utf16le_bom_output_is_decoded_for_windows_wsl_compatibility():
