@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
 import urllib.request
 from datetime import UTC, datetime
 
@@ -14,7 +15,11 @@ from agentguard.discovery import (
     DiscoveryError,
     DiscoveryErrorCode,
 )
-from agentguard.discovery.command_runner import CommandExecution, CommandId
+from agentguard.discovery.command_runner import (
+    CommandExecution,
+    CommandId,
+    WslCommandRunner,
+)
 from agentguard.discovery.domains.windows import WindowsAdapter
 
 OBSERVED_AT = "2026-08-02T10:30:00+00:00"
@@ -189,6 +194,24 @@ def test_permission_timeout_and_nonzero_list_failures_remain_distinct():
         runner = FakeRunner([_failure(CommandId.WSL_LIST_VERBOSE, runner_status, code, returncode=1)])
         snapshot = _adapter(runner).discover()
         assert snapshot.status is expected
+
+
+def test_real_runner_access_denial_result_remains_permission_denied_in_adapter():
+    completed = subprocess.CompletedProcess(
+        ["wsl.exe"],
+        0xFFFFFFFF,
+        stdout="Wsl/EnumerateDistros/Service/E_ACCESSDENIED".encode("utf-16le"),
+        stderr=b"",
+    )
+    execution = WslCommandRunner(executor=lambda *_args, **_kwargs: completed).run(
+        CommandId.WSL_LIST_VERBOSE
+    )
+
+    snapshot = _adapter(FakeRunner([execution])).discover()
+
+    assert snapshot.status is CapabilityStatus.PERMISSION_DENIED
+    assert snapshot.errors[0].code is DiscoveryErrorCode.PERMISSION_DENIED
+    assert snapshot.errors[0].details["reason_code"] == "WSL_E_ACCESSDENIED"
 
 
 def test_stopped_distro_is_not_started_without_explicit_authorization():
