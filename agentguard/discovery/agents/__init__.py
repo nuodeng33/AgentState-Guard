@@ -26,12 +26,17 @@ from .models import (
     normalize_process_create_time,
 )
 from .processes import (
+    ProcessAccessDeniedError,
     ProcessBackend,
+    ProcessBackendUnavailableError,
     ProcessCollectionResult,
     ProcessCollector,
+    ProcessCollectorFailure,
     ProcessHandle,
+    ProcessZombieError,
     build_process_relationships,
 )
+from .psutil_backend import PsutilProcessBackend, PsutilProcessHandle
 from .workspaces import (
     deduplicate_workspace_candidates,
     unavailable_workspace_candidate,
@@ -47,14 +52,20 @@ __all__ = [
     "AgentRole",
     "AgentSignatureRule",
     "ExecutableIdentityKind",
+    "ProcessAccessDeniedError",
     "ProcessBackend",
+    "ProcessBackendUnavailableError",
     "ProcessCollectionResult",
     "ProcessCollector",
+    "ProcessCollectorFailure",
     "ProcessFact",
     "ProcessHandle",
     "ProcessRelationship",
     "ProcessState",
     "ProcessWarningCode",
+    "ProcessZombieError",
+    "PsutilProcessBackend",
+    "PsutilProcessHandle",
     "WorkspaceCandidate",
     "WorkspacePathKind",
     "WorkspaceSource",

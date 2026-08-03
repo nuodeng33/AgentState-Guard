@@ -1,4 +1,4 @@
-"""Injected, read-only process fact collection without a concrete OS backend."""
+"""Injected, read-only process fact collection over bounded backends."""
 
 from __future__ import annotations
 
@@ -43,9 +43,25 @@ class ProcessHandle(Protocol):
 
 @runtime_checkable
 class ProcessBackend(Protocol):
-    """Abstract enumeration backend; no psutil dependency is declared in P3A."""
+    """Abstract enumeration backend for privacy-safe process handles."""
 
     def iter_processes(self) -> Iterable[ProcessHandle]: ...
+
+
+class ProcessBackendUnavailableError(NotImplementedError):
+    """The configured process backend dependency is unavailable."""
+
+
+class ProcessAccessDeniedError(PermissionError):
+    """A backend denied one bounded process metadata read."""
+
+
+class ProcessZombieError(ProcessLookupError):
+    """A backend observed a zombie process instance."""
+
+
+class ProcessCollectorFailure(RuntimeError):
+    """A backend failed without exposing its original diagnostic text."""
 
 
 @dataclass(frozen=True)
@@ -94,6 +110,16 @@ class ProcessCollector:
         observed_at = _as_utc(self._clock())
         try:
             handles = tuple(self._backend.iter_processes())
+        except ProcessBackendUnavailableError:
+            error = _collector_error(
+                DiscoveryErrorCode.UNSUPPORTED,
+                self._collector,
+                "PROCESS_BACKEND_UNAVAILABLE",
+            )
+            return ProcessCollectionResult(
+                errors=(error,),
+                status=CapabilityStatus.UNSUPPORTED,
+            )
         except NotImplementedError:
             error = _collector_error(
                 DiscoveryErrorCode.UNSUPPORTED,
@@ -101,6 +127,16 @@ class ProcessCollector:
                 "PROCESS_ENUMERATION_UNSUPPORTED",
             )
             return ProcessCollectionResult(errors=(error,), status=CapabilityStatus.UNSUPPORTED)
+        except ProcessAccessDeniedError:
+            error = _collector_error(
+                DiscoveryErrorCode.PERMISSION_DENIED,
+                self._collector,
+                "PROCESS_ACCESS_DENIED",
+            )
+            return ProcessCollectionResult(
+                errors=(error,),
+                status=CapabilityStatus.PERMISSION_DENIED,
+            )
         except PermissionError:
             error = _collector_error(
                 DiscoveryErrorCode.PERMISSION_DENIED,
@@ -111,6 +147,13 @@ class ProcessCollector:
                 errors=(error,),
                 status=CapabilityStatus.PERMISSION_DENIED,
             )
+        except ProcessCollectorFailure:
+            error = _collector_error(
+                DiscoveryErrorCode.COLLECTOR_FAILURE,
+                self._collector,
+                "PROCESS_COLLECTOR_FAILURE",
+            )
+            return ProcessCollectionResult(errors=(error,), status=CapabilityStatus.ERROR)
         except Exception:  # noqa: BLE001 - enumeration failures are isolated
             error = _collector_error(
                 DiscoveryErrorCode.COLLECTOR_FAILURE,
@@ -161,6 +204,20 @@ class ProcessCollector:
         pid = _safe_pid(getattr(handle, "pid", -1))
         try:
             create_time = normalize_process_create_time(handle.create_time())
+        except ProcessZombieError:
+            error = _process_error(
+                DiscoveryErrorCode.NOT_PRESENT,
+                self._collector,
+                "PROCESS_ZOMBIE",
+            )
+            return (*self._unavailable_fact(
+                pid=pid,
+                observed_at=observed_at,
+                state=ProcessState.EXITED,
+                access=CapabilityStatus.DEGRADED,
+                warning=ProcessWarningCode.PARTIAL_VISIBILITY,
+                error=error,
+            ), ())
         except ProcessLookupError:
             error = _process_error(
                 DiscoveryErrorCode.NOT_PRESENT,
@@ -173,6 +230,20 @@ class ProcessCollector:
                 state=ProcessState.EXITED,
                 access=CapabilityStatus.NOT_PRESENT,
                 warning=ProcessWarningCode.PROCESS_EXITED,
+                error=error,
+            ), ())
+        except ProcessAccessDeniedError:
+            error = _process_error(
+                DiscoveryErrorCode.PERMISSION_DENIED,
+                self._collector,
+                "PROCESS_ACCESS_DENIED",
+            )
+            return (*self._unavailable_fact(
+                pid=pid,
+                observed_at=observed_at,
+                state=ProcessState.UNKNOWN,
+                access=CapabilityStatus.PERMISSION_DENIED,
+                warning=ProcessWarningCode.PARTIAL_VISIBILITY,
                 error=error,
             ), ())
         except PermissionError:
@@ -193,7 +264,7 @@ class ProcessCollector:
             error = _process_error(
                 DiscoveryErrorCode.UNSUPPORTED,
                 self._collector,
-                "PROCESS_METADATA_UNSUPPORTED",
+                "PROCESS_FIELD_UNSUPPORTED",
             )
             return (*self._unavailable_fact(
                 pid=pid,
@@ -207,7 +278,7 @@ class ProcessCollector:
             error = _process_error(
                 DiscoveryErrorCode.COLLECTOR_FAILURE,
                 self._collector,
-                "PROCESS_METADATA_FAILED",
+                "PROCESS_COLLECTOR_FAILURE",
             )
             return (*self._unavailable_fact(
                 pid=pid,
@@ -260,11 +331,36 @@ class ProcessCollector:
             evidence_id,
             errors,
         )
+        validation_state, validation_access, validation_error = (
+            self._validate_instance(handle, create_time)
+        )
+        if validation_error is not None:
+            errors.insert(0, validation_error)
+        instance_replaced = (
+            validation_error is not None
+            and validation_error.details.get("reason_code")
+            == "PROCESS_INSTANCE_REPLACED"
+        )
+        if instance_replaced:
+            parent_pid = None
+            safe_basename = None
+            safe_identity = None
+            identity_kind = ExecutableIdentityKind.UNKNOWN
+            safe_fixed = {}
+            workspace_candidates = ()
+        zombie_during_read = any(
+            error.details.get("reason_code") == "PROCESS_ZOMBIE"
+            for error in errors
+        )
         exited_during_read = any(
             error.code is DiscoveryErrorCode.NOT_PRESENT for error in errors
         )
         access = (
-            CapabilityStatus.NOT_PRESENT
+            validation_access
+            if validation_access is not None
+            else CapabilityStatus.DEGRADED
+            if zombie_during_read
+            else CapabilityStatus.NOT_PRESENT
             if exited_during_read
             else CapabilityStatus.DEGRADED
             if errors
@@ -289,7 +385,11 @@ class ProcessCollector:
             create_time=create_time,
             execution_domain_id=self._execution_domain_id,
             current_state=(
-                ProcessState.EXITED if exited_during_read else ProcessState.RUNNING
+                validation_state
+                if validation_state is not None
+                else ProcessState.EXITED
+                if exited_during_read or zombie_during_read
+                else ProcessState.RUNNING
             ),
             evidence_refs=(evidence_id,),
             access_status=access,
@@ -315,10 +415,18 @@ class ProcessCollector:
 
         try:
             cwd = handle.cwd()
+        except ProcessZombieError:
+            status = CapabilityStatus.NOT_PRESENT
+            reason = "PROCESS_ZOMBIE"
+            code = DiscoveryErrorCode.NOT_PRESENT
         except ProcessLookupError:
             status = CapabilityStatus.NOT_PRESENT
             reason = "PROCESS_EXITED"
             code = DiscoveryErrorCode.NOT_PRESENT
+        except ProcessAccessDeniedError:
+            status = CapabilityStatus.PERMISSION_DENIED
+            reason = "PROCESS_ACCESS_DENIED"
+            code = DiscoveryErrorCode.PERMISSION_DENIED
         except PermissionError:
             status = CapabilityStatus.PERMISSION_DENIED
             reason = "PROCESS_CWD_PERMISSION_DENIED"
@@ -363,12 +471,28 @@ class ProcessCollector:
     def _optional_value(self, reader: Callable[[], Any], errors: list[DiscoveryError]) -> Any:
         try:
             return reader()
+        except ProcessZombieError:
+            errors.append(
+                _process_error(
+                    DiscoveryErrorCode.NOT_PRESENT,
+                    self._collector,
+                    "PROCESS_ZOMBIE",
+                )
+            )
         except ProcessLookupError:
             errors.append(
                 _process_error(
                     DiscoveryErrorCode.NOT_PRESENT,
                     self._collector,
                     "PROCESS_EXITED",
+                )
+            )
+        except ProcessAccessDeniedError:
+            errors.append(
+                _process_error(
+                    DiscoveryErrorCode.PERMISSION_DENIED,
+                    self._collector,
+                    "PROCESS_ACCESS_DENIED",
                 )
             )
         except PermissionError:
@@ -392,10 +516,89 @@ class ProcessCollector:
                 _process_error(
                     DiscoveryErrorCode.COLLECTOR_FAILURE,
                     self._collector,
-                    "PROCESS_FIELD_FAILED",
+                    "PROCESS_COLLECTOR_FAILURE",
                 )
             )
         return None
+
+    def _validate_instance(
+        self,
+        handle: ProcessHandle,
+        expected_create_time: datetime,
+    ) -> tuple[ProcessState | None, CapabilityStatus | None, DiscoveryError | None]:
+        try:
+            current_create_time = normalize_process_create_time(handle.create_time())
+        except ProcessZombieError:
+            return (
+                ProcessState.EXITED,
+                CapabilityStatus.DEGRADED,
+                _process_error(
+                    DiscoveryErrorCode.NOT_PRESENT,
+                    self._collector,
+                    "PROCESS_ZOMBIE",
+                ),
+            )
+        except ProcessLookupError:
+            return (
+                ProcessState.EXITED,
+                CapabilityStatus.NOT_PRESENT,
+                _process_error(
+                    DiscoveryErrorCode.NOT_PRESENT,
+                    self._collector,
+                    "PROCESS_EXITED",
+                ),
+            )
+        except ProcessAccessDeniedError:
+            return (
+                ProcessState.UNKNOWN,
+                CapabilityStatus.DEGRADED,
+                _process_error(
+                    DiscoveryErrorCode.PERMISSION_DENIED,
+                    self._collector,
+                    "PROCESS_ACCESS_DENIED",
+                ),
+            )
+        except PermissionError:
+            return (
+                ProcessState.UNKNOWN,
+                CapabilityStatus.DEGRADED,
+                _process_error(
+                    DiscoveryErrorCode.PERMISSION_DENIED,
+                    self._collector,
+                    "PROCESS_FIELD_PERMISSION_DENIED",
+                ),
+            )
+        except NotImplementedError:
+            return (
+                ProcessState.UNKNOWN,
+                CapabilityStatus.DEGRADED,
+                _process_error(
+                    DiscoveryErrorCode.UNSUPPORTED,
+                    self._collector,
+                    "PROCESS_FIELD_UNSUPPORTED",
+                ),
+            )
+        except Exception:  # noqa: BLE001 - validation remains fail-closed
+            return (
+                ProcessState.UNKNOWN,
+                CapabilityStatus.DEGRADED,
+                _process_error(
+                    DiscoveryErrorCode.COLLECTOR_FAILURE,
+                    self._collector,
+                    "PROCESS_COLLECTOR_FAILURE",
+                ),
+            )
+        if current_create_time != expected_create_time:
+            return (
+                ProcessState.EXITED,
+                CapabilityStatus.NOT_PRESENT,
+                _process_error(
+                    DiscoveryErrorCode.NOT_PRESENT,
+                    self._collector,
+                    "PROCESS_INSTANCE_REPLACED",
+                ),
+            )
+        return None, None, None
 
     def _unavailable_fact(
         self,
@@ -610,9 +813,13 @@ def _process_evidence(
 
 
 __all__ = [
+    "ProcessAccessDeniedError",
     "ProcessBackend",
+    "ProcessBackendUnavailableError",
     "ProcessCollectionResult",
     "ProcessCollector",
+    "ProcessCollectorFailure",
     "ProcessHandle",
+    "ProcessZombieError",
     "build_process_relationships",
 ]
