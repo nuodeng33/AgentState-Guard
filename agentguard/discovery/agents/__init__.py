@@ -1,5 +1,16 @@
 """Public R4-P3A Agent discovery contracts."""
 
+from .adapters import (
+    CloudCliAdapter,
+    CloudCliDetectionLevel,
+    CloudCliDiscoveryResult,
+    CloudCliMarker,
+    CloudCliMarkerKind,
+    CloudCliMarkerSource,
+    CloudCliMarkerVerification,
+    create_verified_cloudcli_marker,
+    parse_cloudcli_pid_marker,
+)
 from .base import (
     AgentAdapterRegistry,
     AgentAdapterRunResult,
@@ -51,6 +62,13 @@ __all__ = [
     "AgentDiscoveryAdapter",
     "AgentRole",
     "AgentSignatureRule",
+    "CloudCliAdapter",
+    "CloudCliDetectionLevel",
+    "CloudCliDiscoveryResult",
+    "CloudCliMarker",
+    "CloudCliMarkerKind",
+    "CloudCliMarkerSource",
+    "CloudCliMarkerVerification",
     "ExecutableIdentityKind",
     "ProcessAccessDeniedError",
     "ProcessBackend",
@@ -72,9 +90,11 @@ __all__ = [
     "build_process_relationships",
     "classify_executable",
     "classify_process",
+    "create_verified_cloudcli_marker",
     "deduplicate_workspace_candidates",
     "make_process_instance_id",
     "normalize_process_create_time",
+    "parse_cloudcli_pid_marker",
     "unavailable_workspace_candidate",
     "workspace_candidate_from_path",
 ]
