@@ -15,6 +15,7 @@ from agentguard.discovery.agents import (
     ProcessCollector,
     ProcessState,
     PsutilProcessBackend,
+    WorkspacePathKind,
 )
 
 
@@ -50,7 +51,21 @@ def test_real_psutil_finds_current_python_with_stable_private_fact():
         for item in first.workspace_candidates
         if current.evidence_refs[0] in item.evidence_refs
     )
-    assert workspace.path_hint is None or workspace.path_hint.startswith("~")
+    assert workspace.sanitized is True
+    if workspace.path_hint is None:
+        assert workspace.path_kind is WorkspacePathKind.UNKNOWN
+    else:
+        cwd = Path.cwd()
+        try:
+            cwd.relative_to(Path.home())
+        except ValueError:
+            assert workspace.path_hint == os.path.normpath(os.getcwd())
+            assert workspace.path_kind is WorkspacePathKind.NATIVE
+        else:
+            assert workspace.path_hint == "~" or workspace.path_hint.startswith(
+                ("~/", "~\\")
+            )
+            assert workspace.path_kind is WorkspacePathKind.REDACTED
     encoded = str(first.to_dict()).casefold()
     for forbidden in (
         "command_line",
