@@ -102,9 +102,9 @@ class TestMigrations:
             conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT, checksum TEXT, duration_ms INTEGER)")
             conn.commit()
             engine = MigrationEngine(db_path)
-            engine.register(Migration(3, "Custom test", "CREATE TABLE custom_test (id INTEGER)", "DROP TABLE custom_test"))
+            engine.register(Migration(4, "Custom test", "CREATE TABLE custom_test (id INTEGER)", "DROP TABLE custom_test"))
             engine.migrate(conn)
-            assert engine.current_version(conn) == 3
+            assert engine.current_version(conn) == 4
             tables = conn.execute("SELECT name FROM sqlite_master WHERE name='custom_test'").fetchall()
             assert len(tables) == 1
         finally:
