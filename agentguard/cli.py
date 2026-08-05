@@ -243,6 +243,8 @@ def _dispatch(args: argparse.Namespace) -> Any:
             elif args.supervise_subcommand == "activate":
                 before = session.status
                 session = service.activate(args.session_id, args.checkpoint_id)
+                if session.status == before and session.status == "REJECTED":
+                    return _supervision_result(session, code="POLICY_BLOCK")
                 if session.status == before and before == "AWAITING_APPROVAL":
                     return _supervision_result(session, code="APPROVAL_REQUIRED")
                 if session.status == before and before in {"EVALUATED", "APPROVED"}:

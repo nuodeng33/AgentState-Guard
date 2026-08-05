@@ -60,6 +60,16 @@ def test_supervise_unknown_has_stable_code(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["code"] == "POLICY_UNKNOWN"
 
 
+def test_supervise_blocked_session_cannot_activate(tmp_path, capsys):
+    assert main(_create_args(tmp_path, "--secret-access", "true")) == 1
+    session_id = json.loads(capsys.readouterr().out)["session_id"]
+
+    assert main(["--json", "--directory", str(tmp_path), "supervise", "activate", session_id]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "REJECTED"
+    assert result["code"] == "POLICY_BLOCK"
+
+
 def test_supervise_show_reject_and_fail_follow_lifecycle(tmp_path, capsys):
     args = _create_args(tmp_path, "--intent-kind", "change", "--effect-kind", "provider_config_change")
     assert main(args) == 0
