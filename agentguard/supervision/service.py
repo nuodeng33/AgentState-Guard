@@ -69,14 +69,18 @@ class SupervisionService:
         now = datetime.now(UTC)
         with self._database.transaction() as connection:
             row = connection.execute(
-                """SELECT status, requires_checkpoint FROM supervision_sessions
+                """SELECT status, decision, requires_checkpoint FROM supervision_sessions
                    WHERE supervision_session_id = ?""",
                 (session_id,),
             ).fetchone()
             if row is None:
                 raise KeyError("SUPERVISION_SESSION_NOT_FOUND")
-            status, requires_checkpoint = row
-            if status not in {"APPROVED", "EVALUATED"} or (requires_checkpoint and not checkpoint_id):
+            status, decision, requires_checkpoint = row
+            if (
+                status not in {"APPROVED", "EVALUATED"}
+                or decision in {Decision.BLOCK.value, Decision.UNKNOWN.value}
+                or (requires_checkpoint and not checkpoint_id)
+            ):
                 return SupervisionSession(session_id, status)
             updated = connection.execute(
                 """UPDATE supervision_sessions SET status = ?, updated_at = ?
