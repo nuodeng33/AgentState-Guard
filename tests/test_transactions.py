@@ -4,8 +4,8 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from agentguard.transactions.coverage import compute_coverage, coverage_summary
 from agentguard.core.whitelist import Whitelist
+from agentguard.transactions.coverage import compute_coverage, coverage_summary
 
 
 class TestCoverage:
@@ -88,6 +88,23 @@ class TestTransactionEngine:
         assert result["status"] == "planned"
         assert result["transaction_id"] >= 1
 
+    def test_create_plan_records_warning_as_legacy_safe_detail(self):
+        self._setup()
+        from agentguard.storage.audit import get_events, verify_chain
+        from agentguard.transactions.engine import TransactionEngine
+
+        engine = TransactionEngine(self.db, self.snapshots, self.config)
+        result = engine.create_plan("warning plan", ["/outside-whitelist"])
+
+        assert result["status"] == "planned"
+        event = get_events(self.db._conn, event_type="transaction.plan")[0]
+        assert event["result"] == "success"
+        details = self.db._conn.execute(
+            "SELECT details_safe FROM audit_events WHERE event_type = 'transaction.plan'"
+        ).fetchone()[0]
+        assert "success_with_warnings" in details
+        assert verify_chain(self.db._conn) == []
+
     def test_transition_valid(self):
         self._setup()
         from agentguard.transactions.engine import TransactionEngine
@@ -105,7 +122,7 @@ class TestTransactionEngine:
         engine = TransactionEngine(self.db, self.snapshots, self.config)
         plan = engine.create_plan("invalid test", [])
         txn_id = plan["transaction_id"]
-        r = engine.verify(txn_id)  # planned -> verifying is invalid
+        r = engine.verify(txn_id)
         assert r["status"] == "error"
 
     def test_list_transactions(self):

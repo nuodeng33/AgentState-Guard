@@ -1,20 +1,15 @@
 """Transaction engine — plan, apply, verify, commit, rollback state machine."""
 
-import json
-import os
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..core.hasher import hash_file
-from ..core.snapshot import create_file_snapshot, serialize_snapshot, diff_snapshots
 from ..core.whitelist import Whitelist
-from ..core.runner import run_command
+from ..storage.audit import append_event
 from ..storage.db import StateDB
 from ..storage.snapshots import SnapshotStore
-from ..storage.audit import append_event
-from .coverage import compute_coverage, coverage_summary
+from .coverage import compute_coverage
 
 VALID_TRANSITIONS = {
     "planned": ["preflight_failed", "ready", "applying", "cancelled"],
@@ -41,7 +36,7 @@ class TransactionEngine:
         self.config = config
         self.conn = db._conn
 
-    def _transition(self, txn_id: int, new_status: str) -> Dict[str, Any]:
+    def _transition(self, txn_id: int, new_status: str) -> dict[str, Any]:
         """Attempt state transition. Returns result dict."""
         row = self.conn.execute(
             "SELECT id, status FROM transactions WHERE id = ?", (txn_id,)
@@ -59,7 +54,7 @@ class TransactionEngine:
                 "allowed": allowed,
             }
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             "UPDATE transactions SET status = ?, completed_at = ? WHERE id = ?",
             (new_status, now, txn_id),
@@ -70,9 +65,9 @@ class TransactionEngine:
     def create_plan(
         self,
         label: str,
-        files_to_modify: List[str],
-        command_summary: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        files_to_modify: list[str],
+        command_summary: str | None = None,
+    ) -> dict[str, Any]:
         """Create a new transaction plan with coverage computation.
 
         Steps:
@@ -102,7 +97,7 @@ class TransactionEngine:
         )
 
         # Create transaction
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cur = self.conn.execute(
             """INSERT INTO transactions
                (status, label, created_at, rollback_coverage, pre_checkpoint)
@@ -114,9 +109,22 @@ class TransactionEngine:
         txn_id = cur.lastrowid
 
         # Audit event
-        append_event(self.conn, "transaction.plan", "cli",
-                     "success" if not coverage.get("not_recoverable") else "success_with_warnings",
-                     {"txn_id": txn_id, "label": label, "coverage": coverage.get("coverage_label")})
+        append_event(
+            self.conn,
+            "transaction.plan",
+            "cli",
+            "success",
+            {
+                "txn_id": txn_id,
+                "label": label,
+                "coverage": coverage.get("coverage_label"),
+                "legacy_result": (
+                    "success_with_warnings"
+                    if coverage.get("not_recoverable")
+                    else None
+                ),
+            },
+        )
 
         return {
             "transaction_id": txn_id,
@@ -126,7 +134,7 @@ class TransactionEngine:
             "pre_checkpoint_id": pre_cp_result.get("checkpoint_id"),
         }
 
-    def apply(self, txn_id: int) -> Dict[str, Any]:
+    def apply(self, txn_id: int) -> dict[str, Any]:
         """Mark a planned transaction as applying (the CLI/GUI will execute steps)."""
         result = self._transition(txn_id, "applying")
         if result["status"] != "ok":
@@ -136,7 +144,7 @@ class TransactionEngine:
                      {"txn_id": txn_id})
         return {"status": "ok", "message": "Transaction set to applying", "txn_id": txn_id}
 
-    def verify(self, txn_id: int) -> Dict[str, Any]:
+    def verify(self, txn_id: int) -> dict[str, Any]:
         """Verify a transaction's file changes (hash comparison) and commit."""
         # Must be in applying state first
         txn = self.conn.execute(
@@ -161,7 +169,7 @@ class TransactionEngine:
 
         issues = []
         for step in steps:
-            step_id, file_path, step_status = step
+            step_id, file_path, _step_status = step
             if file_path and Path(file_path).is_file():
                 current = hash_file(Path(file_path))
                 if current:
@@ -181,7 +189,7 @@ class TransactionEngine:
                      {"txn_id": txn_id})
         return {"status": "ok", "message": "Transaction committed", "txn_id": txn_id}
 
-    def undo(self, txn_id: int, yes: bool = False) -> Dict[str, Any]:
+    def undo(self, txn_id: int, yes: bool = False) -> dict[str, Any]:
         """Undo a committed transaction by restoring pre-checkpoint files.
 
         For now, undo = restore the pre-checkpoint if it exists.
@@ -215,7 +223,7 @@ class TransactionEngine:
         errors = []
         restored_count = 0
         for step in steps:
-            step_id, file_path = step
+            _step_id, file_path = step
             if file_path and Path(file_path).exists():
                 result = cmd_restore(
                     target_path=file_path,
@@ -243,7 +251,7 @@ class TransactionEngine:
         return {"status": "ok", "message": "Transaction undone", "txn_id": txn_id,
                 "restored": restored_count}
 
-    def list_transactions(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def list_transactions(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT id, status, label, created_at, completed_at, rollback_coverage, "
             "pre_checkpoint FROM transactions ORDER BY id DESC LIMIT ?",
@@ -262,7 +270,7 @@ class TransactionEngine:
             for r in rows
         ]
 
-    def get_transaction(self, txn_id: int) -> Optional[Dict[str, Any]]:
+    def get_transaction(self, txn_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
             "SELECT id, status, label, created_at, completed_at, "
             "rollback_coverage, rollback_reason, pre_checkpoint, post_checkpoint "
@@ -293,7 +301,7 @@ class TransactionEngine:
             ],
         }
 
-    def _create_pre_checkpoint(self, label: str) -> Dict[str, Any]:
+    def _create_pre_checkpoint(self, label: str) -> dict[str, Any]:
         """Create a pre-transaction checkpoint."""
         from ..commands.checkpoint import cmd_checkpoint
         result = cmd_checkpoint(f"pre-txn: {label[:200]}", self.config, self.db, self.snapshots)
@@ -301,7 +309,7 @@ class TransactionEngine:
             return {"error": result["message"]}
         return {"checkpoint_id": result["checkpoint_id"]}
 
-    def _load_checkpoint_data(self, cp_id: int) -> Optional[dict]:
+    def _load_checkpoint_data(self, cp_id: int) -> dict | None:
         """Load checkpoint snapshot data."""
         cp = self.db.get_checkpoint(cp_id)
         if not cp:

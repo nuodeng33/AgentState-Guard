@@ -5,17 +5,32 @@ Migrations run in transactions; failure triggers automatic rollback.
 """
 
 import sqlite3
-import re
 import textwrap
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
+
+def _iter_statements(script: str) -> Iterator[str]:
+    """Yield complete SQLite statements without splitting quoted SQL text."""
+    buffer = ""
+    for line in textwrap.dedent(script).splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            statement = buffer.strip()
+            if statement:
+                yield statement
+            buffer = ""
+    statement = buffer.strip()
+    if statement:
+        yield statement
 
 
 class Migration:
     """A single schema migration step."""
 
-    def __init__(self, version: int, name: str, forward: str, backward: Optional[str] = None):
+    def __init__(self, version: int, name: str, forward: str, backward: str | None = None):
         self.version = version
         self.name = name
         self.forward_sql = textwrap.dedent(forward).strip()
@@ -31,7 +46,7 @@ class MigrationEngine:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
-        self._migrations: Dict[int, Migration] = {}
+        self._migrations: dict[int, Migration] = {}
         self._register_defaults()
 
     def _register_defaults(self) -> None:
@@ -170,11 +185,15 @@ class MigrationEngine:
         row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
         return row[0] if row and row[0] else 0
 
-    def pending(self, conn: sqlite3.Connection) -> List[Migration]:
+    def pending(self, conn: sqlite3.Connection) -> list[Migration]:
         current = self.current_version(conn)
         return [m for v, m in sorted(self._migrations.items()) if v > current]
 
-    def migrate(self, conn: sqlite3.Connection, target: Optional[int] = None) -> Dict[str, Any]:
+    def _execute_script(self, conn: sqlite3.Connection, script: str) -> None:
+        for statement in _iter_statements(script):
+            conn.execute(statement)
+
+    def migrate(self, conn: sqlite3.Connection, target: int | None = None) -> dict[str, Any]:
         """Run pending migrations up to target (or all)."""
         current = self.current_version(conn)
         results = {"applied": [], "errors": [], "rolled_back": []}
@@ -184,13 +203,13 @@ class MigrationEngine:
 
         for migration in pending:
             try:
-                start = datetime.now(timezone.utc)
-                conn.execute("BEGIN")
-                conn.executescript(migration.forward_sql)
+                start = datetime.now(UTC)
+                conn.execute("BEGIN IMMEDIATE")
+                self._execute_script(conn, migration.forward_sql)
                 # Record migration
                 import hashlib
                 checksum = hashlib.sha256(migration.forward_sql.encode()).hexdigest()[:16]
-                duration = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+                duration = int((datetime.now(UTC) - start).total_seconds() * 1000)
                 conn.execute(
                     "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at, checksum, duration_ms) "
                     "VALUES (?, ?, ?, ?, ?)",
@@ -198,14 +217,14 @@ class MigrationEngine:
                 )
                 conn.commit()
                 results["applied"].append(migration.description)
-            except Exception as e:
+            except sqlite3.Error as exc:
                 conn.rollback()
-                results["errors"].append(f"{migration.description}: {e}")
+                results["errors"].append(f"{migration.description}: {exc}")
                 break
 
         return results
 
-    def rollback(self, conn: sqlite3.Connection, target_version: int) -> Dict[str, Any]:
+    def rollback(self, conn: sqlite3.Connection, target_version: int) -> dict[str, Any]:
         """Roll back migrations down to target_version."""
         current = self.current_version(conn)
         results = {"rolled_back": [], "errors": []}
@@ -218,15 +237,15 @@ class MigrationEngine:
 
         for migration in to_rollback:
             try:
-                conn.execute("BEGIN")
-                conn.executescript(migration.backward_sql)
+                conn.execute("BEGIN IMMEDIATE")
+                self._execute_script(conn, migration.backward_sql)
                 conn.execute("DELETE FROM schema_migrations WHERE version = ?",
                              (migration.version,))
                 conn.commit()
                 results["rolled_back"].append(migration.description)
-            except Exception as e:
+            except sqlite3.Error as exc:
                 conn.rollback()
-                results["errors"].append(f"{migration.description}: {e}")
+                results["errors"].append(f"{migration.description}: {exc}")
                 break
 
         return results

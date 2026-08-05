@@ -1,9 +1,11 @@
 """SQLite database for checkpoint metadata."""
 
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 class StateDB:
@@ -11,7 +13,8 @@ class StateDB:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
+        self._transaction_active = False
 
     def connect(self) -> None:
         """Open or create the SQLite database with migrations."""
@@ -33,12 +36,40 @@ class StateDB:
                 duration_ms INTEGER
             )
         """)
-        self._conn.commit()
+        self._commit_if_not_managed()
         from .migrations import MigrationEngine
         engine = MigrationEngine(self.db_path)
         results = engine.migrate(self._conn)
         if results.get("errors"):
             raise RuntimeError(f"Schema migration failed: {results['errors']}")
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Run one explicit immediate transaction owned by this StateDB."""
+        if self._conn is None:
+            raise RuntimeError("Database is not connected")
+        if self._transaction_active:
+            raise RuntimeError("Nested transactions are not supported")
+        if self._conn.in_transaction:
+            raise RuntimeError("Cannot start a transaction inside an existing transaction")
+
+        self._transaction_active = True
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield self._conn
+            except BaseException:
+                self._conn.rollback()
+                raise
+            else:
+                self._conn.commit()
+        finally:
+            self._transaction_active = False
+
+    def _commit_if_not_managed(self) -> None:
+        if not self._transaction_active:
+            assert self._conn is not None
+            self._conn.commit()
 
     def close(self) -> None:
         if self._conn:
@@ -73,7 +104,7 @@ class StateDB:
             CREATE INDEX IF NOT EXISTS idx_checkpoints_created
                 ON checkpoints(created_at DESC);
         """)
-        self._conn.commit()
+        self._commit_if_not_managed()
 
     def insert_checkpoint(
         self,
@@ -81,9 +112,9 @@ class StateDB:
         snapshot_relative: str,
         hash_sha256: str,
         file_count: int,
-        versions: Dict[str, Optional[str]],
-        git_branch: Optional[str],
-        git_commit: Optional[str],
+        versions: dict[str, str | None],
+        git_branch: str | None,
+        git_commit: str | None,
     ) -> int:
         """Insert a checkpoint record, return its ID."""
         assert self._conn is not None
@@ -95,7 +126,7 @@ class StateDB:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 label,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 snapshot_relative,
                 hash_sha256,
                 file_count,
@@ -104,10 +135,10 @@ class StateDB:
                 git_commit,
             ),
         )
-        self._conn.commit()
+        self._commit_if_not_managed()
         return cur.lastrowid
 
-    def list_checkpoints(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def list_checkpoints(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return recent checkpoint records."""
         assert self._conn is not None
         rows = self._conn.execute(
@@ -131,7 +162,7 @@ class StateDB:
             for r in rows
         ]
 
-    def get_checkpoint(self, checkpoint_id: int) -> Optional[Dict[str, Any]]:
+    def get_checkpoint(self, checkpoint_id: int) -> dict[str, Any] | None:
         """Return a single checkpoint by ID."""
         assert self._conn is not None
         r = self._conn.execute(
@@ -156,8 +187,8 @@ class StateDB:
         self,
         checkpoint_id: int,
         file_path: str,
-        hash_before: Optional[str],
-        hash_after: Optional[str],
+        hash_before: str | None,
+        hash_after: str | None,
         status: str,
     ) -> None:
         """Record a restore operation."""
@@ -169,10 +200,10 @@ class StateDB:
             (
                 checkpoint_id,
                 file_path,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 hash_before,
                 hash_after,
                 status,
             ),
         )
-        self._conn.commit()
+        self._commit_if_not_managed()
