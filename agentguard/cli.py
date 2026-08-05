@@ -4,25 +4,24 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from .core.config import Config
-from .storage.db import StateDB
-from .storage.snapshots import SnapshotStore
-
-# Lazy imports for commands
-from .commands.status import status as _status
-from .commands.doctor import doctor as _doctor
 from .commands.checkpoint import cmd_checkpoint
 from .commands.diff import cmd_diff
-from .commands.restore import cmd_restore
-from .commands.report import cmd_report
-from .commands.update_state import cmd_update_state
+from .commands.doctor import doctor as _doctor
 from .commands.host_import import cmd_host_import
+from .commands.restore import cmd_restore
+from .commands.status import status as _status
+from .core.config import Config
 from .core.whitelist import Whitelist
+from .policy.engine import evaluate as evaluate_policy
+from .policy.models import Decision, PolicyInput
+from .storage.db import StateDB
+from .storage.snapshots import SnapshotStore
+from .supervision.service import SupervisionService
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
@@ -34,7 +33,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         result = _dispatch(args)
         _output(result, args.json)
         return 0 if _is_success(result) else 1
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: {e}", file=sys.stderr)
         if args.debug:
             import traceback
@@ -139,7 +138,66 @@ def _build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--allow-remote", action="store_true")
     sv.add_argument("--host", type=str, default=None)
 
+    # supervise
+    supervise = sub.add_parser("supervise", help="Run local supervision workflow")
+    supervise_sub = supervise.add_subparsers(dest="supervise_subcommand", required=True)
+    create = supervise_sub.add_parser("create", help="Create a supervised session")
+    _add_supervision_policy_arguments(create)
+    evaluate = supervise_sub.add_parser("evaluate", help="Evaluate structured local policy")
+    _add_supervision_policy_arguments(evaluate)
+    for action in ("show", "approve", "reject", "activate", "complete", "fail"):
+        command = supervise_sub.add_parser(action, help=f"{action.capitalize()} a supervision session")
+        command.add_argument("session_id", type=str)
+        if action == "activate":
+            command.add_argument("--checkpoint-id", type=str)
+
     return p
+
+
+def _add_supervision_policy_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--intent-kind", required=True)
+    parser.add_argument("--effect-kind", required=True)
+    parser.add_argument("--domain", required=True)
+    parser.add_argument("--target", action="append", required=True)
+    parser.add_argument("--scope", action="append", required=True)
+    parser.add_argument("--evidence-ref", action="append", default=["cli-evidence"])
+    parser.add_argument("--network-effect", choices=("true", "false"), required=True)
+    parser.add_argument("--privilege-effect", choices=("true", "false"), required=True)
+    parser.add_argument("--destructive-effect", choices=("true", "false"), required=True)
+    parser.add_argument("--secret-access", choices=("true", "false"), required=True)
+    parser.add_argument("--checkpoint-id")
+    parser.add_argument("--recovery-coverage", type=float, required=True)
+
+
+def _supervision_policy_input(args: argparse.Namespace) -> PolicyInput:
+    return PolicyInput(
+        intent_kind=args.intent_kind,
+        effect_kind=args.effect_kind,
+        target_refs=tuple(args.target),
+        execution_domain_id=args.domain or None,
+        declared_scope=tuple(args.scope),
+        requested_capabilities=(),
+        network_effect=args.network_effect == "true",
+        privilege_effect=args.privilege_effect == "true",
+        destructive_effect=args.destructive_effect == "true",
+        secret_access=args.secret_access == "true",
+        checkpoint_status="available" if args.checkpoint_id else "missing",
+        recovery_coverage=args.recovery_coverage,
+        evidence_refs=tuple(args.evidence_ref),
+    )
+
+
+def _supervision_result(session, decision: Decision | None = None, *, code: str | None = None) -> dict[str, Any]:
+    result = {
+        "supervision_session_id": session.supervision_session_id,
+        "session_id": session.supervision_session_id,
+        "status": session.status,
+    }
+    if decision is not None:
+        result["decision"] = decision.value
+    if code is not None:
+        result["code"] = code
+    return result
 
 
 def _dispatch(args: argparse.Namespace) -> Any:
@@ -149,6 +207,53 @@ def _dispatch(args: argparse.Namespace) -> Any:
 
     db = StateDB(config.state_db())
     snapshots = SnapshotStore(config.snapshot_dir())
+
+    if args.command == "supervise":
+        db.connect()
+        try:
+            service = SupervisionService(db)
+            if args.supervise_subcommand in {"create", "evaluate"}:
+                policy_input = _supervision_policy_input(args)
+                decision = evaluate_policy(policy_input)
+                session = service.create(args.intent_kind, decision)
+                result = _supervision_result(session, decision.decision)
+                result.update(
+                    {
+                        "matched_rule_ids": list(decision.matched_rule_ids),
+                        "summary_code": decision.summary_code,
+                        "requires_manual_approval": decision.requires_manual_approval,
+                        "requires_checkpoint": decision.requires_checkpoint,
+                        "checkpoint_id": args.checkpoint_id,
+                    }
+                )
+                if decision.decision is Decision.BLOCK:
+                    result["code"] = "POLICY_BLOCK"
+                    return result
+                if decision.decision is Decision.UNKNOWN:
+                    result["code"] = "POLICY_UNKNOWN"
+                    return result
+                return result
+            session = service._read(args.session_id)
+            if args.supervise_subcommand == "show":
+                return _supervision_result(session)
+            if args.supervise_subcommand == "approve":
+                session = service.approve(args.session_id)
+            elif args.supervise_subcommand == "reject":
+                session = service.reject(args.session_id)
+            elif args.supervise_subcommand == "activate":
+                before = session.status
+                session = service.activate(args.session_id, args.checkpoint_id)
+                if session.status == before and before == "AWAITING_APPROVAL":
+                    return _supervision_result(session, code="APPROVAL_REQUIRED")
+                if session.status == before and before in {"EVALUATED", "APPROVED"}:
+                    return _supervision_result(session, code="CHECKPOINT_REQUIRED")
+            elif args.supervise_subcommand == "complete":
+                session = service.complete(args.session_id)
+            elif args.supervise_subcommand == "fail":
+                session = service.fail(args.session_id)
+            return _supervision_result(session)
+        finally:
+            db.close()
 
     if args.command == "status":
         db.connect()
@@ -258,8 +363,6 @@ def _dispatch(args: argparse.Namespace) -> Any:
 
     elif args.command == "test-restore":
         db.connect()
-        from .commands.restore import cmd_restore
-        from .core.whitelist import Whitelist
         cp = db.get_checkpoint(args.checkpoint)
         if not cp:
             db.close()
@@ -281,8 +384,8 @@ def _dispatch(args: argparse.Namespace) -> Any:
 
     elif args.command == "gc":
         db.connect()
-        from .storage.gc import plan_gc, execute_gc
         from .storage.blob import BlobStore
+        from .storage.gc import execute_gc, plan_gc
         blob_store = BlobStore(config.snapshot_dir().parent / "blobs")
         plan = plan_gc(db._conn, blob_store)
         if args.execute:
@@ -371,7 +474,7 @@ def _output(result: Any, json_mode: bool) -> None:
     print(json.dumps(result, indent=2, default=str, ensure_ascii=False))
 
 
-def _print_status(result: Dict[str, Any]) -> None:
+def _print_status(result: dict[str, Any]) -> None:
     """Print status check results."""
     checks = result.get("checks", {})
     print("=== AgentState Guard Status ===\n")
@@ -404,7 +507,12 @@ def _print_checkpoints(cps: list) -> None:
 
 def _is_success(result: Any) -> bool:
     if isinstance(result, dict):
-        return "error" not in result
+        return "error" not in result and result.get("code") not in {
+            "POLICY_BLOCK",
+            "POLICY_UNKNOWN",
+            "APPROVAL_REQUIRED",
+            "CHECKPOINT_REQUIRED",
+        }
     if isinstance(result, list):
         return True
     return True
