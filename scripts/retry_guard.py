@@ -1,280 +1,217 @@
-#!/usr/bin/env python3
-"""Retry Guard — PreToolUse hook for Claude Code v2.1.
+"""Repository-local Retry Guard hook.
 
-Tracks failed command invocations and blocks the third identical failure
-when no new evidence has been gathered.
-
-State file: .claude/retry-guard-state.json
-
-Usage (PreToolUse):
-    python3 scripts/retry-guard.py pre <tool_name> <command_text>
-
-Usage (PostToolUse):
-    python3 scripts/retry-guard.py post <tool_name> <command_text> <exit_code> <stderr_sample>
-
-Default blocking rule:
-  - 3rd identical failure (same command fingerprint, same exit code)
-  - Git HEAD unchanged
-  - Working tree hash unchanged
-  - diagnosis ledger mtime unchanged
-
-Output:
-  - "ALLOW" with optional warning
-  - "BLOCK" with REPEATED_FAILURE_WITHOUT_NEW_EVIDENCE message
+The guard blocks a third identical failed command only when the repository
+HEAD, bounded working-tree evidence, and diagnosis evidence are unchanged.
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-
-STATE_DIR = Path(__file__).resolve().parent.parent / ".claude"
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+STATE_DIR = REPOSITORY_ROOT / ".claude"
 STATE_FILE = STATE_DIR / "retry-guard-state.json"
 MAX_FAILURES = 3
-
-# Commands never blocked
+MAX_UNTRACKED_BYTES = 65536
+IGNORED_PARTS = {
+    ".git", ".pytest_cache", "__pycache__", "node_modules", "dist", "build",
+    "coverage", ".venv", ".venv-validation",
+}
+SOURCE_OR_TEST_SUFFIXES = {".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json"}
+SENSITIVE_NAME = re.compile(
+    r"(?:^|[_./-])(credential|secret|token|password|private[_-]?key|api[_-]?key)(?:$|[_./-])",
+    re.IGNORECASE,
+)
 ALWAYS_ALLOW_PREFIXES = [
-    "git status",
-    "git diff",
-    "git log",
-    "git rev-parse",
-    "git show",
-    "git branch",
-    "git ls-files",
-    "gh run",
-    "gh pr view",
-    "python3 -m pytest -k ",
-    "python3 -m pytest tests/test_",
-    "cat ",
-    "ls ",
-    "find ",
-    "which ",
-    "head ",
-    "tail ",
-    "echo ",
-    "pwd",
-    "date",
+    "git status", "git diff", "git log", "git rev-parse", "git show", "git branch",
+    "git ls-files", "gh run", "gh pr view", "python3 -m pytest -k ",
+    "python3 -m pytest tests/test_", "cat ", "ls ", "find ", "which ", "head ",
+    "tail ", "echo ", "pwd", "date",
 ]
 
-# Commands that RESET failure count (success)
-RESET_ON_SUCCESS = True
+
+class StateCorruptionError(RuntimeError):
+    pass
+
+
+def _git(*args: str) -> bytes:
+    return subprocess.check_output(["git", *args], cwd=REPOSITORY_ROOT, stderr=subprocess.DEVNULL)
 
 
 def get_git_head() -> str:
     try:
-        return (
-            subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, cwd=STATE_DIR.parent
-            )
-            .decode()
-            .strip()
-        )
-    except Exception:
+        return _git("rev-parse", "HEAD").decode().strip()
+    except (OSError, subprocess.CalledProcessError):
         return "unknown"
 
 
-def get_working_tree_hash() -> str:
+def _ignored(path: Path) -> bool:
+    relative = path.relative_to(REPOSITORY_ROOT)
+    if relative == Path(".claude/retry-guard-state.json"):
+        return True
+    return any(part in IGNORED_PARTS or part.startswith(".venv-") for part in relative.parts)
+
+
+def _untracked_summary() -> bytes:
     try:
-        result = subprocess.check_output(
-            ["git", "diff", "--no-color", "--no-stat"],
-            stderr=subprocess.DEVNULL,
-            cwd=STATE_DIR.parent,
-        )
-        return hashlib.sha256(result).hexdigest()[:16]
-    except Exception:
+        names = _git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
+    except (OSError, subprocess.CalledProcessError):
+        return b""
+    digest = hashlib.sha256()
+    for raw_name in sorted(name for name in names if name):
+        relative = Path(os.fsdecode(raw_name))
+        path = REPOSITORY_ROOT / relative
+        if not path.is_file() or _ignored(path) or relative.suffix.lower() not in SOURCE_OR_TEST_SUFFIXES:
+            continue
+        digest.update(b"path\0")
+        digest.update(raw_name)
+        if SENSITIVE_NAME.search(relative.as_posix()):
+            digest.update(b"sensitive-present\0")
+            continue
+        digest.update(b"content\0")
+        with path.open("rb") as source:
+            digest.update(source.read(MAX_UNTRACKED_BYTES))
+    return digest.digest()
+
+
+def get_working_tree_hash() -> str:
+    """Return a bounded stable digest of staged, unstaged, and untracked evidence."""
+    try:
+        digest = hashlib.sha256()
+        digest.update(b"unstaged\0")
+        digest.update(_git("diff", "--no-color", "--binary"))
+        digest.update(b"staged\0")
+        digest.update(_git("diff", "--cached", "--no-color", "--binary"))
+        digest.update(b"untracked\0")
+        digest.update(_untracked_summary())
+        return digest.hexdigest()[:16]
+    except (OSError, subprocess.CalledProcessError):
         return "unknown"
 
 
 def get_diagnosis_ledger_mtime() -> str:
-    debug_dir = STATE_DIR.parent / "artifacts" / "debug"
+    debug_dir = REPOSITORY_ROOT / "artifacts" / "debug"
     if not debug_dir.exists():
         return "none"
-    diagnosis_files = list(debug_dir.rglob("diagnosis.md"))
-    if not diagnosis_files:
-        return "none"
-    latest = max(f.stat().st_mtime for f in diagnosis_files)
-    return str(latest)
+    files = list(debug_dir.rglob("diagnosis.md"))
+    return str(max(file.stat().st_mtime for file in files)) if files else "none"
 
 
 def fingerprint_command(command: str) -> str:
-    """Create a fingerprint for a command, ignoring variable arguments."""
-    # Remove common variable parts
-    cleaned = command.strip()
-    # Hash the cleaned command
-    return hashlib.sha256(cleaned.encode()).hexdigest()[:16]
+    return hashlib.sha256(command.strip().encode()).hexdigest()[:16]
 
 
 def is_always_allowed(tool: str, command: str) -> bool:
-    if tool not in ("Bash",):
-        return False
-    cmd_trimmed = command.strip()
-    for prefix in ALWAYS_ALLOW_PREFIXES:
-        if cmd_trimmed.startswith(prefix):
-            return True
-    return False
+    return tool == "Bash" and any(command.strip().startswith(prefix) for prefix in ALWAYS_ALLOW_PREFIXES)
+
+
+def _validate_state(value: object) -> dict:
+    if not isinstance(value, dict) or not isinstance(value.get("failures"), dict):
+        raise StateCorruptionError("invalid state structure")
+    current = value.get("_current")
+    if current is not None and not isinstance(current, dict):
+        raise StateCorruptionError("invalid current structure")
+    if not all(isinstance(entry, dict) for entry in value["failures"].values()):
+        raise StateCorruptionError("invalid failure entry")
+    return value
 
 
 def load_state() -> dict:
-    if STATE_FILE.exists():
-        try:
-            return json.loads(STATE_FILE.read_text())
-        except (json.JSONDecodeError, OSError):
-            return {"failures": {}}
-    return {"failures": {}}
+    if not STATE_FILE.exists():
+        return {"failures": {}}
+    try:
+        return _validate_state(json.loads(STATE_FILE.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, StateCorruptionError) as error:
+        raise StateCorruptionError("retry guard state is invalid") from error
 
 
-def save_state(state: dict):
+def save_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, indent=2))
+    STATE_FILE.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
 
 
-def redact_secrets(text: str) -> str:
-    """Redact potential secrets from command text."""
-    import re
-
-    # Redact token patterns
-    patterns = [
-        (r"--token[= ]\S+", "--token=<REDACTED>"),
-        (r"--password[= ]\S+", "--password=<REDACTED>"),
-        (r"--key[= ]\S+", "--key=<REDACTED>"),
-        (r"Authorization: Bearer \S+", "Authorization: Bearer <REDACTED>"),
-        (r"ghp_[A-Za-z0-9]{36}", "ghp_<REDACTED>"),
-        (r"gho_[A-Za-z0-9]{36}", "gho_<REDACTED>"),
-        (r"xox[baprs]-[A-Za-z0-9-]+", "xox<REDACTED>"),
-        (r"sk-[A-Za-z0-9]{20,}", "sk-<REDACTED>"),
-    ]
-    for pattern, replacement in patterns:
-        text = re.sub(pattern, replacement, text)
-    return text
+def _clear_current_failure(failures: dict, fingerprint: str) -> None:
+    failures.pop(fingerprint, None)
 
 
 def pre_tool_use(tool: str, command: str) -> dict:
     if is_always_allowed(tool, command):
         return {"decision": "ALLOW", "reason": "Always-allowed command"}
+    try:
+        state = load_state()
+    except StateCorruptionError:
+        return {"decision": "BLOCK", "reason": "RETRY_GUARD_STATE_INVALID"}
 
-    fp = fingerprint_command(command)
-    head = get_git_head()
-    tree_hash = get_working_tree_hash()
-    ledger_mtime = get_diagnosis_ledger_mtime()
-
-    state = load_state()
-    failures = state.get("failures", {})
-
-    entry = failures.get(fp, {})
-    attempt = entry.get("attempts", 0) + 1
-    first_ts = entry.get("first_failure_ts", time.time())
-    last_head = entry.get("head_hash", head)
-    last_tree = entry.get("tree_hash", tree_hash)
-    last_ledger = entry.get("ledger_mtime", ledger_mtime)
-    last_exit = entry.get("last_exit_code")
-
-    # Store attempt info for post-use
+    fingerprint = fingerprint_command(command)
+    head, tree, ledger = get_git_head(), get_working_tree_hash(), get_diagnosis_ledger_mtime()
+    failures = state["failures"]
+    entry = failures.get(fingerprint, {})
+    changed = (
+        fingerprint in failures
+        and (entry.get("head_hash") != head or entry.get("tree_hash") != tree or entry.get("ledger_mtime") != ledger)
+    )
+    if changed:
+        _clear_current_failure(failures, fingerprint)
+        entry = {}
+    attempt = int(entry.get("attempts", 0)) + 1
     state["_current"] = {
-        "fp": fp,
-        "attempt": attempt,
-        "head": head,
-        "tree_hash": tree_hash,
-        "ledger_mtime": ledger_mtime,
-        "command": redact_secrets(command),
+        "fp": fingerprint, "head": head, "tree_hash": tree, "ledger_mtime": ledger,
     }
     save_state(state)
-
-    # Check block condition
-    head_unchanged = head == last_head
-    tree_unchanged = tree_hash == last_tree
-    ledger_unchanged = ledger_mtime == last_ledger
-
-    # If HEAD or working tree changed, reset
-    if not head_unchanged or not tree_unchanged:
-        if fp in failures:
-            del failures[fp]
-            state["failures"] = failures
-            save_state(state)
-        return {"decision": "ALLOW", "reason": "Code changed since last failure"}
-
-    # If ledger was updated, reset
-    if ledger_mtime != last_ledger and last_ledger != "none":
-        if fp in failures:
-            del failures[fp]
-            state["failures"] = failures
-            save_state(state)
-        return {"decision": "ALLOW", "reason": "New diagnosis ledger entry added"}
-
-    if attempt >= MAX_FAILURES:
-        return {
-            "decision": "BLOCK",
-            "reason": "REPEATED_FAILURE_WITHOUT_NEW_EVIDENCE",
-            "detail": (
-                f"Command '{redact_secrets(command)}' has failed {attempt} times "
-                f"with the same fingerprint. Git HEAD and working tree unchanged. "
-                f"No new diagnosis ledger entry found. "
-                f"Invoke /failure-investigator before retrying."
-            ),
-        }
-
-    return {"decision": "ALLOW", "warn": f"Failure attempt {attempt}/{MAX_FAILURES}"}
+    if not changed and attempt >= MAX_FAILURES:
+        return {"decision": "BLOCK", "reason": "REPEATED_FAILURE_WITHOUT_NEW_EVIDENCE"}
+    return {"decision": "ALLOW", "reason": "New evidence" if changed else "Retry allowed"}
 
 
-def post_tool_use(tool: str, command: str, exit_code: str, stderr_sample: str = ""):
+def post_tool_use(tool: str, command: str, exit_code: str, stderr_sample: str = "") -> None:
+    del stderr_sample
     if is_always_allowed(tool, command):
         return
-
-    state = load_state()
+    try:
+        state = load_state()
+    except StateCorruptionError:
+        return
     current = state.pop("_current", {})
-
-    fp = current.get("fp") or fingerprint_command(command)
+    fingerprint = current.get("fp") or fingerprint_command(command)
+    failures = state["failures"]
     exit_int = int(exit_code) if exit_code and exit_code != "None" else 0
-
-    failures = state.get("failures", {})
-
-    if exit_int != 0 and exit_int != 130:  # Non-zero exit and not SIGINT
-        entry = failures.get(fp, {})
-        entry["attempts"] = entry.get("attempts", 0) + 1
+    if exit_int not in (0, 130):
+        entry = failures.get(fingerprint, {})
+        entry["attempts"] = int(entry.get("attempts", 0)) + 1
         entry["first_failure_ts"] = entry.get("first_failure_ts", time.time())
         entry["last_exit_code"] = exit_int
         entry["head_hash"] = current.get("head", get_git_head())
         entry["tree_hash"] = current.get("tree_hash", get_working_tree_hash())
         entry["ledger_mtime"] = current.get("ledger_mtime", get_diagnosis_ledger_mtime())
-        entry["last_command"] = redact_secrets(command[:200])
         entry["last_tool"] = tool
-        failures[fp] = entry
+        failures[fingerprint] = entry
     else:
-        # Success — reset failure count
-        if fp in failures:
-            del failures[fp]
-
-    state["failures"] = failures
+        _clear_current_failure(failures, fingerprint)
     save_state(state)
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 3:
-        print("Usage: retry-guard.py <pre|post> <tool_name> [args...]", file=sys.stderr)
-        sys.exit(1)
-
-    mode = sys.argv[1]
-    tool = sys.argv[2]
-
+        print("Usage: retry_guard.py <pre|post> <tool_name> [args...]", file=sys.stderr)
+        raise SystemExit(1)
+    mode, tool = sys.argv[1], sys.argv[2]
     if mode == "pre":
-        command = " ".join(sys.argv[3:]) if len(sys.argv) > 3 else ""
-        result = pre_tool_use(tool, command)
+        result = pre_tool_use(tool, " ".join(sys.argv[3:]))
         print(json.dumps(result))
-        if result.get("decision") == "BLOCK":
-            sys.exit(2)
-
+        if result["decision"] == "BLOCK":
+            raise SystemExit(2)
     elif mode == "post":
-        command = sys.argv[3] if len(sys.argv) > 3 else ""
-        exit_code = sys.argv[4] if len(sys.argv) > 4 else "0"
-        stderr_sample = sys.argv[5] if len(sys.argv) > 5 else ""
-        post_tool_use(tool, command, exit_code, stderr_sample)
-
+        post_tool_use(tool, sys.argv[3] if len(sys.argv) > 3 else "", sys.argv[4] if len(sys.argv) > 4 else "0")
     else:
-        print(f"Unknown mode: {mode}", file=sys.stderr)
-        sys.exit(1)
+        print("Unknown mode", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -149,7 +149,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python3 scripts/retry_guard.py pre Bash \"$CLAUDE_COMMAND\"" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/retry_guard.py\" pre Bash \"$CLAUDE_COMMAND\"" }
         ]
       }
     ],
@@ -157,7 +157,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python3 scripts/retry_guard.py post Bash \"$CLAUDE_COMMAND\" \"$CLAUDE_EXIT_CODE\"" }
+          { "type": "command", "command": "python3 \"${CLAUDE_PROJECT_DIR}/scripts/retry_guard.py\" post Bash \"$CLAUDE_COMMAND\" \"$CLAUDE_EXIT_CODE\"" }
         ]
       }
     ]
