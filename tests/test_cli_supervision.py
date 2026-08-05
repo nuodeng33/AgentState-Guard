@@ -15,7 +15,7 @@ def _create_args(directory: Path, *extra: str) -> list[str]:
         "--domain", "local", "--target", "runtime-1", "--scope", "runtime-1",
         "--network-effect", "false", "--privilege-effect", "false",
         "--destructive-effect", "false", "--secret-access", "false",
-        "--recovery-coverage", "1.0", *extra,
+        "--checkpoint-id", "checkpoint-1", "--recovery-coverage", "1.0", *extra,
     ]
 
 
