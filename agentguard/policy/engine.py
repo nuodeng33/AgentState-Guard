@@ -1,0 +1,97 @@
+"""Pure deterministic local policy evaluation."""
+
+from __future__ import annotations
+
+from .models import Decision, PolicyDecision, PolicyInput
+
+
+def _decision(
+    decision: Decision,
+    rule_ids: tuple[str, ...],
+    *,
+    summary_code: str,
+    evidence_refs: tuple[str, ...],
+    requires_checkpoint: bool = False,
+    requires_manual_approval: bool = False,
+    uncertainties: tuple[str, ...] = (),
+) -> PolicyDecision:
+    severity = {
+        Decision.BLOCK: "HIGH",
+        Decision.REVIEW: "MEDIUM",
+        Decision.UNKNOWN: "UNKNOWN",
+        Decision.ALLOW: "LOW",
+    }[decision]
+    return PolicyDecision(
+        decision=decision,
+        severity=severity,
+        matched_rule_ids=rule_ids,
+        summary_code=summary_code,
+        evidence_refs=tuple(sorted(set(evidence_refs))),
+        uncertainties=uncertainties,
+        required_checks=("evidence_refs",) if decision is Decision.UNKNOWN else (),
+        requires_checkpoint=requires_checkpoint,
+        requires_manual_approval=requires_manual_approval,
+    )
+
+
+def evaluate(policy_input: PolicyInput) -> PolicyDecision:
+    """Evaluate structured local facts with fixed BLOCK > REVIEW > UNKNOWN > ALLOW precedence."""
+    if policy_input.secret_access:
+        return _decision(
+            Decision.BLOCK,
+            ("P4-BLOCK-002",),
+            summary_code="SECRET_ACCESS_BLOCKED",
+            evidence_refs=policy_input.evidence_refs,
+        )
+    if policy_input.destructive_effect:
+        return _decision(
+            Decision.BLOCK,
+            ("P4-BLOCK-004",),
+            summary_code="DESTRUCTIVE_EFFECT_BLOCKED",
+            evidence_refs=policy_input.evidence_refs,
+        )
+    if policy_input.privilege_effect:
+        return _decision(
+            Decision.BLOCK,
+            ("P4-BLOCK-003",),
+            summary_code="PRIVILEGE_EFFECT_BLOCKED",
+            evidence_refs=policy_input.evidence_refs,
+        )
+    if not policy_input.evidence_refs or not policy_input.execution_domain_id:
+        return _decision(
+            Decision.UNKNOWN,
+            ("P4-UNKNOWN-001",),
+            summary_code="EVIDENCE_INSUFFICIENT",
+            evidence_refs=policy_input.evidence_refs,
+            uncertainties=("EVIDENCE_INSUFFICIENT",),
+        )
+    if policy_input.intent_kind == "change" and policy_input.effect_kind == "provider_config_change":
+        return _decision(
+            Decision.REVIEW,
+            ("P4-REVIEW-001",),
+            summary_code="PROVIDER_CONFIGURATION_REVIEW",
+            evidence_refs=policy_input.evidence_refs,
+            requires_manual_approval=True,
+        )
+    if policy_input.network_effect:
+        return _decision(
+            Decision.REVIEW,
+            ("P4-REVIEW-003",),
+            summary_code="NETWORK_EFFECT_REVIEW",
+            evidence_refs=policy_input.evidence_refs,
+            requires_manual_approval=True,
+        )
+    if policy_input.intent_kind == "discovery" and policy_input.effect_kind == "read_metadata":
+        return _decision(
+            Decision.ALLOW,
+            ("P4-ALLOW-001",),
+            summary_code="OFFLINE_DISCOVERY_ALLOWED",
+            evidence_refs=policy_input.evidence_refs,
+        )
+    return _decision(
+        Decision.UNKNOWN,
+        ("P4-UNKNOWN-001",),
+        summary_code="NO_EXPLICIT_RULE",
+        evidence_refs=policy_input.evidence_refs,
+        uncertainties=("NO_EXPLICIT_RULE",),
+    )
