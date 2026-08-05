@@ -65,7 +65,53 @@ def evaluate(policy_input: PolicyInput) -> PolicyDecision:
             evidence_refs=policy_input.evidence_refs,
             uncertainties=("EVIDENCE_INSUFFICIENT",),
         )
-    if policy_input.intent_kind == "change" and policy_input.effect_kind == "provider_config_change":
+    if policy_input.execution_domain_id == "unreachable":
+        return _decision(
+            Decision.UNKNOWN,
+            ("P4-UNKNOWN-002",),
+            summary_code="EXECUTION_DOMAIN_UNREACHABLE",
+            evidence_refs=policy_input.evidence_refs,
+            uncertainties=("EXECUTION_DOMAIN_UNREACHABLE",),
+        )
+    if not policy_input.declared_scope:
+        return _decision(
+            Decision.REVIEW,
+            ("P4-REVIEW-005",),
+            summary_code="DECLARED_SCOPE_INCOMPLETE",
+            evidence_refs=policy_input.evidence_refs,
+            requires_manual_approval=True,
+        )
+    if not set(policy_input.target_refs).issubset(policy_input.declared_scope):
+        return _decision(
+            Decision.BLOCK,
+            ("P4-BLOCK-005",),
+            summary_code="SCOPE_DRIFT_BLOCKED",
+            evidence_refs=policy_input.evidence_refs,
+        )
+    if policy_input.intent_kind == "upload" and policy_input.effect_kind == "remote_upload":
+        return _decision(
+            Decision.BLOCK,
+            ("P4-BLOCK-006",),
+            summary_code="UNKNOWN_REMOTE_UPLOAD_BLOCKED",
+            evidence_refs=policy_input.evidence_refs,
+        )
+    if policy_input.checkpoint_status == "missing" or (
+        policy_input.recovery_coverage is not None and policy_input.recovery_coverage < 1.0
+    ):
+        return _decision(
+            Decision.REVIEW,
+            ("P4-REVIEW-006",),
+            summary_code="RECOVERY_OR_CHECKPOINT_REVIEW",
+            evidence_refs=policy_input.evidence_refs,
+            requires_checkpoint=policy_input.checkpoint_status == "missing",
+            requires_manual_approval=True,
+        )
+    if policy_input.intent_kind == "change" and policy_input.effect_kind in {
+        "provider_config_change",
+        "permission_config_change",
+        "dependency_lock_change",
+        "ci_change",
+    }:
         return _decision(
             Decision.REVIEW,
             ("P4-REVIEW-001",),

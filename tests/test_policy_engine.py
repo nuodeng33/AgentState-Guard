@@ -12,7 +12,7 @@ def _input(**overrides):
         "effect_kind": "read_metadata",
         "target_refs": ("runtime-1",),
         "execution_domain_id": "linux-container",
-        "declared_scope": ("agentguard/discovery",),
+        "declared_scope": ("runtime-1",),
         "requested_capabilities": (),
         "network_effect": False,
         "privilege_effect": False,
@@ -55,3 +55,38 @@ def test_provider_configuration_requires_manual_review():
     assert decision.decision is Decision.REVIEW
     assert decision.requires_manual_approval is True
     assert "P4-REVIEW-001" in decision.matched_rule_ids
+
+
+def test_scope_drift_and_unknown_upload_are_blocked():
+    scope_drift = evaluate(_input(target_refs=("outside-scope",)))
+    upload = evaluate(_input(intent_kind="upload", effect_kind="remote_upload"))
+
+    assert scope_drift.decision is Decision.BLOCK
+    assert scope_drift.summary_code == "SCOPE_DRIFT_BLOCKED"
+    assert upload.decision is Decision.BLOCK
+    assert upload.summary_code == "UNKNOWN_REMOTE_UPLOAD_BLOCKED"
+
+
+def test_configuration_dependency_ci_and_incomplete_scope_require_review():
+    configuration = evaluate(_input(intent_kind="change", effect_kind="dependency_lock_change"))
+    incomplete_scope = evaluate(_input(declared_scope=()))
+
+    assert configuration.decision is Decision.REVIEW
+    assert configuration.requires_manual_approval is True
+    assert incomplete_scope.decision is Decision.REVIEW
+    assert incomplete_scope.summary_code == "DECLARED_SCOPE_INCOMPLETE"
+
+
+def test_recovery_coverage_and_checkpoint_require_review():
+    decision = evaluate(_input(checkpoint_status="missing", recovery_coverage=0.5))
+
+    assert decision.decision is Decision.REVIEW
+    assert decision.requires_checkpoint is True
+    assert decision.requires_manual_approval is True
+
+
+def test_unreachable_execution_domain_is_unknown():
+    decision = evaluate(_input(execution_domain_id="unreachable"))
+
+    assert decision.decision is Decision.UNKNOWN
+    assert decision.summary_code == "EXECUTION_DOMAIN_UNREACHABLE"
