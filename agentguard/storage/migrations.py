@@ -178,6 +178,62 @@ class MigrationEngine:
             DROP TABLE IF EXISTS blobs;
         """))
 
+        self.register(Migration(3, "R4 evidence ledger", """
+            CREATE TABLE evidence_ledger_events (
+                sequence                  INTEGER PRIMARY KEY,
+                event_id                  TEXT UNIQUE NOT NULL,
+                schema_version            INTEGER NOT NULL,
+                recorded_at                TEXT NOT NULL,
+                observed_at                TEXT,
+                event_family              TEXT NOT NULL,
+                event_type                TEXT NOT NULL,
+                source                    TEXT NOT NULL,
+                result                    TEXT NOT NULL,
+                execution_domain_id       TEXT,
+                supervision_session_id    TEXT,
+                transaction_id            TEXT,
+                checkpoint_id             TEXT,
+                subject_ref               TEXT,
+                evidence_refs_json        TEXT NOT NULL,
+                payload_safe_json         TEXT NOT NULL,
+                payload_digest            TEXT NOT NULL,
+                prev_hash                 TEXT NOT NULL,
+                curr_hash                 TEXT NOT NULL
+            );
+            CREATE INDEX idx_evidence_ledger_event_id
+                ON evidence_ledger_events(event_id);
+            CREATE INDEX idx_evidence_ledger_family
+                ON evidence_ledger_events(event_family);
+            CREATE INDEX idx_evidence_ledger_type
+                ON evidence_ledger_events(event_type);
+            CREATE INDEX idx_evidence_ledger_recorded_at
+                ON evidence_ledger_events(recorded_at);
+            CREATE INDEX idx_evidence_ledger_domain
+                ON evidence_ledger_events(execution_domain_id);
+            CREATE INDEX idx_evidence_ledger_session
+                ON evidence_ledger_events(supervision_session_id);
+            CREATE INDEX idx_evidence_ledger_transaction
+                ON evidence_ledger_events(transaction_id);
+            CREATE INDEX idx_evidence_ledger_checkpoint
+                ON evidence_ledger_events(checkpoint_id);
+            CREATE INDEX idx_evidence_ledger_subject
+                ON evidence_ledger_events(subject_ref);
+            CREATE TRIGGER evidence_ledger_events_no_update
+            BEFORE UPDATE ON evidence_ledger_events
+            BEGIN
+                SELECT RAISE(ABORT, 'EVIDENCE_LEDGER_APPEND_ONLY');
+            END;
+            CREATE TRIGGER evidence_ledger_events_no_delete
+            BEFORE DELETE ON evidence_ledger_events
+            BEGIN
+                SELECT RAISE(ABORT, 'EVIDENCE_LEDGER_APPEND_ONLY');
+            END;
+        """, """
+            DROP TRIGGER IF EXISTS evidence_ledger_events_no_delete;
+            DROP TRIGGER IF EXISTS evidence_ledger_events_no_update;
+            DROP TABLE IF EXISTS evidence_ledger_events;
+        """))
+
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
 
