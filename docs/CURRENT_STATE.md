@@ -2,7 +2,14 @@
 
 **Version:** 0.9.0.dev0
 **Branch:** feat/device-link
-**HEAD:** e6267ea (Core CI fix batch)
+**HEAD:** local R4-P4 evidence/policy/supervision series (verify with `git rev-parse HEAD`)
+
+## R4-P4 Local Evidence and Supervision
+
+- Local commits establish transaction foundation, schema v3 Evidence Ledger, schema v4 supervision sessions, deterministic policy, project-local Retry Guard evidence, local supervision CLI, and an offline closure regression.
+- Fresh pre-document targeted evidence: Retry Guard 9 passed; Supervision/migration/policy/evidence/CLI related regression 35 passed; offline closure 3 passed. Final full-suite and CI evidence must be collected separately.
+- Safety boundary: BLOCK and UNKNOWN do not activate, REVIEW requires explicit approval, checkpoint requirements remain active, and session plus ledger writes share one `BEGIN IMMEDIATE` transaction.
+- See `docs/R4_P4_SUPERVISION.md` for contracts and explicit non-goals.
 
 ## Core CI Status
 

@@ -1,6 +1,13 @@
 # Implementation Log
 
-## 2026-07-23 — Phase 00 Start
+## 2026-08-05 — R4-P4 local evidence and supervision
+
+- Added Transaction Foundation support through explicit `StateDB.transaction()` ownership and `BEGIN IMMEDIATE` semantics.
+- Added R4 append-only Evidence Ledger, deterministic local Policy, v4 independent supervision sessions, and local `agentguard supervise` CLI workflow.
+- Retry Guard now resolves its project-local entrypoint through `CLAUDE_PROJECT_DIR`, detects staged/unstaged/bounded untracked source evidence, and preserves third-identical-failure blocking.
+- Offline closure regression covers ALLOW completion and ledger reconnect verification, REVIEW approval requirements, BLOCK/UNKNOWN activation denial, and synthetic secret non-persistence.
+- Fresh local targeted evidence before this documentation update: Retry Guard 9 passed; supervision-related regression 35 passed; offline closure 3 passed. Full-suite/package/frontend/CI evidence remains a separate final gate.
+
 
 - Created governance documents (MASTER_SPEC, REQUIREMENTS, ACCEPTANCE_MATRIX, NON_GOALS)
 - Created phase contracts (00-baseline-and-governance)
