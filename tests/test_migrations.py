@@ -17,7 +17,7 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             assert engine.current_version(conn) == 0
-            assert len(engine.pending(conn)) == 3  # v1, v2, v3
+            assert len(engine.pending(conn)) == 4  # v1, v2, v3, v4
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -31,9 +31,9 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             result = engine.migrate(conn)
-            assert len(result["applied"]) == 3
+            assert len(result["applied"]) == 4
             assert result["errors"] == []
-            assert engine.current_version(conn) == 3
+            assert engine.current_version(conn) == 4
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -49,7 +49,7 @@ class TestMigrations:
             engine.migrate(conn)
             result = engine.migrate(conn)
             assert result["applied"] == []
-            assert engine.current_version(conn) == 3
+            assert engine.current_version(conn) == 4
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -83,13 +83,13 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             engine.migrate(conn)
-            assert engine.current_version(conn) == 3
+            assert engine.current_version(conn) == 4
             result = engine.rollback(conn, 0)
-            assert len(result["rolled_back"]) == 3
+            assert len(result["rolled_back"]) == 4
             assert engine.current_version(conn) == 0
             # Re-migrate
             engine.migrate(conn)
-            assert engine.current_version(conn) == 3
+            assert engine.current_version(conn) == 4
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)

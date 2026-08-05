@@ -234,6 +234,23 @@ class MigrationEngine:
             DROP TABLE IF EXISTS evidence_ledger_events;
         """))
 
+        self.register(Migration(4, "R4 supervision sessions", """
+            CREATE TABLE supervision_sessions (
+                supervision_session_id       TEXT PRIMARY KEY,
+                status                       TEXT NOT NULL,
+                declared_intent_digest        TEXT NOT NULL,
+                decision                      TEXT NOT NULL,
+                requires_checkpoint           INTEGER NOT NULL,
+                requires_manual_approval      INTEGER NOT NULL,
+                created_at                    TEXT NOT NULL,
+                updated_at                    TEXT NOT NULL
+            );
+            CREATE INDEX idx_supervision_sessions_status
+                ON supervision_sessions(status);
+        """, """
+            DROP TABLE IF EXISTS supervision_sessions;
+        """))
+
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
 
