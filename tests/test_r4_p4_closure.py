@@ -26,8 +26,6 @@ def _input(**overrides) -> PolicyInput:
         "privilege_effect": False,
         "destructive_effect": False,
         "secret_access": False,
-        "checkpoint_status": "available",
-        "recovery_coverage": 1.0,
         "evidence_refs": ("evidence-1",),
     }
     values.update(overrides)
@@ -64,7 +62,7 @@ def test_review_needs_approval_and_checkpoint(tmp_path):
         session = service.create("provider_change", decision)
         assert service.activate(session.supervision_session_id).status == "AWAITING_APPROVAL"
         assert service.approve(session.supervision_session_id).status == "APPROVED"
-        assert service.activate(session.supervision_session_id).status == "ACTIVE"
+        assert service.activate(session.supervision_session_id).status == "APPROVED"
     finally:
         database.close()
 

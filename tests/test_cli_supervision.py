@@ -15,7 +15,7 @@ def _create_args(directory: Path, *extra: str) -> list[str]:
         "--domain", "local", "--target", "runtime-1", "--scope", "runtime-1",
         "--network-effect", "false", "--privilege-effect", "false",
         "--destructive-effect", "false", "--secret-access", "false",
-        "--checkpoint-id", "checkpoint-1", "--recovery-coverage", "1.0", *extra,
+        "--checkpoint-id", "checkpoint-1", *extra,
     ]
 
 
@@ -51,7 +51,17 @@ def test_supervise_review_needs_approval(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["code"] == "APPROVAL_REQUIRED"
     assert main(["--json", "--directory", str(tmp_path), "supervise", "approve", session_id]) == 0
     capsys.readouterr()
-    assert main(["--json", "--directory", str(tmp_path), "supervise", "activate", session_id]) == 0
+    assert main(["--json", "--directory", str(tmp_path), "supervise", "activate", session_id]) == 1
+    assert json.loads(capsys.readouterr().out)["code"] == "CHECKPOINT_REQUIRED"
+
+
+def test_supervise_rejects_caller_supplied_recovery_number(tmp_path):
+    try:
+        main(_create_args(tmp_path, "--recovery-coverage", "1.0"))
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("caller recovery coverage option must not be accepted")
 
 
 def test_supervise_unknown_has_stable_code(tmp_path, capsys):

@@ -14,7 +14,6 @@ from .commands.restore import cmd_restore
 from .commands.status import status as _status
 from .core.config import Config
 from .core.whitelist import Whitelist
-from .policy.engine import evaluate as evaluate_policy
 from .policy.models import Decision, PolicyInput
 from .storage.db import StateDB
 from .storage.snapshots import SnapshotStore
@@ -166,7 +165,6 @@ def _add_supervision_policy_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--destructive-effect", choices=("true", "false"), required=True)
     parser.add_argument("--secret-access", choices=("true", "false"), required=True)
     parser.add_argument("--checkpoint-id")
-    parser.add_argument("--recovery-coverage", type=float, required=True)
 
 
 def _supervision_policy_input(args: argparse.Namespace) -> PolicyInput:
@@ -181,8 +179,6 @@ def _supervision_policy_input(args: argparse.Namespace) -> PolicyInput:
         privilege_effect=args.privilege_effect == "true",
         destructive_effect=args.destructive_effect == "true",
         secret_access=args.secret_access == "true",
-        checkpoint_status="available" if args.checkpoint_id else "missing",
-        recovery_coverage=args.recovery_coverage,
         evidence_refs=tuple(args.evidence_ref),
     )
 
@@ -211,11 +207,14 @@ def _dispatch(args: argparse.Namespace) -> Any:
     if args.command == "supervise":
         db.connect()
         try:
-            service = SupervisionService(db)
+            service = SupervisionService(db, snapshots=snapshots)
             if args.supervise_subcommand in {"create", "evaluate"}:
                 policy_input = _supervision_policy_input(args)
-                decision = evaluate_policy(policy_input)
-                session = service.create(args.intent_kind, decision)
+                session, decision, recovery_facts = service.create_authoritative(
+                    args.intent_kind,
+                    policy_input,
+                    checkpoint_id=args.checkpoint_id,
+                )
                 result = _supervision_result(session, decision.decision)
                 result.update(
                     {
@@ -224,6 +223,7 @@ def _dispatch(args: argparse.Namespace) -> Any:
                         "requires_manual_approval": decision.requires_manual_approval,
                         "requires_checkpoint": decision.requires_checkpoint,
                         "checkpoint_id": args.checkpoint_id,
+                        "recovery_facts": recovery_facts.safe_summary(),
                     }
                 )
                 if decision.decision is Decision.BLOCK:

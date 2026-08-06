@@ -25,8 +25,6 @@ class PolicyInput:
     privilege_effect: bool
     destructive_effect: bool
     secret_access: bool
-    checkpoint_status: str
-    recovery_coverage: float | None
     evidence_refs: tuple[str, ...]
 
     def __post_init__(self) -> None:

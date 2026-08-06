@@ -107,7 +107,7 @@ class AISupervisor:
             raise KeyError("SUPERVISION_SESSION_NOT_FOUND")
         evidence_rows = connection.execute(
             """SELECT event_id, event_type, result, execution_domain_id, evidence_refs_json,
-                      payload_digest
+                      payload_digest, payload_safe_json
                FROM evidence_ledger_events
                WHERE supervision_session_id = ? AND event_type != 'AI_ASSESSED' ORDER BY sequence""",
             (session_id,),
@@ -115,7 +115,8 @@ class AISupervisor:
         refs = {session_id}
         events = []
         domain = None
-        for event_id, event_type, result, event_domain, refs_json, digest in evidence_rows:
+        recovery_facts = None
+        for event_id, event_type, result, event_domain, refs_json, digest, payload_json in evidence_rows:
             event_refs = tuple(json.loads(refs_json))
             refs.update(event_refs)
             domain = domain or event_domain
@@ -128,6 +129,11 @@ class AISupervisor:
                     "payload_digest": digest,
                 }
             )
+            if event_type == EventType.POLICY_EVALUATED.value:
+                safe_payload = json.loads(payload_json)
+                candidate = safe_payload.get("recovery_facts")
+                if isinstance(candidate, dict):
+                    recovery_facts = candidate
         return {
             "supervision_session_id": session_id,
             "policy_decision": row[0],
@@ -137,6 +143,7 @@ class AISupervisor:
             "execution_domain_id": domain,
             "evidence_refs": tuple(sorted(refs)),
             "ledger_events": tuple(events),
+            "recovery_facts": recovery_facts,
         }
 
     def _cache_key(self, package: dict) -> str:
@@ -166,6 +173,21 @@ class AISupervisor:
         return value
 
     def _constrain(self, assessment: AIAssessment, package: dict) -> AIAssessment:
+        if package["policy_decision"] == Decision.UNKNOWN.value:
+            return AIAssessment(
+                decision=Decision.UNKNOWN.value,
+                severity="UNKNOWN",
+                summary=assessment.summary,
+                evidence_refs=package["evidence_refs"],
+                uncertainties=tuple(
+                    sorted(set(assessment.uncertainties) | {"LOCAL_POLICY_UNKNOWN"})
+                ),
+                required_checks=tuple(
+                    sorted(set(assessment.required_checks) | {"authoritative_evidence"})
+                ),
+                requires_checkpoint=package["requires_checkpoint"],
+                requires_manual_approval=package["requires_manual_approval"],
+            )
         if package["policy_decision"] == Decision.REVIEW.value:
             return AIAssessment(
                 decision=Decision.REVIEW.value,

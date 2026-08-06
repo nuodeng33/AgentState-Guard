@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agentguard.policy.engine import evaluate
 from agentguard.policy.models import Decision, PolicyInput
+from agentguard.recovery.coverage import RecoveryCoverageFacts, RecoveryCoverageStatus
 
 
 def _input(**overrides):
@@ -18,8 +19,6 @@ def _input(**overrides):
         "privilege_effect": False,
         "destructive_effect": False,
         "secret_access": False,
-        "checkpoint_status": "not_required",
-        "recovery_coverage": 1.0,
         "evidence_refs": ("evidence-1",),
     }
     values.update(overrides)
@@ -49,7 +48,12 @@ def test_missing_evidence_is_unknown_without_implicit_allow():
 
 def test_provider_configuration_requires_manual_review():
     decision = evaluate(
-        _input(intent_kind="change", effect_kind="provider_config_change")
+        _input(intent_kind="change", effect_kind="provider_config_change"),
+        recovery_facts=_coverage(
+            RecoveryCoverageStatus.COMPLETE,
+            authorized=1,
+            intact=1,
+        ),
     )
 
     assert decision.decision is Decision.REVIEW
@@ -77,12 +81,54 @@ def test_configuration_dependency_ci_and_incomplete_scope_require_review():
     assert incomplete_scope.summary_code == "DECLARED_SCOPE_INCOMPLETE"
 
 
-def test_recovery_coverage_and_checkpoint_require_review():
-    decision = evaluate(_input(checkpoint_status="missing", recovery_coverage=0.5))
+def _coverage(status, *, authorized=0, intact=0):
+    return RecoveryCoverageFacts(
+        status=status,
+        checkpoint_id=None,
+        requested_targets=1,
+        authorized_snapshot_targets=authorized,
+        intact_manifest_blob_targets=intact,
+        test_restore_verified_targets=None,
+        test_restore_status="NOT_RUN_P6",
+        reason_code="TEST_RECOVERY_FACT",
+        evidence_refs=(),
+    )
+
+
+def test_missing_checkpoint_requires_review_for_change():
+    decision = evaluate(
+        _input(intent_kind="change", effect_kind="provider_config_change"),
+        recovery_facts=_coverage(RecoveryCoverageStatus.MISSING),
+    )
 
     assert decision.decision is Decision.REVIEW
     assert decision.requires_checkpoint is True
     assert decision.requires_manual_approval is True
+
+
+def test_insufficient_authoritative_coverage_requires_review():
+    decision = evaluate(
+        _input(intent_kind="change", effect_kind="provider_config_change"),
+        recovery_facts=_coverage(RecoveryCoverageStatus.INSUFFICIENT),
+    )
+
+    assert decision.decision is Decision.REVIEW
+    assert decision.summary_code == "RECOVERY_COVERAGE_REVIEW"
+
+
+def test_unreachable_or_insufficient_recovery_evidence_is_unknown():
+    unreachable = evaluate(
+        _input(intent_kind="change", effect_kind="provider_config_change"),
+        recovery_facts=_coverage(RecoveryCoverageStatus.UNREACHABLE),
+    )
+    insufficient = evaluate(
+        _input(intent_kind="change", effect_kind="provider_config_change"),
+        recovery_facts=_coverage(RecoveryCoverageStatus.EVIDENCE_INSUFFICIENT),
+    )
+
+    assert unreachable.decision is Decision.UNKNOWN
+    assert insufficient.decision is Decision.UNKNOWN
+    assert unreachable.summary_code == "RECOVERY_EVIDENCE_UNAVAILABLE"
 
 
 def test_unreachable_execution_domain_is_unknown():

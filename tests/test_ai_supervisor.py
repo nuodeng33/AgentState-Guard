@@ -25,6 +25,22 @@ class _Provider:
         )
 
 
+class _AllowProvider:
+    model = "unsafe-test-model"
+
+    def assess(self, authority_package):
+        return AIAssessment(
+            decision="ALLOW",
+            severity="LOW",
+            summary="Caller-controlled upgrade attempt.",
+            evidence_refs=tuple(authority_package["evidence_refs"]),
+            uncertainties=(),
+            required_checks=(),
+            requires_checkpoint=False,
+            requires_manual_approval=False,
+        )
+
+
 def _decision(decision: Decision) -> PolicyDecision:
     return PolicyDecision(
         decision=decision,
@@ -99,5 +115,21 @@ def test_assessment_cache_avoids_duplicate_provider_and_ledger_calls(tmp_path):
         assert database._conn.execute(
             "SELECT COUNT(*) FROM evidence_ledger_events WHERE event_type = 'AI_ASSESSED'"
         ).fetchone() == (1,)
+    finally:
+        database.close()
+
+
+def test_ai_cannot_upgrade_authoritative_unknown_policy(tmp_path):
+    database, sessions = _service(tmp_path)
+    try:
+        session = sessions.create("read", _decision(Decision.UNKNOWN))
+        result = AISupervisor(database, _AllowProvider()).assess(session.supervision_session_id)
+
+        assert result.decision == "UNKNOWN"
+        assert result.requires_manual_approval is False
+        assert "RECOVERY_VERIFIED" not in {
+            row[0]
+            for row in database._conn.execute("SELECT event_type FROM evidence_ledger_events")
+        }
     finally:
         database.close()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agentguard.recovery.coverage import RecoveryCoverageFacts, RecoveryCoverageStatus
+
 from .models import Decision, PolicyDecision, PolicyInput
 
 
@@ -34,7 +36,11 @@ def _decision(
     )
 
 
-def evaluate(policy_input: PolicyInput) -> PolicyDecision:
+def evaluate(
+    policy_input: PolicyInput,
+    *,
+    recovery_facts: RecoveryCoverageFacts | None = None,
+) -> PolicyDecision:
     """Evaluate structured local facts with fixed BLOCK > REVIEW > UNKNOWN > ALLOW precedence."""
     if policy_input.secret_access:
         return _decision(
@@ -95,17 +101,45 @@ def evaluate(policy_input: PolicyInput) -> PolicyDecision:
             summary_code="UNKNOWN_REMOTE_UPLOAD_BLOCKED",
             evidence_refs=policy_input.evidence_refs,
         )
-    if policy_input.checkpoint_status == "missing" or (
-        policy_input.recovery_coverage is not None and policy_input.recovery_coverage < 1.0
-    ):
-        return _decision(
-            Decision.REVIEW,
-            ("P4-REVIEW-006",),
-            summary_code="RECOVERY_OR_CHECKPOINT_REVIEW",
-            evidence_refs=policy_input.evidence_refs,
-            requires_checkpoint=policy_input.checkpoint_status == "missing",
-            requires_manual_approval=True,
+    if policy_input.intent_kind == "change":
+        recovery_refs = tuple(
+            sorted(
+                set(policy_input.evidence_refs)
+                | set(recovery_facts.evidence_refs if recovery_facts else ())
+            )
         )
+        if recovery_facts is None or recovery_facts.status is RecoveryCoverageStatus.MISSING:
+            return _decision(
+                Decision.REVIEW,
+                ("P6-REVIEW-001",),
+                summary_code="RECOVERY_CHECKPOINT_REVIEW",
+                evidence_refs=recovery_refs,
+                requires_checkpoint=True,
+                requires_manual_approval=True,
+            )
+        if recovery_facts.status in {
+            RecoveryCoverageStatus.UNREACHABLE,
+            RecoveryCoverageStatus.EVIDENCE_INSUFFICIENT,
+        }:
+            return _decision(
+                Decision.UNKNOWN,
+                ("P6-UNKNOWN-001",),
+                summary_code="RECOVERY_EVIDENCE_UNAVAILABLE",
+                evidence_refs=recovery_refs,
+                uncertainties=(recovery_facts.reason_code,),
+            )
+        if (
+            recovery_facts.status is RecoveryCoverageStatus.INSUFFICIENT
+            or recovery_facts.authorized_snapshot_coverage != 1.0
+            or recovery_facts.manifest_blob_coverage != 1.0
+        ):
+            return _decision(
+                Decision.REVIEW,
+                ("P6-REVIEW-002",),
+                summary_code="RECOVERY_COVERAGE_REVIEW",
+                evidence_refs=recovery_refs,
+                requires_manual_approval=True,
+            )
     if policy_input.intent_kind == "change" and policy_input.effect_kind in {
         "provider_config_change",
         "permission_config_change",

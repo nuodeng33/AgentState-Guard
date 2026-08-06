@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -68,6 +69,7 @@ class RecoveryService:
             self._record_failure(failed)
             return failed
         file_count = len(artifact["manifest"])
+        target_ref_digests = self._target_ref_digests(artifact)
         relative_path: str | None = None
         try:
             with self._database.transaction() as connection:
@@ -96,6 +98,7 @@ class RecoveryService:
                     checkpoint_ref,
                     digest,
                     file_count,
+                    target_ref_digests,
                 )
                 self._append_event(
                     connection,
@@ -104,6 +107,7 @@ class RecoveryService:
                     checkpoint_ref,
                     digest,
                     file_count,
+                    target_ref_digests,
                 )
         except OSError:
             self._remove_artifact(relative_path)
@@ -171,7 +175,11 @@ class RecoveryService:
             and outcome.ok
             and outcome.manifest_digest == checkpoint["hash_sha256"]
         ):
-            if not self._record_verified(outcome, len(artifact["manifest"])):
+            if not self._record_verified(
+                outcome,
+                len(artifact["manifest"]),
+                self._target_ref_digests(artifact),
+            ):
                 return self._result(
                     request,
                     CapabilityStatus.ERROR,
@@ -206,7 +214,12 @@ class RecoveryService:
             return None
         return self._database.get_checkpoint(int(request.checkpoint_id))
 
-    def _record_verified(self, outcome: RecoveryOperationResult, file_count: int) -> bool:
+    def _record_verified(
+        self,
+        outcome: RecoveryOperationResult,
+        file_count: int,
+        target_ref_digests: tuple[str, ...],
+    ) -> bool:
         try:
             with self._database.transaction() as connection:
                 self._append_event(
@@ -216,6 +229,7 @@ class RecoveryService:
                     outcome.checkpoint_id,
                     outcome.manifest_digest,
                     file_count,
+                    target_ref_digests,
                 )
         except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
             return False
@@ -231,6 +245,7 @@ class RecoveryService:
                     outcome.checkpoint_id,
                     outcome.manifest_digest,
                     0,
+                    (),
                 )
         except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
             return
@@ -243,6 +258,7 @@ class RecoveryService:
         checkpoint_id: str | None,
         digest: str | None,
         file_count: int,
+        target_ref_digests: tuple[str, ...],
     ) -> None:
         self._ledger.append(
             connection,
@@ -266,8 +282,19 @@ class RecoveryService:
                     "reason_code": outcome.reason_code,
                     "manifest_digest": digest,
                     "file_count": file_count,
+                    "target_ref_digests": list(target_ref_digests),
                 },
             ),
+        )
+
+    @staticmethod
+    def _target_ref_digests(artifact: dict) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                hashlib.sha256(entry["logical_path"].encode("utf-8")).hexdigest()
+                for entry in artifact["manifest"]
+                if entry["classification"] == "restorable"
+            )
         )
 
     @staticmethod
