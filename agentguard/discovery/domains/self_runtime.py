@@ -10,6 +10,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from agentguard.recovery.contracts import (
+    RecoveryOperationResult,
+    RecoveryRequest,
+)
+from agentguard.recovery.manifest import validate_snapshot_v3
+from agentguard.recovery.policy import RestorePolicy
+
 from ..capabilities import (
     CapabilityAssessment,
     CapabilityStatus,
@@ -165,9 +172,11 @@ class SelfRuntimeAdapter:
         *,
         source: _ProbeSource | None = None,
         clock: Callable[[], datetime] | None = None,
+        recovery_policy: RestorePolicy | None = None,
     ) -> None:
         self._source = source or _SystemProbeSource()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._recovery_policy = recovery_policy or RestorePolicy()
 
     def capabilities(self) -> DomainCapabilities:
         return DomainCapabilities(
@@ -327,6 +336,80 @@ class SelfRuntimeAdapter:
             evidence=tuple(evidence),
             errors=resolution.errors,
             status=resolution.status,
+        )
+
+    def snapshot(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        """Capture one approved local target into the P6 artifact contract."""
+        if request.target_path is None or not request.target_path.is_file():
+            return self._recovery_result(
+                request,
+                CapabilityStatus.NOT_PRESENT,
+                "RECOVERY_TARGET_NOT_PRESENT",
+            )
+        try:
+            artifact = self._recovery_policy.snapshot_v3(
+                request.target_path,
+                request.execution_domain_id,
+                user_approved=request.user_approved,
+            )
+        except PermissionError:
+            return self._recovery_result(
+                request,
+                CapabilityStatus.PERMISSION_DENIED,
+                "RECOVERY_PERMISSION_DENIED",
+            )
+        except OSError:
+            return self._recovery_result(
+                request,
+                CapabilityStatus.UNREACHABLE,
+                "RECOVERY_DOMAIN_UNREACHABLE",
+            )
+        valid, reason_code, digest = validate_snapshot_v3(artifact)
+        if not valid:
+            return self._recovery_result(request, CapabilityStatus.ERROR, reason_code)
+        return self._recovery_result(
+            request,
+            CapabilityStatus.AVAILABLE,
+            reason_code,
+            manifest_digest=digest,
+            artifact=artifact,
+        )
+
+    def restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        """Refuse real restores until a later phase defines test-restore semantics."""
+        return self._recovery_result(
+            request,
+            CapabilityStatus.UNSUPPORTED,
+            "REAL_RESTORE_OUT_OF_SCOPE_P6",
+        )
+
+    def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        """Verify a supplied P6 artifact without touching the local target."""
+        valid, reason_code, digest = validate_snapshot_v3(request.artifact)
+        return self._recovery_result(
+            request,
+            CapabilityStatus.AVAILABLE if valid else CapabilityStatus.ERROR,
+            reason_code,
+            manifest_digest=digest,
+        )
+
+    @staticmethod
+    def _recovery_result(
+        request: RecoveryRequest,
+        status: CapabilityStatus,
+        reason_code: str,
+        *,
+        manifest_digest: str | None = None,
+        artifact: dict[str, Any] | None = None,
+    ) -> RecoveryOperationResult:
+        return RecoveryOperationResult(
+            operation=request.operation,
+            status=status,
+            reason_code=reason_code,
+            execution_domain_id=request.execution_domain_id,
+            checkpoint_id=request.checkpoint_id,
+            manifest_digest=manifest_digest,
+            artifact=artifact,
         )
 
     def _probe_wsl_interop(self, observed_at: datetime) -> ProbeEvidence:

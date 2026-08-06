@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from agentguard.recovery.contracts import RecoveryOperationResult, RecoveryRequest
+
 from ..capabilities import CapabilityAssessment, CapabilityStatus, DomainCapabilities
 from ..command_runner import (
     PROBE_MODULE_MISSING_EXIT,
@@ -85,10 +87,29 @@ class WindowsAdapter:
                 "discovery_lite": CapabilityAssessment(status=status, reason_code=reason),
                 "discovery_full": CapabilityAssessment(status=status, reason_code=reason),
                 "recovery_capable": CapabilityAssessment(
-                    status=CapabilityStatus.UNKNOWN,
-                    reason_code="NOT_ASSESSED_P2B",
+                    status=CapabilityStatus.UNSUPPORTED,
+                    reason_code="WINDOWS_RECOVERY_OUT_OF_SCOPE_P6",
                 ),
             }
+        )
+
+    def snapshot(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        return self._recovery_unsupported(request)
+
+    def restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        return self._recovery_unsupported(request)
+
+    def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        return self._recovery_unsupported(request)
+
+    @staticmethod
+    def _recovery_unsupported(request: RecoveryRequest) -> RecoveryOperationResult:
+        return RecoveryOperationResult(
+            operation=request.operation,
+            status=CapabilityStatus.UNSUPPORTED,
+            reason_code="WINDOWS_RECOVERY_OUT_OF_SCOPE_P6",
+            execution_domain_id=request.execution_domain_id,
+            checkpoint_id=request.checkpoint_id,
         )
 
     def list_distros(self) -> WindowsWslListResult:
