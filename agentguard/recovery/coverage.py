@@ -99,12 +99,20 @@ class RecoveryCoverageService:
                 target_refs,
                 reason_code="RECOVERY_DATABASE_UNREACHABLE",
             )
-        return self.compute_with_connection(
-            connection,
-            checkpoint_id=checkpoint_id,
-            target_refs=target_refs,
-            execution_domain_id=execution_domain_id,
-        )
+        try:
+            return self.compute_with_connection(
+                connection,
+                checkpoint_id=checkpoint_id,
+                target_refs=target_refs,
+                execution_domain_id=execution_domain_id,
+            )
+        except (OSError, sqlite3.DatabaseError, TypeError, ValueError):
+            return self._facts(
+                RecoveryCoverageStatus.EVIDENCE_INSUFFICIENT,
+                checkpoint_id,
+                tuple(sorted(set(target_refs))),
+                reason_code="RECOVERY_FACTS_UNAVAILABLE",
+            )
 
     def compute_with_connection(
         self,
