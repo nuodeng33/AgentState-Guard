@@ -1,5 +1,7 @@
 """Snapshot file management on disk."""
 
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +20,22 @@ class SnapshotStore:
         filename = f"snapshot-{snapshot_id:06d}.dat"
         path = self.snapshot_dir / filename
         compressed = serialize_snapshot(data)
-        path.write_bytes(compressed)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=self.snapshot_dir,
+                prefix=f".{filename}.",
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary.write(compressed)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, path)
+        except BaseException:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+            raise
         return str(path.relative_to(self.snapshot_dir.parent))
 
     def load(self, relative_path: str) -> dict[str, Any] | None:
@@ -72,6 +89,36 @@ class SnapshotStore:
             return None
         artifact["blobs"] = decoded
         return artifact
+
+    def load_recovery_v3_with_status(
+        self,
+        relative_path: str,
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Distinguish legacy, corrupt, missing, and unreachable recovery artifacts."""
+        path = (self.snapshot_dir / Path(relative_path).name).resolve()
+        if not path.is_file():
+            return None, "RECOVERY_ARTIFACT_NOT_FOUND"
+        try:
+            artifact = deserialize_snapshot(path.read_bytes())
+        except OSError:
+            return None, "RECOVERY_DOMAIN_UNREACHABLE"
+        except ValueError:
+            return None, "RECOVERY_MANIFEST_INVALID"
+        if not isinstance(artifact, dict) or artifact.get("format_version") != 3:
+            return None, "LEGACY_SNAPSHOT_READ_ONLY"
+        blobs = artifact.get("blobs")
+        if not isinstance(blobs, dict):
+            return None, "RECOVERY_MANIFEST_INVALID"
+        decoded: dict[str, bytes] = {}
+        try:
+            for digest, content in blobs.items():
+                if not isinstance(digest, str) or not isinstance(content, str):
+                    return None, "RECOVERY_MANIFEST_INVALID"
+                decoded[digest] = bytes.fromhex(content)
+        except ValueError:
+            return None, "RECOVERY_MANIFEST_INVALID"
+        artifact["blobs"] = decoded
+        return artifact, "RECOVERY_ARTIFACT_LOADED"
 
     def validate(self, path: Path) -> bool:
         """Verify a snapshot file is valid."""

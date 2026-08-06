@@ -358,13 +358,16 @@ class SelfRuntimeAdapter:
                 CapabilityStatus.PERMISSION_DENIED,
                 "RECOVERY_PERMISSION_DENIED",
             )
-        except OSError:
+        except (OSError, ValueError):
             return self._recovery_result(
                 request,
                 CapabilityStatus.UNREACHABLE,
                 "RECOVERY_DOMAIN_UNREACHABLE",
             )
-        valid, reason_code, digest = validate_snapshot_v3(artifact)
+        valid, reason_code, digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=request.execution_domain_id,
+        )
         if not valid:
             return self._recovery_result(request, CapabilityStatus.ERROR, reason_code)
         return self._recovery_result(
@@ -385,7 +388,10 @@ class SelfRuntimeAdapter:
 
     def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:
         """Verify a supplied P6 artifact without touching the local target."""
-        valid, reason_code, digest = validate_snapshot_v3(request.artifact)
+        valid, reason_code, digest = validate_snapshot_v3(
+            request.artifact,
+            expected_domain=request.execution_domain_id,
+        )
         return self._recovery_result(
             request,
             CapabilityStatus.AVAILABLE if valid else CapabilityStatus.ERROR,
