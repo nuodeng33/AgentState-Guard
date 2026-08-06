@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import sqlite3
+import tempfile
 from pathlib import Path
 
 from agentguard.discovery.capabilities import CapabilityStatus
 from agentguard.discovery.domains import SelfRuntimeAdapter, WindowsAdapter
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
+from agentguard.recovery.manifest import manifest_digest
 from agentguard.recovery.policy import RestorePolicy
 from agentguard.recovery.service import RecoveryService
 from agentguard.storage.db import StateDB
@@ -120,7 +123,77 @@ def test_test_restore_fails_closed_for_tampered_blob_and_records_failure(tmp_pat
         database.close()
 
 
-def test_test_restore_never_routes_windows_or_production_restore(tmp_path):
+def test_test_restore_fails_closed_without_restorable_entries(tmp_path):
+    target, database, snapshots, service, _created = _setup(tmp_path)
+    try:
+        policy = RestorePolicy()
+        artifact = policy.snapshot_v3(target, "local-domain")
+        relative = snapshots.save_recovery_v3(100, artifact)
+        checkpoint_id = database.insert_checkpoint("audit", relative, manifest_digest(artifact), 1, {}, None, None)
+        result = service.test_restore(
+            RecoveryRequest(
+                operation=RecoveryOperation.TEST_RESTORE,
+                execution_domain_id="local-domain",
+                checkpoint_id=str(checkpoint_id),
+            )
+        )
+        assert result.status is CapabilityStatus.ERROR
+        assert result.reason_code == "TEST_RESTORE_NO_RESTORABLE_ENTRIES"
+        assert "sandbox_path" not in result.details
+    finally:
+        database.close()
+
+
+def test_test_restore_ledger_failure_does_not_return_success_or_leave_root(tmp_path, monkeypatch):
+    _target, database, _snapshots, service, created = _setup(tmp_path)
+    staging_root = tmp_path / "staging-root"
+    original_mkdtemp = tempfile.mkdtemp
+
+    def _staging_mkdtemp(*, prefix, **kwargs):
+        if prefix == "agentguard-test-restore-root-":
+            staging_root.mkdir()
+            return str(staging_root)
+        return original_mkdtemp(prefix=prefix, **kwargs)
+
+    monkeypatch.setattr("agentguard.recovery.service.tempfile.mkdtemp", _staging_mkdtemp)
+    try:
+        monkeypatch.setattr(
+            service._ledger,
+            "append",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(sqlite3.IntegrityError("secret")),
+        )
+        result = service.test_restore(
+            RecoveryRequest(
+                operation=RecoveryOperation.TEST_RESTORE,
+                execution_domain_id="local-domain",
+                checkpoint_id=created.checkpoint_id,
+            )
+        )
+        assert result.status is CapabilityStatus.ERROR
+        assert result.reason_code == "RECOVERY_PERSISTENCE_FAILED"
+        assert "secret" not in str(result)
+        assert not list(tmp_path.glob("agentguard-test-restore-root-*"))
+        assert not database._conn.in_transaction
+    finally:
+        database.close()
+
+
+def test_test_restore_keeps_production_restore_hard_rejected(tmp_path):
+    _target, database, _snapshots, service, created = _setup(tmp_path)
+    try:
+        result = service.restore(
+            RecoveryRequest(
+                operation=RecoveryOperation.RESTORE,
+                execution_domain_id="local-domain",
+                checkpoint_id=created.checkpoint_id,
+            )
+        )
+        assert result.status is CapabilityStatus.UNSUPPORTED
+        assert result.reason_code == "REAL_RESTORE_OUT_OF_SCOPE_P6"
+    finally:
+        database.close()
+
+
     adapter = WindowsAdapter(os_name="posix", platform_system=lambda: "Linux")
     result = adapter.test_restore(
         RecoveryRequest(
