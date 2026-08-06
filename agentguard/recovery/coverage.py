@@ -45,8 +45,20 @@ class RecoveryCoverageFacts:
             or self.intact_manifest_blob_targets < 0
             or self.authorized_snapshot_targets > self.requested_targets
             or self.intact_manifest_blob_targets > self.requested_targets
-            or self.test_restore_verified_targets is not None
-            or self.test_restore_status != "NOT_RUN_P6"
+            or (
+                self.test_restore_verified_targets is not None
+                and (
+                    not isinstance(self.test_restore_verified_targets, int)
+                    or isinstance(self.test_restore_verified_targets, bool)
+                    or self.test_restore_verified_targets < 0
+                    or self.test_restore_verified_targets > self.requested_targets
+                )
+            )
+            or self.test_restore_status not in {"NOT_RUN_P6", "VERIFIED_R2"}
+            or (
+                self.test_restore_status == "VERIFIED_R2"
+                and self.test_restore_verified_targets is None
+            )
         ):
             raise ValueError("RECOVERY_COVERAGE_FACTS_INVALID")
 
@@ -72,8 +84,8 @@ class RecoveryCoverageFacts:
             "intact_manifest_blob_targets": self.intact_manifest_blob_targets,
             "authorized_snapshot_coverage": self.authorized_snapshot_coverage,
             "manifest_blob_coverage": self.manifest_blob_coverage,
-            "test_restore_verified_targets": None,
-            "test_restore_status": "NOT_RUN_P6",
+            "test_restore_verified_targets": self.test_restore_verified_targets,
+            "test_restore_status": self.test_restore_status,
         }
 
 
@@ -217,18 +229,26 @@ class RecoveryCoverageService:
             and intact_count == len(requested)
             else RecoveryCoverageStatus.INSUFFICIENT
         )
+        test_restore_verified_targets, test_restore_status, test_restore_refs = self._test_restore_evidence(
+            connection,
+            checkpoint_id,
+            execution_domain_id,
+            checkpoint["hash_sha256"],
+        )
         return self._facts(
             status,
             checkpoint_id,
             requested,
             authorized=authorized_count,
             intact=intact_count,
+            test_restore_verified=test_restore_verified_targets,
+            test_restore_status=test_restore_status,
             reason_code=(
                 "RECOVERY_COVERAGE_COMPLETE"
                 if status is RecoveryCoverageStatus.COMPLETE
                 else "RECOVERY_COVERAGE_INSUFFICIENT"
             ),
-            evidence_refs=evidence_refs,
+            evidence_refs=tuple(sorted({*evidence_refs, *test_restore_refs})),
         )
 
     @staticmethod
@@ -277,6 +297,52 @@ class RecoveryCoverageService:
         return tuple(sorted(set(refs))), target_hashes or set()
 
     @staticmethod
+    def _test_restore_evidence(
+        connection: sqlite3.Connection,
+        checkpoint_id: str,
+        execution_domain_id: str,
+        manifest_digest: str,
+    ) -> tuple[int | None, str, tuple[str, ...]]:
+        rows = connection.execute(
+            """SELECT event_id, event_type, result, execution_domain_id, subject_ref, payload_safe_json
+               FROM evidence_ledger_events
+               WHERE checkpoint_id = ?
+                 AND event_type IN ('TEST_RESTORE_STARTED', 'FILE_RESTORED', 'VALIDATOR_PASSED')
+               ORDER BY sequence""",
+            (checkpoint_id,),
+        ).fetchall()
+        required = {"TEST_RESTORE_STARTED", "FILE_RESTORED", "VALIDATOR_PASSED"}
+        matched: set[str] = set()
+        refs: list[str] = []
+        verified_count: int | None = None
+        for event_id, event_type, result, domain, subject_ref, payload_json in rows:
+            try:
+                payload = json.loads(payload_json)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if (
+                result != "AVAILABLE"
+                or domain != execution_domain_id
+                or subject_ref != f"manifest:{manifest_digest}"
+                or payload.get("manifest_digest") != manifest_digest
+            ):
+                continue
+            count = payload.get("file_count")
+            if event_type in {"FILE_RESTORED", "VALIDATOR_PASSED"} and (
+                not isinstance(count, int) or isinstance(count, bool) or count < 1
+            ):
+                continue
+            if verified_count is not None and event_type in {"FILE_RESTORED", "VALIDATOR_PASSED"} and verified_count != count:
+                return None, "NOT_RUN_P6", ()
+            if event_type in {"FILE_RESTORED", "VALIDATOR_PASSED"}:
+                verified_count = count
+            matched.add(event_type)
+            refs.append(event_id)
+        if matched != required or verified_count is None:
+            return None, "NOT_RUN_P6", ()
+        return verified_count, "VERIFIED_R2", tuple(sorted(set(refs)))
+
+    @staticmethod
     def _target_digest(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -290,6 +356,8 @@ class RecoveryCoverageService:
         intact: int = 0,
         reason_code: str,
         evidence_refs: tuple[str, ...] = (),
+        test_restore_verified: int | None = None,
+        test_restore_status: str = "NOT_RUN_P6",
     ) -> RecoveryCoverageFacts:
         return RecoveryCoverageFacts(
             status=status,
@@ -297,8 +365,8 @@ class RecoveryCoverageService:
             requested_targets=len(target_refs),
             authorized_snapshot_targets=authorized,
             intact_manifest_blob_targets=intact,
-            test_restore_verified_targets=None,
-            test_restore_status="NOT_RUN_P6",
+            test_restore_verified_targets=test_restore_verified,
+            test_restore_status=test_restore_status,
             reason_code=reason_code,
             evidence_refs=evidence_refs,
         )

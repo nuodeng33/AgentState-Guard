@@ -196,6 +196,35 @@ def test_authoritative_supervision_persists_safe_coverage_facts_atomically(tmp_p
         database.close()
 
 
+def test_test_restore_updates_authoritative_r2_coverage_facts(tmp_path):
+    target, database, snapshots, created = _recovery(tmp_path)
+    try:
+        service = RecoveryService(
+            database=database,
+            snapshots=snapshots,
+            adapters={"local-domain": SelfRuntimeAdapter()},
+        )
+        result = service.test_restore(
+            RecoveryRequest(
+                operation=RecoveryOperation.TEST_RESTORE,
+                execution_domain_id="local-domain",
+                checkpoint_id=created.checkpoint_id,
+            )
+        )
+        assert result.reason_code == "TEST_RESTORE_VERIFIED"
+
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=created.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="local-domain",
+        )
+        assert facts.test_restore_verified_targets == 1
+        assert facts.test_restore_status == "VERIFIED_R2"
+        assert facts.safe_summary()["test_restore_verified_targets"] == 1
+    finally:
+        database.close()
+
+
 def test_authoritative_supervision_ledger_fault_rolls_back_session(tmp_path, monkeypatch):
     target, database, snapshots, created = _recovery(tmp_path)
     sessions = SupervisionService(database, snapshots=snapshots)
