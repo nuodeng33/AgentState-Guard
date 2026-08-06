@@ -14,6 +14,7 @@ class RecoveryOperation(str, Enum):
     SNAPSHOT = "snapshot"
     RESTORE = "restore"
     VERIFY = "verify"
+    TEST_RESTORE = "test_restore"
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class RecoveryRequest:
     checkpoint_id: str | None = None
     user_approved: bool = False
     artifact: dict[str, Any] | None = None
+    sandbox_path: Path | None = None
 
 
 @dataclass(frozen=True)

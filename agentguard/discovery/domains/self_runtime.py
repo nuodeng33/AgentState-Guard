@@ -5,6 +5,10 @@ from __future__ import annotations
 import os
 import platform
 import re
+import shutil
+import stat
+import tempfile
+import tomllib
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -399,6 +403,83 @@ class SelfRuntimeAdapter:
             manifest_digest=digest,
         )
 
+    def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        """Materialize a validated Snapshot V3 into a fresh isolated sandbox."""
+        artifact = request.artifact
+        valid, reason_code, digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=request.execution_domain_id,
+        )
+        if not valid:
+            return self._recovery_result(request, CapabilityStatus.ERROR, reason_code)
+        entries = [
+            entry for entry in artifact["manifest"] if entry["classification"] == "restorable"
+        ]
+        if not entries:
+            return self._recovery_result(
+                request,
+                CapabilityStatus.ERROR,
+                "TEST_RESTORE_NO_RESTORABLE_ENTRIES",
+                manifest_digest=digest,
+            )
+        sandbox_root = request.sandbox_path
+        if sandbox_root is None or not sandbox_root.is_dir():
+            return self._recovery_result(
+                request,
+                CapabilityStatus.ERROR,
+                "TEST_RESTORE_SANDBOX_UNAVAILABLE",
+            )
+        sandbox = Path(
+            tempfile.mkdtemp(prefix=".agentguard-test-restore-", dir=sandbox_root)
+        )
+        verified = 0
+        try:
+            for entry in entries:
+                logical_path = entry["logical_path"]
+                if "\\" in logical_path or not logical_path.startswith("/"):
+                    raise ValueError("TEST_RESTORE_PATH_INVALID")
+                relative = logical_path.lstrip("/")
+                destination = (sandbox / relative).resolve()
+                if sandbox not in destination.parents:
+                    raise ValueError("TEST_RESTORE_PATH_INVALID")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if destination.is_symlink() or destination.exists() and not destination.is_file():
+                    raise ValueError("TEST_RESTORE_PATH_INVALID")
+                content = artifact["blobs"][entry["blob_sha256"]]
+                temporary = destination.with_name(f".{destination.name}.tmp")
+                with temporary.open("wb") as output:
+                    output.write(content)
+                    output.flush()
+                    os.fsync(output.fileno())
+                    os.fchmod(output.fileno(), stat.S_IMODE(int(entry["mode"], 8)))
+                os.replace(temporary, destination)
+                actual = destination.read_bytes()
+                current = destination.stat()
+                if (
+                    len(actual) != entry["size"]
+                    or __import__("hashlib").sha256(actual).hexdigest() != entry["sha256"]
+                    or stat.S_IMODE(current.st_mode) != stat.S_IMODE(int(entry["mode"], 8))
+                ):
+                    raise ValueError("TEST_RESTORE_CONTENT_INVALID")
+                if entry["validator"] != "toml-parse":
+                    raise ValueError("TEST_RESTORE_VALIDATOR_UNDEFINED")
+                tomllib.loads(actual.decode("utf-8"))
+                verified += 1
+        except PermissionError:
+            shutil.rmtree(sandbox, ignore_errors=True)
+            return self._recovery_result(request, CapabilityStatus.PERMISSION_DENIED, "RECOVERY_PERMISSION_DENIED")
+        except (OSError, ValueError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+            reason = str(error) if str(error).startswith("TEST_RESTORE_") else "TEST_RESTORE_VALIDATION_FAILED"
+            shutil.rmtree(sandbox, ignore_errors=True)
+            return self._recovery_result(request, CapabilityStatus.ERROR, reason)
+        return self._recovery_result(
+            request,
+            CapabilityStatus.AVAILABLE,
+            "TEST_RESTORE_VERIFIED",
+            manifest_digest=digest,
+            details={"sandbox_path": str(sandbox), "verified_targets": verified},
+        )
+
     @staticmethod
     def _recovery_result(
         request: RecoveryRequest,
@@ -407,6 +488,7 @@ class SelfRuntimeAdapter:
         *,
         manifest_digest: str | None = None,
         artifact: dict[str, Any] | None = None,
+        details: dict[str, Any] | None = None,
     ) -> RecoveryOperationResult:
         return RecoveryOperationResult(
             operation=request.operation,
@@ -416,6 +498,7 @@ class SelfRuntimeAdapter:
             checkpoint_id=request.checkpoint_id,
             manifest_digest=manifest_digest,
             artifact=artifact,
+            details=details or {},
         )
 
     def _probe_wsl_interop(self, observed_at: datetime) -> ProbeEvidence:

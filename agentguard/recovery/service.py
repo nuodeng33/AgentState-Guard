@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 import sqlite3
+import tempfile
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from agentguard.discovery.capabilities import CapabilityStatus
@@ -208,6 +211,68 @@ class RecoveryService:
             )
         self._record_failure(outcome)
         return outcome
+
+    def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        checkpoint = self._checkpoint(request)
+        if checkpoint is None:
+            outcome = self._result(request, CapabilityStatus.NOT_PRESENT, "RECOVERY_CHECKPOINT_NOT_FOUND")
+            self._record_failure(outcome)
+            return outcome
+        artifact, load_reason = self._snapshots.load_recovery_v3_with_status(
+            checkpoint["snapshot_path"]
+        )
+        if artifact is None:
+            status = CapabilityStatus.UNSUPPORTED if load_reason == "LEGACY_SNAPSHOT_READ_ONLY" else CapabilityStatus.ERROR
+            outcome = self._result(request, status, load_reason)
+            self._record_failure(outcome)
+            return outcome
+        valid, reason_code, digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=request.execution_domain_id,
+        )
+        if not valid or digest != checkpoint["hash_sha256"]:
+            outcome = self._result(request, CapabilityStatus.ERROR, reason_code)
+            self._record_failure(outcome)
+            return outcome
+        adapter = self._adapters.get(request.execution_domain_id)
+        if adapter is None:
+            outcome = self._result(request, CapabilityStatus.UNSUPPORTED, "RECOVERY_OPERATION_UNSUPPORTED")
+            self._record_failure(outcome)
+            return outcome
+        staging_root = Path(tempfile.mkdtemp(prefix="agentguard-test-restore-root-"))
+        try:
+            started = self._result(
+                request,
+                CapabilityStatus.AVAILABLE,
+                "TEST_RESTORE_STARTED",
+                checkpoint_id=str(checkpoint["id"]),
+            )
+            outcome = adapter.test_restore(
+                RecoveryRequest(
+                    operation=RecoveryOperation.TEST_RESTORE,
+                    execution_domain_id=request.execution_domain_id,
+                    checkpoint_id=str(checkpoint["id"]),
+                    artifact=artifact,
+                    sandbox_path=staging_root,
+                )
+            )
+            if not self._outcome_matches(request, outcome):
+                outcome = self._result(request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID")
+            with self._database.transaction() as connection:
+                self._append_event(connection, EventType.TEST_RESTORE_STARTED, started, str(checkpoint["id"]), digest, 0, ())
+                if outcome.ok:
+                    self._append_event(connection, EventType.FILE_RESTORED, outcome, str(checkpoint["id"]), digest, outcome.details.get("verified_targets", 0), ())
+                    self._append_event(connection, EventType.VALIDATOR_PASSED, outcome, str(checkpoint["id"]), digest, outcome.details.get("verified_targets", 0), ())
+                else:
+                    self._append_event(connection, EventType.RESTORE_FAILED, outcome, str(checkpoint["id"]), digest, 0, ())
+            return outcome
+        except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
+            failure = self._result(request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED")
+            self._record_failure(failure)
+            return failure
+        finally:
+            if "outcome" not in locals() or not outcome.ok:
+                shutil.rmtree(staging_root, ignore_errors=True)
 
     def _checkpoint(self, request: RecoveryRequest) -> dict | None:
         if request.checkpoint_id is None or not request.checkpoint_id.isdecimal():

@@ -102,6 +102,15 @@ class WindowsAdapter:
     def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:
         return self._recovery_unsupported(request)
 
+    def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        return RecoveryOperationResult(
+            operation=request.operation,
+            status=CapabilityStatus.UNSUPPORTED,
+            reason_code="WINDOWS_RECOVERY_OUT_OF_SCOPE_P7",
+            execution_domain_id=request.execution_domain_id,
+            checkpoint_id=request.checkpoint_id,
+        )
+
     @staticmethod
     def _recovery_unsupported(request: RecoveryRequest) -> RecoveryOperationResult:
         return RecoveryOperationResult(

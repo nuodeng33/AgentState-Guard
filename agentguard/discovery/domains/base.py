@@ -29,3 +29,6 @@ class ExecutionDomainAdapter(Protocol):
 
     def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:
         """Verify a P6 recovery artifact without changing target files."""
+
+    def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        """Perform only an isolated P7 test restore inside this domain."""
