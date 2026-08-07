@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from agentguard.evidence.ledger import EvidenceLedger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
@@ -232,5 +234,225 @@ def test_trusted_baseline_rejects_scope_drift_for_r3_context(tmp_path):
             checkpoint_id=checkpoint.checkpoint_id,
             execution_domain_id="self-runtime",
         ) == {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
+    finally:
+        database.close()
+
+
+def _approved_baseline(tmp_path):
+    target, database, snapshots, service, checkpoint = _verified_r3(tmp_path)
+    candidate = service.create_trusted_baseline(
+        checkpoint_id=checkpoint.checkpoint_id,
+        execution_domain_id="self-runtime",
+    )
+    authorization = service.approve_trusted_baseline(candidate["candidate_id"])
+    return target, database, snapshots, service, checkpoint, candidate, authorization
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("subject_id", "other-candidate"),
+        ("checkpoint_id", "other-checkpoint"),
+        ("execution_domain_id", "other-domain"),
+        ("manifest_digest", "other-manifest"),
+        ("target_refs_digest", "other-targets"),
+        ("drill_fingerprint", "other-fingerprint"),
+        ("policy_version", "other-policy"),
+        ("supervision_session_id", "other-session"),
+        ("operation_kind", "SELF_RUNTIME_R3_DRILL"),
+    ],
+)
+def test_authorization_context_mismatch_cannot_confirm(
+    tmp_path, column, value,
+):
+    _target, database, _snapshots, service, checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    try:
+        database._conn.execute(
+            f"UPDATE recovery_authorizations SET {column} = ? WHERE authorization_id = ?",
+            (value, authorization["authorization_id"]),
+        )
+        database._conn.commit()
+        result = service.confirm_trusted_baseline(
+            candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+        )
+        assert result["status"] == "FAILED"
+        assert result["reason_code"] in {
+            "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+            "TRUSTED_BASELINE_R3_REQUIRED",
+        }
+        assert database._conn.execute(
+            "SELECT COUNT(*) FROM trusted_baselines"
+        ).fetchone()[0] == 0
+    finally:
+        database.close()
+
+
+def test_expired_authorization_cannot_confirm_or_consume(tmp_path):
+    _target, database, _snapshots, service, _checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    try:
+        database._conn.execute(
+            "UPDATE recovery_authorizations SET expires_at = ? WHERE authorization_id = ?",
+            ("2000-01-01T00:00:00+00:00", authorization["authorization_id"]),
+        )
+        database._conn.commit()
+        result = service.confirm_trusted_baseline(
+            candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+        )
+        assert result == {
+            "status": "FAILED",
+            "reason_code": "TRUSTED_BASELINE_CONFIRMATION_EXPIRED",
+        }
+        assert database._conn.execute(
+            "SELECT status FROM trusted_baseline_candidates WHERE candidate_id = ?",
+            (candidate["candidate_id"],),
+        ).fetchone()[0] == "CANDIDATE"
+    finally:
+        database.close()
+
+
+def test_authorization_replay_after_restart_is_rejected(tmp_path):
+    _target, database, _snapshots, service, _checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    first = service.confirm_trusted_baseline(
+        candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+    )
+    assert first["status"] == "TRUSTED"
+    database.close()
+    restarted = _service(tmp_path)[3]
+    try:
+        replay = restarted.confirm_trusted_baseline(
+            candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+        )
+        assert replay == {
+            "status": "FAILED",
+            "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+        }
+    finally:
+        restarted._database.close()
+
+
+def test_retired_baseline_loses_active_projection_after_restart(tmp_path):
+    target, database, snapshots, service, checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    baseline = service.confirm_trusted_baseline(
+        candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+    )
+    assert baseline["status"] == "TRUSTED"
+    assert service.retire_trusted_baseline(baseline["baseline_id"], "OPERATOR_RETIRED")["status"] == "RETIRED"
+    facts = RecoveryCoverageService(database, snapshots).compute(
+        checkpoint_id=checkpoint.checkpoint_id,
+        target_refs=(str(target),),
+        execution_domain_id="self-runtime",
+    )
+    assert facts.trusted_baseline_status == "RETIRED"
+    database.close()
+    restarted = _service(tmp_path)[3]
+    try:
+        facts = RecoveryCoverageService(restarted._database, snapshots).compute(
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="self-runtime",
+        )
+        assert facts.trusted_baseline_status == "RETIRED"
+    finally:
+        restarted._database.close()
+
+
+def test_baseline_confirm_ledger_failure_rolls_back_all_consumption(tmp_path, monkeypatch):
+    _target, database, _snapshots, service, _checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    original_append = service._ledger.append
+
+    def fail_append(*args, **kwargs):
+        raise RuntimeError("injected ledger failure")
+
+    monkeypatch.setattr(service._ledger, "append", fail_append)
+    try:
+        result = service.confirm_trusted_baseline(
+            candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+        )
+        assert result == {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
+        assert database._conn.execute(
+            "SELECT COUNT(*) FROM trusted_baselines"
+        ).fetchone()[0] == 0
+        assert database._conn.execute(
+            "SELECT status FROM trusted_baseline_candidates WHERE candidate_id = ?",
+            (candidate["candidate_id"],),
+        ).fetchone()[0] == "CANDIDATE"
+        assert database._conn.execute(
+            "SELECT consumed_at FROM recovery_authorizations WHERE authorization_id = ?",
+            (authorization["authorization_id"],),
+        ).fetchone()[0] is None
+    finally:
+        monkeypatch.setattr(service._ledger, "append", original_append)
+        database.close()
+
+
+def test_baseline_unique_constraint_failure_rolls_back_consumption(tmp_path):
+    _target, database, _snapshots, service, _checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    row = database._conn.execute(
+        """SELECT checkpoint_id, execution_domain_id, manifest_digest, target_refs_digest,
+                  recovery_evidence_digest
+           FROM trusted_baseline_candidates WHERE candidate_id = ?""",
+        (candidate["candidate_id"],),
+    ).fetchone()
+    database._conn.execute(
+        """INSERT INTO trusted_baselines
+           (baseline_id, checkpoint_id, execution_domain_id, manifest_digest,
+            target_refs_digest, recovery_evidence_digest, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        ("forged-conflict", *row, datetime.now(UTC).isoformat()),
+    )
+    database._conn.commit()
+    try:
+        result = service.confirm_trusted_baseline(
+            candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+        )
+        assert result == {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
+        assert database._conn.execute(
+            "SELECT status FROM trusted_baseline_candidates WHERE candidate_id = ?",
+            (candidate["candidate_id"],),
+        ).fetchone()[0] == "CANDIDATE"
+        assert database._conn.execute(
+            "SELECT consumed_at FROM recovery_authorizations WHERE authorization_id = ?",
+            (authorization["authorization_id"],),
+        ).fetchone()[0] is None
+    finally:
+        database.close()
+
+
+def test_post_trust_adverse_evidence_removes_active_trust(tmp_path):
+    target, database, snapshots, service, checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    baseline = service.confirm_trusted_baseline(
+        candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+    )
+    assert baseline["status"] == "TRUSTED"
+    try:
+        EvidenceLedger().append(
+            database._conn,
+            EvidenceEvent(
+                schema_version=1,
+                event_id="scope-drift-after-trust",
+                recorded_at=datetime.now(UTC),
+                observed_at=None,
+                event_family=EventFamily.CHANGE,
+                event_type=EventType.SCOPE_DRIFT,
+                source="test",
+                result="REVIEW",
+                execution_domain_id="self-runtime",
+                supervision_session_id=None,
+                transaction_id=None,
+                checkpoint_id=checkpoint.checkpoint_id,
+                subject_ref=f"manifest:{checkpoint.manifest_digest}",
+                evidence_refs=(),
+                payload_safe={"reason_code": "SCOPE_DRIFT"},
+            ),
+        )
+        database._conn.commit()
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="self-runtime",
+        )
+        assert facts.r3_verified is False
+        assert facts.trusted_baseline_status != "TRUSTED"
+        assert facts.trusted_baseline_id is None
     finally:
         database.close()

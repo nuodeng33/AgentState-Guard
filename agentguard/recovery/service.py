@@ -869,17 +869,17 @@ class RecoveryService:
                 ):
                     return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
                 authorization = transaction.execute(
-                    """SELECT supervision_session_id, session_identity_digest, checkpoint_id,
-                              execution_domain_id, manifest_digest, operation_kind,
-                              target_refs_digest, drill_fingerprint, policy_version,
-                              binding_digest, expires_at, nonce, consumed_at
+                    """SELECT subject_id, supervision_session_id, session_identity_digest,
+                              checkpoint_id, execution_domain_id, manifest_digest,
+                              operation_kind, target_refs_digest, drill_fingerprint,
+                              policy_version, binding_digest, expires_at, nonce, consumed_at
                        FROM recovery_authorizations WHERE authorization_id = ?""",
                     (authorization_id,),
                 ).fetchone()
-                if authorization is None or authorization[12] is not None:
+                if authorization is None or authorization[13] is not None:
                     return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
                 try:
-                    expired = now >= datetime.fromisoformat(authorization[10])
+                    expired = now >= datetime.fromisoformat(authorization[11])
                 except ValueError:
                     return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
                 if expired:
@@ -888,10 +888,10 @@ class RecoveryService:
                     authorization_id, candidate_id, row[7], context,
                     "TRUSTED_BASELINE_CONFIRM", row[9], row[8], nonce,
                 )
-                if authorization[:10] != (
-                    row[6], row[7], row[0], row[1], row[2],
+                if authorization[:11] != (
+                    candidate_id, row[6], row[7], row[0], row[1], row[2],
                     "TRUSTED_BASELINE_CONFIRM", row[3], row[9], row[8], expected,
-                ) or authorization[11] != nonce:
+                ) or authorization[12] != nonce:
                     return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
                 session = transaction.execute(
                     """SELECT status, decision, declared_intent_digest FROM supervision_sessions
