@@ -129,6 +129,40 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
         from ..core.versions import all_versions
         return {"versions": all_versions()}
 
+    # ---- R4 P8 authoritative read projections ----
+
+    def _r4_empty_projection(view: str) -> dict[str, Any]:
+        return {
+            "schema_version": "r4-p8-1",
+            "view": view,
+            "status": "EMPTY",
+            "reason_code": "R4_STATE_EMPTY",
+            "evidence_refs": [],
+            "items": [],
+        }
+
+    @app.get("/api/v1/runtime")
+    async def api_r4_runtime():
+        return _r4_empty_projection("runtime")
+
+    @app.get("/api/v1/agents")
+    async def api_r4_agents():
+        return _r4_empty_projection("agents")
+
+    @app.get("/api/v1/supervision")
+    async def api_r4_supervision():
+        return _r4_empty_projection("supervision")
+
+    @app.get("/api/v1/recovery")
+    async def api_r4_recovery():
+        return {
+            **_r4_empty_projection("recovery"),
+            "recovery_level": "R0",
+            "r3_verified": False,
+            "trusted_baseline_status": "NONE",
+            "trusted_baseline_id": None,
+        }
+
     @app.get("/api/handoff")
     async def api_handoff():
         db = _get_db()
