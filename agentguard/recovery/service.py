@@ -924,6 +924,7 @@ class RecoveryService:
                 self._append_baseline_event(
                     transaction, EventType.TRUSTED_BASELINE_CREATED, baseline_id,
                     "TRUSTED", context, row[4], row[6], row[8], row[9],
+                    now.isoformat(), candidate_id, authorization_id,
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
@@ -1111,7 +1112,8 @@ class RecoveryService:
     def _append_baseline_event(
         self, connection, event_type: EventType, baseline_id: str, result: str,
         context: dict[str, str], evidence_digest: str, supervision_session_id: str,
-        policy_version: str, drill_fingerprint: str,
+        policy_version: str, drill_fingerprint: str, created_at: str | None = None,
+        candidate_id: str | None = None, authorization_id: str | None = None,
     ) -> None:
         self._ledger.append(
             connection,
@@ -1123,12 +1125,24 @@ class RecoveryService:
                 execution_domain_id=context["execution_domain_id"],
                 supervision_session_id=supervision_session_id,
                 transaction_id=None, checkpoint_id=context["checkpoint_id"],
-                subject_ref=f"manifest:{context['manifest_digest']}", evidence_refs=(),
+                subject_ref=f"baseline:{baseline_id}", evidence_refs=(),
                 payload_safe={
                     "baseline_id": baseline_id,
+                    "candidate_id": candidate_id,
+                    "authorization_id": authorization_id,
                     "manifest_digest": context["manifest_digest"],
                     "target_refs_digest": context["target_refs_digest"],
                     "recovery_evidence_digest": evidence_digest,
+                    "baseline_binding_digest": hashlib.sha256(canonical_json({
+                        "baseline_id": baseline_id,
+                        "checkpoint_id": context["checkpoint_id"],
+                        "execution_domain_id": context["execution_domain_id"],
+                        "manifest_digest": context["manifest_digest"],
+                        "target_refs_digest": context["target_refs_digest"],
+                        "recovery_evidence_digest": evidence_digest,
+                        "created_at": created_at,
+                    }).encode()).hexdigest() if created_at is not None else None,
+                    "created_at": created_at,
                     "policy_version": policy_version,
                     "drill_fingerprint": drill_fingerprint,
                 },

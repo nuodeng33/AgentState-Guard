@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from enum import Enum
 
+from agentguard.evidence.canonical import canonical_json
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
@@ -261,7 +262,10 @@ class RecoveryCoverageService:
             connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"]
         )
         trusted_status, trusted_id = self._trusted_baseline(
-            connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"]
+            connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"],
+            hashlib.sha256(
+                canonical_json(sorted(self._target_digest(value) for value in requested)).encode("utf-8")
+            ).hexdigest(),
         )
         recovery_level = "R3" if r3_verified else "R2" if r2_verified else "R1" if status is RecoveryCoverageStatus.COMPLETE else "R0"
         return self._facts(
@@ -463,18 +467,106 @@ class RecoveryCoverageService:
         checkpoint_id: str,
         execution_domain_id: str,
         manifest_digest: str,
+        target_refs_digest: str,
     ) -> tuple[str, str | None]:
         row = connection.execute(
-            """SELECT baseline_id FROM trusted_baselines WHERE checkpoint_id = ?
+            """SELECT baseline_id, target_refs_digest, recovery_evidence_digest, created_at
+               FROM trusted_baselines WHERE checkpoint_id = ?
                AND execution_domain_id = ? AND manifest_digest = ?""",
             (checkpoint_id, execution_domain_id, manifest_digest),
         ).fetchone()
         if row is None:
             return "NONE", None
-        retired = connection.execute(
-            "SELECT 1 FROM trusted_baseline_retirements WHERE baseline_id = ?", (row[0],)
+        baseline_id, baseline_target_refs_digest, recovery_evidence_digest, created_at = row
+        retirement = connection.execute(
+            "SELECT retired_at, reason_code FROM trusted_baseline_retirements WHERE baseline_id = ?",
+            (baseline_id,),
         ).fetchone()
-        return ("RETIRED", row[0]) if retired else ("TRUSTED", row[0])
+        if retirement is not None:
+            return "RETIRED", baseline_id
+        evidence = connection.execute(
+            """SELECT payload_safe_json, supervision_session_id, result
+               FROM evidence_ledger_events
+               WHERE event_type = 'TRUSTED_BASELINE_CREATED'
+                 AND checkpoint_id = ?
+                 AND execution_domain_id = ?
+                 AND subject_ref = ?
+               ORDER BY sequence DESC""",
+            (checkpoint_id, execution_domain_id, f"baseline:{baseline_id}"),
+        ).fetchone()
+        if evidence is None:
+            return "NONE", None
+        try:
+            payload = json.loads(evidence[0])
+        except (TypeError, json.JSONDecodeError):
+            return "NONE", None
+        if evidence[1] is None or evidence[2] != "TRUSTED":
+            return "NONE", None
+        if (
+            payload.get("baseline_id") != baseline_id
+            or payload.get("candidate_id") is None
+            or payload.get("authorization_id") is None
+            or payload.get("manifest_digest") != manifest_digest
+            or payload.get("target_refs_digest") != baseline_target_refs_digest
+            or payload.get("recovery_evidence_digest") != recovery_evidence_digest
+            or payload.get("created_at") != created_at
+        ):
+            return "NONE", None
+        candidate = connection.execute(
+            """SELECT c.status, c.candidate_id, c.checkpoint_id, c.execution_domain_id,
+                      c.manifest_digest, c.target_refs_digest, c.recovery_evidence_digest,
+                      b.supervision_session_id, b.session_identity_digest, b.policy_version,
+                      b.drill_fingerprint
+               FROM trusted_baseline_candidates c
+               JOIN trusted_baseline_candidate_bindings b USING (candidate_id)
+               WHERE c.candidate_id = ?""",
+            (payload.get("candidate_id"),),
+        ).fetchone()
+        authorization = connection.execute(
+            """SELECT authorization_id, subject_id, supervision_session_id,
+                      session_identity_digest, checkpoint_id, execution_domain_id,
+                      manifest_digest, operation_kind, target_refs_digest,
+                      drill_fingerprint, policy_version, binding_digest,
+                      consumed_at, consumed_by_ref
+               FROM recovery_authorizations WHERE authorization_id = ?""",
+            (payload.get("authorization_id"),),
+        ).fetchone()
+        if candidate is None or authorization is None:
+            return "NONE", None
+        if (
+            candidate[0] != "CONSUMED"
+            or candidate[2:7] != (
+                checkpoint_id, execution_domain_id, manifest_digest,
+                baseline_target_refs_digest, recovery_evidence_digest,
+            )
+            or authorization[1] != candidate[1]
+            or authorization[2] != candidate[7]
+            or authorization[3] != candidate[8]
+            or authorization[4:7] != (checkpoint_id, execution_domain_id, manifest_digest)
+            or authorization[7] != "TRUSTED_BASELINE_CONFIRM"
+            or authorization[8] != baseline_target_refs_digest
+            or authorization[9] != candidate[10]
+            or authorization[10] != candidate[9]
+            or authorization[12] is None
+            or authorization[13] != baseline_id
+        ):
+            return "NONE", None
+        expected_digest = hashlib.sha256(
+            canonical_json(
+                {
+                    "baseline_id": baseline_id,
+                    "checkpoint_id": checkpoint_id,
+                    "execution_domain_id": execution_domain_id,
+                    "manifest_digest": manifest_digest,
+                    "target_refs_digest": baseline_target_refs_digest,
+                    "recovery_evidence_digest": recovery_evidence_digest,
+                    "created_at": created_at,
+                }
+            ).encode("utf-8")
+        ).hexdigest()
+        if payload.get("baseline_binding_digest") != expected_digest:
+            return "NONE", None
+        return "TRUSTED", baseline_id
 
     @staticmethod
     def _target_digest(value: str) -> str:

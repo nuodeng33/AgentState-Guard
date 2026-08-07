@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from agentguard.evidence.ledger import EvidenceLedger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
+from agentguard.recovery.coverage import RecoveryCoverageService
 from tests.test_recovery_drill import _r2_then_approved_drill, _service
 
 
@@ -102,6 +103,39 @@ def test_baseline_confirmation_is_one_time_and_bound_to_candidate(tmp_path):
         assert service.confirm_trusted_baseline(
             pending["candidate_id"], authorization["authorization_id"], authorization["nonce"]
         )["reason_code"] == "TRUSTED_BASELINE_CONFIRMATION_INVALID"
+    finally:
+        database.close()
+
+
+def test_forged_trusted_baseline_row_never_projects_trusted(tmp_path):
+    target, database, snapshots, _service_instance, checkpoint = _verified_r3(tmp_path)
+    try:
+        database._conn.execute(
+            """INSERT INTO trusted_baselines
+               (baseline_id, checkpoint_id, execution_domain_id, manifest_digest,
+                target_refs_digest, recovery_evidence_digest, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "forged-baseline",
+                checkpoint.checkpoint_id,
+                "self-runtime",
+                checkpoint.manifest_digest,
+                "forged-target-refs",
+                "forged-evidence",
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        database._conn.commit()
+
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="self-runtime",
+        )
+
+        assert facts.r3_verified is True
+        assert facts.trusted_baseline_status == "NONE"
+        assert facts.trusted_baseline_id is None
     finally:
         database.close()
 
