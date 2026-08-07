@@ -1022,13 +1022,14 @@ class RecoveryService:
             """SELECT drill_id, binding_digest FROM recovery_drills
                WHERE checkpoint_id = ? AND execution_domain_id = ?
                  AND manifest_digest = ? AND target_refs_digest = ?
-                 AND status = 'VERIFIED_R3'""",
+                 AND status = 'VERIFIED_R3'
+               ORDER BY created_at, drill_id""",
             (
                 context["checkpoint_id"], context["execution_domain_id"],
                 context["manifest_digest"], context["target_refs_digest"],
             ),
         ).fetchall()
-        if len(drills) != 1:
+        if not drills:
             return None
         drill_id, binding_digest = drills[0]
         binding = connection.execute(

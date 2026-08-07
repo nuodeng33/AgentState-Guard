@@ -391,10 +391,11 @@ class RecoveryCoverageService:
         drills = connection.execute(
             """SELECT drill_id, binding_digest, target_refs_digest FROM recovery_drills
                WHERE checkpoint_id = ? AND execution_domain_id = ?
-                 AND manifest_digest = ? AND status = 'VERIFIED_R3'""",
+                 AND manifest_digest = ? AND status = 'VERIFIED_R3'
+               ORDER BY created_at, drill_id""",
             (checkpoint_id, execution_domain_id, manifest_digest),
         ).fetchall()
-        if len(drills) != 1:
+        if not drills:
             return False, ()
         drill_id, binding_digest, _target_refs_digest = drills[0]
         binding = connection.execute(

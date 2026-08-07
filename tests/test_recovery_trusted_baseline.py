@@ -140,6 +140,50 @@ def test_forged_trusted_baseline_row_never_projects_trusted(tmp_path):
         database.close()
 
 
+def test_multiple_valid_r3_drills_preserve_authoritative_r3(tmp_path):
+    target, database, snapshots, service, checkpoint = _verified_r3(tmp_path)
+    try:
+        second = service.prepare_drill(
+            checkpoint_id=checkpoint.checkpoint_id,
+            execution_domain_id="self-runtime",
+        )
+        assert service.approve_drill(second["drill_id"])["status"] == "APPROVED"
+        assert service.run_drill(second["drill_id"])["status"] == "VERIFIED_R3"
+
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="self-runtime",
+        )
+        assert facts.r3_verified is True
+    finally:
+        database.close()
+
+
+def test_confirmed_baseline_projects_trusted_after_restart(tmp_path):
+    target, database, snapshots, service, checkpoint = _verified_r3(tmp_path)
+    try:
+        candidate = service.create_trusted_baseline(
+            checkpoint_id=checkpoint.checkpoint_id,
+            execution_domain_id="self-runtime",
+        )
+        authorization = service.approve_trusted_baseline(candidate["candidate_id"])
+        baseline = service.confirm_trusted_baseline(
+            candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+        )
+        assert baseline["status"] == "TRUSTED"
+
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="self-runtime",
+        )
+        assert facts.trusted_baseline_status == "TRUSTED"
+        assert facts.trusted_baseline_id == baseline["baseline_id"]
+    finally:
+        database.close()
+
+
 def test_trusted_baseline_rejects_r3_with_non_approved_supervision_session(tmp_path):
     _target, database, _snapshots, service, checkpoint = _verified_r3(tmp_path)
     try:
