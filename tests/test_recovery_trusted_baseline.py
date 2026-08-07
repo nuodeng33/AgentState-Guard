@@ -265,7 +265,7 @@ def _approved_baseline(tmp_path):
 def test_authorization_context_mismatch_cannot_confirm(
     tmp_path, column, value,
 ):
-    _target, database, _snapshots, service, checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    _target, database, _snapshots, service, _checkpoint, candidate, authorization = _approved_baseline(tmp_path)
     try:
         database._conn.execute(
             f"UPDATE recovery_authorizations SET {column} = ? WHERE authorization_id = ?",
