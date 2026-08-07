@@ -251,6 +251,60 @@ class MigrationEngine:
             DROP TABLE IF EXISTS supervision_sessions;
         """))
 
+        self.register(Migration(5, "R4 controlled recovery drills", """
+            CREATE TABLE recovery_drills (
+                drill_id TEXT PRIMARY KEY,
+                checkpoint_id TEXT NOT NULL,
+                execution_domain_id TEXT NOT NULL,
+                manifest_digest TEXT NOT NULL,
+                target_refs_digest TEXT NOT NULL,
+                binding_digest TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL CHECK(status IN (
+                    'AWAITING_APPROVAL', 'APPROVED', 'RUNNING', 'FAILED', 'VERIFIED_R3'
+                )),
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+            CREATE TABLE recovery_drill_approvals (
+                approval_id TEXT PRIMARY KEY,
+                drill_id TEXT NOT NULL UNIQUE REFERENCES recovery_drills(drill_id),
+                binding_digest TEXT NOT NULL,
+                approved_at TEXT NOT NULL,
+                consumed_at TEXT,
+                consumed_by_run_id TEXT UNIQUE,
+                CHECK((consumed_at IS NULL) = (consumed_by_run_id IS NULL))
+            );
+            CREATE TABLE trusted_baselines (
+                baseline_id TEXT PRIMARY KEY,
+                checkpoint_id TEXT NOT NULL,
+                execution_domain_id TEXT NOT NULL,
+                manifest_digest TEXT NOT NULL,
+                target_refs_digest TEXT NOT NULL,
+                recovery_evidence_digest TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(checkpoint_id, execution_domain_id, manifest_digest, target_refs_digest)
+            );
+            CREATE TABLE trusted_baseline_retirements (
+                retirement_id TEXT PRIMARY KEY,
+                baseline_id TEXT NOT NULL UNIQUE REFERENCES trusted_baselines(baseline_id),
+                retired_at TEXT NOT NULL,
+                reason_code TEXT NOT NULL
+            );
+            CREATE TRIGGER trusted_baselines_no_update
+            BEFORE UPDATE ON trusted_baselines
+            BEGIN SELECT RAISE(ABORT, 'TRUSTED_BASELINE_IMMUTABLE'); END;
+            CREATE TRIGGER trusted_baselines_no_delete
+            BEFORE DELETE ON trusted_baselines
+            BEGIN SELECT RAISE(ABORT, 'TRUSTED_BASELINE_IMMUTABLE'); END;
+        """, """
+            DROP TRIGGER IF EXISTS trusted_baselines_no_delete;
+            DROP TRIGGER IF EXISTS trusted_baselines_no_update;
+            DROP TABLE IF EXISTS trusted_baseline_retirements;
+            DROP TABLE IF EXISTS trusted_baselines;
+            DROP TABLE IF EXISTS recovery_drill_approvals;
+            DROP TABLE IF EXISTS recovery_drills;
+        """))
+
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
 
