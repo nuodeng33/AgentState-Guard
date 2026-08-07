@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import re
@@ -479,6 +480,133 @@ class SelfRuntimeAdapter:
             manifest_digest=digest,
             details={"sandbox_path": str(sandbox), "verified_targets": verified},
         )
+
+    def drill_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        """Prove CAS recovery after controlled drift inside a service-owned drill root."""
+        artifact = request.artifact
+        valid, reason_code, digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=request.execution_domain_id,
+        )
+        if not valid:
+            return self._recovery_result(request, CapabilityStatus.ERROR, reason_code)
+        root = request.drill_root
+        if root is None or not root.is_dir() or root.is_symlink():
+            return self._recovery_result(request, CapabilityStatus.ERROR, "DRILL_TARGET_UNAVAILABLE")
+        try:
+            resolved_root = root.resolve(strict=True)
+            if resolved_root != root.absolute() or not root.is_dir():
+                raise ValueError("DRILL_TARGET_UNSAFE")
+            entries = [
+                entry for entry in artifact["manifest"] if entry["classification"] == "restorable"
+            ]
+            if not entries:
+                raise ValueError("TEST_RESTORE_NO_RESTORABLE_ENTRIES")
+            verified = 0
+            targets: list[str] = []
+            for entry in entries:
+                logical_path = entry["logical_path"]
+                relative = Path(logical_path.lstrip("/"))
+                if (
+                    not logical_path.startswith("/")
+                    or "\\" in logical_path
+                    or ".." in relative.parts
+                    or not relative.parts
+                ):
+                    raise ValueError("DRILL_TARGET_UNSAFE")
+                target = root.joinpath(*relative.parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                resolved_parent = target.parent.resolve(strict=True)
+                if resolved_root != resolved_parent and resolved_root not in resolved_parent.parents:
+                    raise ValueError("DRILL_TARGET_UNSAFE")
+                if target.exists() or target.is_symlink():
+                    raise ValueError("DRILL_TARGET_UNSAFE")
+                content = artifact["blobs"][entry["blob_sha256"]]
+                self._write_atomic(target, content, int(entry["mode"], 8))
+                baseline = self._read_regular(target)
+                if baseline != content:
+                    raise ValueError("DRILL_TARGET_WRITE_INVALID")
+                drift = self._drift_bytes(content)
+                self._write_atomic(target, drift, int(entry["mode"], 8))
+                drifted = self._read_regular(target)
+                if drifted == content or hashlib.sha256(drifted).hexdigest() == entry["sha256"]:
+                    raise ValueError("DRILL_DRIFT_NOT_ESTABLISHED")
+                self._write_atomic(target, content, int(entry["mode"], 8))
+                recovered = self._read_regular(target)
+                current = target.stat(follow_symlinks=False)
+                if (
+                    recovered != content
+                    or hashlib.sha256(recovered).hexdigest() != entry["sha256"]
+                    or len(recovered) != entry["size"]
+                    or stat.S_IMODE(current.st_mode) != stat.S_IMODE(int(entry["mode"], 8))
+                    or entry["domain"] != request.execution_domain_id
+                ):
+                    raise ValueError("DRILL_RECOVERY_VALIDATION_FAILED")
+                if entry["validator"] != "toml-parse":
+                    raise ValueError("TEST_RESTORE_VALIDATOR_UNDEFINED")
+                tomllib.loads(recovered.decode("utf-8"))
+                targets.append(str(target.relative_to(resolved_root)))
+                verified += 1
+        except PermissionError:
+            return self._recovery_result(request, CapabilityStatus.PERMISSION_DENIED, "RECOVERY_PERMISSION_DENIED")
+        except (OSError, ValueError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+            reason = str(error)
+            if not reason.startswith(("DRILL_", "TEST_RESTORE_")):
+                reason = "DRILL_RECOVERY_VALIDATION_FAILED"
+            return self._recovery_result(request, CapabilityStatus.ERROR, reason, manifest_digest=digest)
+        return self._recovery_result(
+            request,
+            CapabilityStatus.AVAILABLE,
+            "DRILL_VERIFIED_R3",
+            manifest_digest=digest,
+            details={
+                "drift_established": True,
+                "managed_target_root": str(resolved_root),
+                "target_refs": targets,
+                "verified_targets": verified,
+            },
+        )
+
+    @staticmethod
+    def _drift_bytes(content: bytes) -> bytes:
+        return content + b"# agentguard-r3-controlled-drift\n"
+
+    @staticmethod
+    def _read_regular(path: Path) -> bytes:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            current = os.fstat(descriptor)
+            if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1:
+                raise ValueError("DRILL_TARGET_UNSAFE")
+            with os.fdopen(descriptor, "rb", closefd=False) as source:
+                content = source.read()
+            if current.st_size != len(content):
+                raise ValueError("DRILL_TARGET_CHANGED")
+            return content
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _write_atomic(path: Path, content: bytes, mode: int) -> None:
+        if path.is_symlink() or path.exists() and not path.is_file():
+            raise ValueError("DRILL_TARGET_UNSAFE")
+        temporary = path.with_name(f".{path.name}.agentguard-r3.tmp")
+        if temporary.exists() or temporary.is_symlink():
+            raise ValueError("DRILL_TARGET_UNSAFE")
+        try:
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                mode,
+            )
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(content)
+                output.flush()
+                os.fsync(output.fileno())
+                os.fchmod(output.fileno(), mode)
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     @staticmethod
     def _recovery_result(

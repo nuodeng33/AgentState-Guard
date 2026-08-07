@@ -15,6 +15,7 @@ class RecoveryOperation(str, Enum):
     RESTORE = "restore"
     VERIFY = "verify"
     TEST_RESTORE = "test_restore"
+    DRILL_RESTORE = "drill_restore"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class RecoveryRequest:
     user_approved: bool = False
     artifact: dict[str, Any] | None = None
     sandbox_path: Path | None = None
+    drill_root: Path | None = None
 
 
 @dataclass(frozen=True)

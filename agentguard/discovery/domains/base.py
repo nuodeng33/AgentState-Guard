@@ -32,3 +32,6 @@ class ExecutionDomainAdapter(Protocol):
 
     def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
         """Perform only an isolated P7 test restore inside this domain."""
+
+    def drill_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        """Perform an R3 managed-target drift and recovery drill."""
