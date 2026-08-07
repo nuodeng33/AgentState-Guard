@@ -2,9 +2,16 @@
 
 **Version:** 0.9.0.dev0
 **Branch:** feat/device-link
-**HEAD:** local R4-P4 evidence/policy/supervision series (verify with `git rev-parse HEAD`)
+**HEAD:** local R4-P7 recovery trust boundary series (verify with `git rev-parse HEAD`)
 
-## R4-P4 Local Evidence and Supervision
+## R4-P7 Recovery Trust Boundary
+
+- Schema v7 stores recovery-drill and trusted-baseline candidate bindings to durable Supervision sessions plus expiry/nonce/consume-bound recovery authorizations.
+- `VERIFIED_R3` remains distinct from `TRUSTED`; baseline confirmation requires a separate approved Supervision authorization and one SQLite transaction for consume, state transition, immutable baseline write, and Evidence Ledger append.
+- Server-computed coverage exposes R0/R1/R2/R3 and baseline lifecycle facts only from StateDB, Snapshot V3, durable recovery records, and a verified ledger. BLOCK/UNKNOWN, scope drift, stale/mismatched evidence, replay, and retirement fail closed.
+- Recovery CLI provides inspection and baseline create/approve/confirm/retire/show commands and does not accept caller-supplied recovery truth.
+- Fresh local evidence: 753 Python tests passed; changed-file Ruff passed; wheel built and installed into a clean non-editable venv; Recovery CLI help and read-only show smoke passed. Push and CI audit remain release gates until recorded.
+
 
 - Local commits establish transaction foundation, schema v3 Evidence Ledger, schema v4 supervision sessions, deterministic policy, project-local Retry Guard evidence, local supervision CLI, and an offline closure regression.
 - Fresh pre-document targeted evidence: Retry Guard 9 passed; Supervision/migration/policy/evidence/CLI related regression 35 passed; offline closure 3 passed. Final full-suite and CI evidence must be collected separately.

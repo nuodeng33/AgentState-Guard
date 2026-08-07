@@ -39,6 +39,126 @@ class SupervisionService:
         database.connect()
         return cls(database)
 
+    def create_recovery_approval_session(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        operation_kind: str,
+    ) -> SupervisionSession:
+        """Create a local REVIEW session for one recovery authorization."""
+        decision = PolicyDecision(
+            decision=Decision.REVIEW,
+            severity="HIGH",
+            matched_rule_ids=("recovery-authorization",),
+            summary_code="RECOVERY_APPROVAL_REQUIRED",
+            evidence_refs=(),
+            uncertainties=(),
+            required_checks=(),
+            requires_checkpoint=True,
+            requires_manual_approval=True,
+        )
+        return self._create_in_transaction(
+            connection,
+            f"recovery:{operation_kind}",
+            decision,
+        )
+
+    def approve_recovery_authorization(
+        self,
+        session_id: str,
+        authorization: dict[str, str],
+    ) -> SupervisionSession:
+        """Approve exactly one durable, bound recovery authorization."""
+        with self._database.transaction() as connection:
+            return self._approve_recovery_authorization_in_transaction(
+                connection,
+                session_id,
+                authorization,
+            )
+
+    def _approve_recovery_authorization_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+        authorization: dict[str, str],
+    ) -> SupervisionSession:
+        """Persist a bound authorization with its supervision approval atomically."""
+        required = {
+            "authorization_id", "subject_id", "session_identity_digest",
+            "checkpoint_id", "execution_domain_id", "manifest_digest",
+            "operation_kind", "target_refs_digest", "drill_fingerprint",
+            "policy_version", "binding_digest", "issued_at", "expires_at", "nonce",
+        }
+        if set(authorization) != required or authorization["operation_kind"] not in {
+            "SELF_RUNTIME_R3_DRILL", "TRUSTED_BASELINE_CONFIRM",
+        }:
+            raise ValueError("RECOVERY_AUTHORIZATION_INVALID")
+        try:
+            issued_at = datetime.fromisoformat(authorization["issued_at"])
+            expires_at = datetime.fromisoformat(authorization["expires_at"])
+        except ValueError as exc:
+            raise ValueError("RECOVERY_AUTHORIZATION_INVALID") from exc
+        if (
+            issued_at.tzinfo is None
+            or expires_at.tzinfo is None
+            or expires_at <= issued_at
+            or not authorization["drill_fingerprint"]
+        ):
+            raise ValueError("RECOVERY_AUTHORIZATION_INVALID")
+        now = datetime.now(UTC)
+        row = connection.execute(
+            """SELECT status, decision, declared_intent_digest FROM supervision_sessions
+               WHERE supervision_session_id = ?""",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError("SUPERVISION_SESSION_NOT_FOUND")
+        if (
+            row[0] != "AWAITING_APPROVAL"
+            or row[1] in {Decision.BLOCK.value, Decision.UNKNOWN.value}
+            or authorization["session_identity_digest"] != row[2]
+        ):
+            return SupervisionSession(session_id, row[0])
+        updated = connection.execute(
+            """UPDATE supervision_sessions SET status = ?, updated_at = ?
+               WHERE supervision_session_id = ? AND status = 'AWAITING_APPROVAL'""",
+            ("APPROVED", now.isoformat(), session_id),
+        ).rowcount
+        if updated != 1:
+            return self._read(session_id, connection)
+        self._append(
+            connection,
+            session_id,
+            EventType.USER_APPROVED,
+            "APPROVED",
+            now,
+            payload_extra={
+                "authorization_binding_digest": authorization["binding_digest"],
+                "operation_kind": authorization["operation_kind"],
+                "policy_version": authorization["policy_version"],
+            },
+        )
+        connection.execute(
+            """INSERT INTO recovery_authorizations (
+                   authorization_id, subject_id, supervision_session_id,
+                   session_identity_digest, checkpoint_id, execution_domain_id,
+                   manifest_digest, operation_kind, target_refs_digest,
+                   drill_fingerprint, policy_version, binding_digest, issued_at,
+                   expires_at, nonce
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                authorization["authorization_id"], authorization["subject_id"],
+                session_id, authorization["session_identity_digest"],
+                authorization["checkpoint_id"], authorization["execution_domain_id"],
+                authorization["manifest_digest"], authorization["operation_kind"],
+                authorization["target_refs_digest"], authorization["drill_fingerprint"],
+                authorization["policy_version"], authorization["binding_digest"],
+                authorization["issued_at"], authorization["expires_at"],
+                authorization["nonce"],
+            ),
+        )
+        return SupervisionSession(session_id, "APPROVED")
+
     def create(self, declared_intent: str, decision: PolicyDecision) -> SupervisionSession:
         with self._database.transaction() as connection:
             return self._create_in_transaction(connection, declared_intent, decision)

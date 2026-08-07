@@ -305,6 +305,80 @@ class MigrationEngine:
             DROP TABLE IF EXISTS recovery_drills;
         """))
 
+        self.register(Migration(6, "Durable trusted baseline approvals", """
+            CREATE TABLE trusted_baseline_candidates (
+                candidate_id TEXT PRIMARY KEY,
+                checkpoint_id TEXT NOT NULL,
+                execution_domain_id TEXT NOT NULL,
+                manifest_digest TEXT NOT NULL,
+                target_refs_digest TEXT NOT NULL,
+                recovery_evidence_digest TEXT NOT NULL,
+                binding_digest TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL CHECK(status IN ('CANDIDATE', 'CONSUMED')),
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE trusted_baseline_approvals (
+                approval_id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL UNIQUE REFERENCES trusted_baseline_candidates(candidate_id),
+                binding_digest TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT,
+                consumed_by_baseline_id TEXT UNIQUE,
+                CHECK((consumed_at IS NULL) = (consumed_by_baseline_id IS NULL))
+            );
+        """, """
+            DROP TABLE IF EXISTS trusted_baseline_approvals;
+            DROP TABLE IF EXISTS trusted_baseline_candidates;
+        """))
+
+        self.register(Migration(7, "Bound recovery supervision authorizations", """
+            CREATE TABLE recovery_drill_bindings (
+                drill_id TEXT PRIMARY KEY REFERENCES recovery_drills(drill_id),
+                supervision_session_id TEXT NOT NULL UNIQUE REFERENCES supervision_sessions(supervision_session_id),
+                session_identity_digest TEXT NOT NULL,
+                policy_version TEXT NOT NULL,
+                operation_kind TEXT NOT NULL CHECK(operation_kind = 'SELF_RUNTIME_R3_DRILL'),
+                binding_digest TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE trusted_baseline_candidate_bindings (
+                candidate_id TEXT PRIMARY KEY REFERENCES trusted_baseline_candidates(candidate_id),
+                supervision_session_id TEXT NOT NULL UNIQUE REFERENCES supervision_sessions(supervision_session_id),
+                session_identity_digest TEXT NOT NULL,
+                policy_version TEXT NOT NULL,
+                drill_fingerprint TEXT NOT NULL,
+                binding_digest TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE recovery_authorizations (
+                authorization_id TEXT PRIMARY KEY,
+                subject_id TEXT NOT NULL UNIQUE,
+                supervision_session_id TEXT NOT NULL UNIQUE REFERENCES supervision_sessions(supervision_session_id),
+                session_identity_digest TEXT NOT NULL,
+                checkpoint_id TEXT NOT NULL,
+                execution_domain_id TEXT NOT NULL,
+                manifest_digest TEXT NOT NULL,
+                operation_kind TEXT NOT NULL CHECK(operation_kind IN ('SELF_RUNTIME_R3_DRILL', 'TRUSTED_BASELINE_CONFIRM')),
+                target_refs_digest TEXT NOT NULL,
+                drill_fingerprint TEXT,
+                policy_version TEXT NOT NULL,
+                binding_digest TEXT NOT NULL UNIQUE,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                nonce TEXT NOT NULL UNIQUE,
+                consumed_at TEXT,
+                consumed_by_ref TEXT UNIQUE,
+                CHECK((consumed_at IS NULL) = (consumed_by_ref IS NULL))
+            );
+            CREATE INDEX idx_recovery_authorizations_subject
+                ON recovery_authorizations(subject_id);
+        """, """
+            DROP TABLE IF EXISTS recovery_authorizations;
+            DROP TABLE IF EXISTS trusted_baseline_candidate_bindings;
+            DROP TABLE IF EXISTS recovery_drill_bindings;
+        """))
+
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
 

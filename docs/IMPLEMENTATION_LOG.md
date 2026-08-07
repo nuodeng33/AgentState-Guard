@@ -1,6 +1,14 @@
 # Implementation Log
 
-## 2026-08-05 — R4-P4 local evidence and supervision
+## 2026-08-07 — R4-P7 recovery trust boundary
+
+- Added schema v7 bindings from R3 drills and trusted-baseline candidates to Supervision REVIEW sessions, and durable one-time recovery authorizations with bound subject, context, policy, fingerprint, expiry, nonce, and consumption fields.
+- Replaced legacy recovery approval authority with atomic Supervision `USER_APPROVED` plus durable authorization issuance. R3 drill execution and trusted-baseline confirmation reject replay, expiry, mismatch, and stale authorization state.
+- Implemented trusted-baseline lifecycle: `CANDIDATE` does not equal `TRUSTED`; confirmation revalidates R3 evidence and atomically writes an immutable baseline, consumes the candidate/authorization, and appends ledger evidence; retirement removes trusted projection.
+- Extended server-derived recovery facts with R0/R1/R2/R3 and trusted-baseline dimensions. Strict R3 evidence requires a verified ledger, complete drill sequence, matching approved Supervision binding, and absence of scope/failure evidence.
+- Added Recovery CLI inspection and baseline lifecycle commands without changing `agentguard restore` or `agentguard test-restore` and without user-provided trust flags.
+- Fresh local evidence: 753 Python tests passed in 26.58s; scoped Ruff passed; wheel build passed; clean non-editable wheel install plus Recovery CLI help/read-only show smoke passed. Normal push and CI audit are recorded separately at the release boundary.
+
 
 - Added Transaction Foundation support through explicit `StateDB.transaction()` ownership and `BEGIN IMMEDIATE` semantics.
 - Added R4 append-only Evidence Ledger, deterministic local Policy, v4 independent supervision sessions, and local `agentguard supervise` CLI workflow.

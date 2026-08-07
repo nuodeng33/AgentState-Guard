@@ -15,6 +15,7 @@ from .commands.status import status as _status
 from .core.config import Config
 from .core.whitelist import Whitelist
 from .policy.models import Decision, PolicyInput
+from .recovery.service import RecoveryService
 from .storage.db import StateDB
 from .storage.snapshots import SnapshotStore
 from .supervision.service import SupervisionService
@@ -137,6 +138,30 @@ def _build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--allow-remote", action="store_true")
     sv.add_argument("--host", type=str, default=None)
 
+    # recovery truth workflow
+    recovery = sub.add_parser("recovery", help="Inspect controlled recovery trust state")
+    recovery_sub = recovery.add_subparsers(dest="recovery_subcommand", required=True)
+    drill = recovery_sub.add_parser("drill", help="Inspect a recovery drill")
+    drill_sub = drill.add_subparsers(dest="recovery_drill_subcommand", required=True)
+    drill_show = drill_sub.add_parser("show", help="Show a recovery drill")
+    drill_show.add_argument("drill_id", type=str)
+    baseline = recovery_sub.add_parser("baseline", help="Manage trusted baseline lifecycle")
+    baseline_sub = baseline.add_subparsers(dest="recovery_baseline_subcommand", required=True)
+    baseline_create = baseline_sub.add_parser("create", help="Create a trusted baseline candidate")
+    baseline_create.add_argument("--checkpoint-id", required=True)
+    baseline_create.add_argument("--domain", required=True)
+    baseline_approve = baseline_sub.add_parser("approve", help="Approve a baseline candidate")
+    baseline_approve.add_argument("candidate_id", type=str)
+    baseline_confirm = baseline_sub.add_parser("confirm", help="Confirm an approved baseline candidate")
+    baseline_confirm.add_argument("candidate_id", type=str)
+    baseline_confirm.add_argument("--authorization-id", required=True)
+    baseline_confirm.add_argument("--nonce", required=True)
+    baseline_retire = baseline_sub.add_parser("retire", help="Retire a trusted baseline")
+    baseline_retire.add_argument("baseline_id", type=str)
+    baseline_retire.add_argument("--reason-code", required=True)
+    baseline_show = baseline_sub.add_parser("show", help="Show a baseline or candidate")
+    baseline_show.add_argument("baseline_id", type=str)
+
     # supervise
     supervise = sub.add_parser("supervise", help="Run local supervision workflow")
     supervise_sub = supervise.add_subparsers(dest="supervise_subcommand", required=True)
@@ -203,6 +228,31 @@ def _dispatch(args: argparse.Namespace) -> Any:
 
     db = StateDB(config.state_db())
     snapshots = SnapshotStore(config.snapshot_dir())
+
+    if args.command == "recovery":
+        db.connect()
+        try:
+            service = RecoveryService(database=db, snapshots=snapshots, adapters={})
+            if args.recovery_subcommand == "drill":
+                return service.show_drill(args.drill_id)
+            if args.recovery_baseline_subcommand == "create":
+                return service.create_trusted_baseline(
+                    checkpoint_id=args.checkpoint_id,
+                    execution_domain_id=args.domain,
+                )
+            if args.recovery_baseline_subcommand == "approve":
+                return service.approve_trusted_baseline(args.candidate_id)
+            if args.recovery_baseline_subcommand == "confirm":
+                return service.confirm_trusted_baseline(
+                    args.candidate_id,
+                    args.authorization_id,
+                    args.nonce,
+                )
+            if args.recovery_baseline_subcommand == "retire":
+                return service.retire_trusted_baseline(args.baseline_id, args.reason_code)
+            return service.show_trusted_baseline(args.baseline_id)
+        finally:
+            db.close()
 
     if args.command == "supervise":
         db.connect()
@@ -509,12 +559,16 @@ def _print_checkpoints(cps: list) -> None:
 
 def _is_success(result: Any) -> bool:
     if isinstance(result, dict):
-        return "error" not in result and result.get("code") not in {
-            "POLICY_BLOCK",
-            "POLICY_UNKNOWN",
-            "APPROVAL_REQUIRED",
-            "CHECKPOINT_REQUIRED",
-        }
+        return (
+            not (result.get("status") == "FAILED" and "reason_code" in result)
+            and "error" not in result
+            and result.get("code") not in {
+                "POLICY_BLOCK",
+                "POLICY_UNKNOWN",
+                "APPROVAL_REQUIRED",
+                "CHECKPOINT_REQUIRED",
+            }
+        )
     if isinstance(result, list):
         return True
     return True

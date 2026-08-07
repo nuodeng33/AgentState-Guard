@@ -17,7 +17,7 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             assert engine.current_version(conn) == 0
-            assert len(engine.pending(conn)) == 5  # v1 through v5
+            assert len(engine.pending(conn)) == 7  # v1 through v7
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -31,9 +31,9 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             result = engine.migrate(conn)
-            assert len(result["applied"]) == 5
+            assert len(result["applied"]) == 7
             assert result["errors"] == []
-            assert engine.current_version(conn) == 5
+            assert engine.current_version(conn) == 7
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -49,7 +49,7 @@ class TestMigrations:
             engine.migrate(conn)
             result = engine.migrate(conn)
             assert result["applied"] == []
-            assert engine.current_version(conn) == 5
+            assert engine.current_version(conn) == 7
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -73,6 +73,41 @@ class TestMigrations:
             assert "recovery_drills" in table_names
             assert "recovery_drill_approvals" in table_names
             assert "trusted_baselines" in table_names
+            assert "trusted_baseline_candidates" in table_names
+            assert "trusted_baseline_approvals" in table_names
+            assert "recovery_drill_bindings" in table_names
+            assert "trusted_baseline_candidate_bindings" in table_names
+            assert "recovery_authorizations" in table_names
+        finally:
+            conn.close()
+            db_path.unlink(missing_ok=True)
+
+    def test_v5_rollback_does_not_own_v7_tables(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = Path(f.name)
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT, checksum TEXT, duration_ms INTEGER)")
+            conn.commit()
+            engine = MigrationEngine(db_path)
+            engine.migrate(conn)
+            executed: list[str] = []
+            original = engine._execute_script
+
+            def record(connection, script):
+                executed.append(script)
+                original(connection, script)
+
+            engine._execute_script = record
+            result = engine.rollback(conn, 4)
+
+            assert result["errors"] == []
+            assert engine.current_version(conn) == 4
+            assert "recovery_authorizations" in executed[0]
+            assert "trusted_baseline_candidates" in executed[1]
+            assert "trusted_baseline_approvals" in executed[1]
+            assert "trusted_baseline_candidates" not in executed[2]
+            assert "trusted_baseline_approvals" not in executed[2]
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -86,13 +121,13 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             engine.migrate(conn)
-            assert engine.current_version(conn) == 5
+            assert engine.current_version(conn) == 7
             result = engine.rollback(conn, 0)
-            assert len(result["rolled_back"]) == 5
+            assert len(result["rolled_back"]) == 7
             assert engine.current_version(conn) == 0
             # Re-migrate
             engine.migrate(conn)
-            assert engine.current_version(conn) == 5
+            assert engine.current_version(conn) == 7
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -107,7 +142,7 @@ class TestMigrations:
             engine = MigrationEngine(db_path)
             engine.register(Migration(4, "Custom test", "CREATE TABLE custom_test (id INTEGER)", "DROP TABLE custom_test"))
             engine.migrate(conn)
-            assert engine.current_version(conn) == 5
+            assert engine.current_version(conn) == 7
             tables = conn.execute("SELECT name FROM sqlite_master WHERE name='custom_test'").fetchall()
             assert len(tables) == 1
         finally:

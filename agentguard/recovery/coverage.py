@@ -36,6 +36,12 @@ class RecoveryCoverageFacts:
     test_restore_status: str
     reason_code: str
     evidence_refs: tuple[str, ...]
+    recovery_level: str = "R0"
+    r1_verified: bool = False
+    r2_verified: bool = False
+    r3_verified: bool = False
+    trusted_baseline_status: str = "NONE"
+    trusted_baseline_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "evidence_refs", tuple(sorted(set(self.evidence_refs))))
@@ -55,8 +61,17 @@ class RecoveryCoverageFacts:
                 )
             )
             or self.test_restore_status not in {"NOT_RUN_P6", "VERIFIED_R2"}
-            or (
-                self.test_restore_status == "VERIFIED_R2"
+            or self.recovery_level not in {"R0", "R1", "R2", "R3"}
+            or self.trusted_baseline_status not in {"NONE", "TRUSTED", "RETIRED", "REVOKED"}
+            or (self.trusted_baseline_id is None) != (self.trusted_baseline_status == "NONE")
+            or (self.r2_verified and not self.r1_verified)
+            or (self.r3_verified and not self.r2_verified)
+            or (self.trusted_baseline_status == "TRUSTED" and not self.r3_verified)
+            or (self.recovery_level == "R0" and (self.r1_verified or self.r2_verified or self.r3_verified))
+            or (self.recovery_level == "R1" and (not self.r1_verified or self.r2_verified or self.r3_verified))
+            or (self.recovery_level == "R2" and (not self.r2_verified or self.r3_verified))
+            or (self.recovery_level == "R3" and not self.r3_verified)
+            or (                self.test_restore_status == "VERIFIED_R2"
                 and self.test_restore_verified_targets is None
             )
         ):
@@ -86,6 +101,12 @@ class RecoveryCoverageFacts:
             "manifest_blob_coverage": self.manifest_blob_coverage,
             "test_restore_verified_targets": self.test_restore_verified_targets,
             "test_restore_status": self.test_restore_status,
+            "recovery_level": self.recovery_level,
+            "r1_verified": self.r1_verified,
+            "r2_verified": self.r2_verified,
+            "r3_verified": self.r3_verified,
+            "trusted_baseline_status": self.trusted_baseline_status,
+            "trusted_baseline_id": self.trusted_baseline_id,
         }
 
 
@@ -235,6 +256,14 @@ class RecoveryCoverageService:
             execution_domain_id,
             checkpoint["hash_sha256"],
         )
+        r2_verified = test_restore_status == "VERIFIED_R2"
+        r3_verified, r3_refs = self._r3_evidence(
+            connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"]
+        )
+        trusted_status, trusted_id = self._trusted_baseline(
+            connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"]
+        )
+        recovery_level = "R3" if r3_verified else "R2" if r2_verified else "R1" if status is RecoveryCoverageStatus.COMPLETE else "R0"
         return self._facts(
             status,
             checkpoint_id,
@@ -243,12 +272,18 @@ class RecoveryCoverageService:
             intact=intact_count,
             test_restore_verified=test_restore_verified_targets,
             test_restore_status=test_restore_status,
+            recovery_level=recovery_level,
+            r1_verified=status is RecoveryCoverageStatus.COMPLETE,
+            r2_verified=r2_verified,
+            r3_verified=r3_verified,
+            trusted_baseline_status=trusted_status,
+            trusted_baseline_id=trusted_id,
             reason_code=(
                 "RECOVERY_COVERAGE_COMPLETE"
                 if status is RecoveryCoverageStatus.COMPLETE
                 else "RECOVERY_COVERAGE_INSUFFICIENT"
             ),
-            evidence_refs=tuple(sorted({*evidence_refs, *test_restore_refs})),
+            evidence_refs=tuple(sorted({*evidence_refs, *test_restore_refs, *r3_refs})),
         )
 
     @staticmethod
@@ -343,6 +378,105 @@ class RecoveryCoverageService:
         return verified_count, "VERIFIED_R2", tuple(sorted(set(refs)))
 
     @staticmethod
+    def _r3_evidence(
+        connection: sqlite3.Connection,
+        checkpoint_id: str,
+        execution_domain_id: str,
+        manifest_digest: str,
+    ) -> tuple[bool, tuple[str, ...]]:
+        drills = connection.execute(
+            """SELECT drill_id, binding_digest, target_refs_digest FROM recovery_drills
+               WHERE checkpoint_id = ? AND execution_domain_id = ?
+                 AND manifest_digest = ? AND status = 'VERIFIED_R3'""",
+            (checkpoint_id, execution_domain_id, manifest_digest),
+        ).fetchall()
+        if len(drills) != 1:
+            return False, ()
+        drill_id, binding_digest, _target_refs_digest = drills[0]
+        binding = connection.execute(
+            """SELECT b.supervision_session_id, b.session_identity_digest, b.policy_version,
+                      b.binding_digest, s.status, s.decision, s.declared_intent_digest
+               FROM recovery_drill_bindings b
+               JOIN supervision_sessions s USING (supervision_session_id)
+               WHERE b.drill_id = ?""",
+            (drill_id,),
+        ).fetchone()
+        if (
+            binding is None
+            or binding[3] != binding_digest
+            or binding[4] != "APPROVED"
+            or binding[5] != "REVIEW"
+            or binding[1] != binding[6]
+            or binding[2] != "P4-LOCAL-1"
+        ):
+            return False, ()
+        adverse = connection.execute(
+            """SELECT 1 FROM evidence_ledger_events
+               WHERE checkpoint_id = ? AND execution_domain_id = ?
+                 AND event_type IN ('SCOPE_DRIFT', 'EXTERNAL_EFFECT_UNKNOWN', 'RESTORE_FAILED')
+               LIMIT 1""",
+            (checkpoint_id, execution_domain_id),
+        ).fetchone()
+        if adverse is not None:
+            return False, ()
+        rows = connection.execute(
+            """SELECT event_id, event_type, result, execution_domain_id, subject_ref,
+                      supervision_session_id, payload_safe_json
+               FROM evidence_ledger_events WHERE checkpoint_id = ? ORDER BY sequence""",
+            (checkpoint_id,),
+        ).fetchall()
+        required = {
+            "RECOVERY_DRILL_PREPARED", "RECOVERY_DRILL_APPROVED",
+            "RECOVERY_DRILL_STARTED", "DRIFT_ESTABLISHED", "FILE_RESTORED",
+            "VALIDATOR_PASSED", "RECOVERY_DRILL_VERIFIED", "RECOVERY_DRILL_COMPLETED",
+        }
+        matched: set[str] = set()
+        refs: list[str] = []
+        for event_id, event_type, result, domain, subject_ref, supervision_session_id, payload_json in rows:
+            try:
+                payload = json.loads(payload_json)
+            except (TypeError, json.JSONDecodeError):
+                return False, ()
+            if domain != execution_domain_id or subject_ref != f"manifest:{manifest_digest}":
+                continue
+            if payload.get("drill_id") != drill_id:
+                continue
+            if (
+                payload.get("binding_digest") != binding_digest
+                or payload.get("manifest_digest") != manifest_digest
+                or event_type in {"RESTORE_FAILED", "SCOPE_DRIFT", "EXTERNAL_EFFECT_UNKNOWN"}
+            ):
+                return False, ()
+            if event_type in required:
+                if (
+                    result not in {"AWAITING_APPROVAL", "APPROVED", "RUNNING", "AVAILABLE", "VERIFIED_R3"}
+                    or supervision_session_id != binding[0]
+                ):
+                    return False, ()
+                matched.add(event_type)
+                refs.append(event_id)
+        return matched == required, tuple(sorted(set(refs)))
+
+    @staticmethod
+    def _trusted_baseline(
+        connection: sqlite3.Connection,
+        checkpoint_id: str,
+        execution_domain_id: str,
+        manifest_digest: str,
+    ) -> tuple[str, str | None]:
+        row = connection.execute(
+            """SELECT baseline_id FROM trusted_baselines WHERE checkpoint_id = ?
+               AND execution_domain_id = ? AND manifest_digest = ?""",
+            (checkpoint_id, execution_domain_id, manifest_digest),
+        ).fetchone()
+        if row is None:
+            return "NONE", None
+        retired = connection.execute(
+            "SELECT 1 FROM trusted_baseline_retirements WHERE baseline_id = ?", (row[0],)
+        ).fetchone()
+        return ("RETIRED", row[0]) if retired else ("TRUSTED", row[0])
+
+    @staticmethod
     def _target_digest(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -358,6 +492,12 @@ class RecoveryCoverageService:
         evidence_refs: tuple[str, ...] = (),
         test_restore_verified: int | None = None,
         test_restore_status: str = "NOT_RUN_P6",
+        recovery_level: str = "R0",
+        r1_verified: bool = False,
+        r2_verified: bool = False,
+        r3_verified: bool = False,
+        trusted_baseline_status: str = "NONE",
+        trusted_baseline_id: str | None = None,
     ) -> RecoveryCoverageFacts:
         return RecoveryCoverageFacts(
             status=status,
@@ -367,6 +507,12 @@ class RecoveryCoverageService:
             intact_manifest_blob_targets=intact,
             test_restore_verified_targets=test_restore_verified,
             test_restore_status=test_restore_status,
+            recovery_level=recovery_level,
+            r1_verified=r1_verified,
+            r2_verified=r2_verified,
+            r3_verified=r3_verified,
+            trusted_baseline_status=trusted_baseline_status,
+            trusted_baseline_id=trusted_baseline_id,
             reason_code=reason_code,
             evidence_refs=evidence_refs,
         )

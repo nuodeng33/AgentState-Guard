@@ -1,43 +1,33 @@
-# Session Handoff — Overnight MVP Construction
-
-## Target: LEVEL 2 (Android MVP UI + Desktop AI Settings)
+# R4-P7 Recovery Trust Boundary Handoff
 
 ## Current Status
-| Component | Status | Evidence |
-|-----------|--------|----------|
-| Core CI | CORE_CI_VERIFIED | 174 passed, 3x Python |
-| Android Build | ANDROID_BUILD_VERIFIED | Gradle assembleDebug |
-| Android Emulator | IN_PROGRESS | Boot + install testing |
-| Desktop Windows | BLOCKED | Needs cargo init on Windows runner |
-| Android MVP UI | IMPLEMENTED_NOT_RUNTIME_VERIFIED | 5 screens + navigation |
-| Desktop AI Settings | IMPLEMENTED_NOT_RUNTIME_VERIFIED | Provider presets + test connection |
-| QR Pairing | NOT_IMPLEMENTED | Next milestone |
-| Device Link Client | NOT_IMPLEMENTED | Network layer for Android |
-| AI Monitor | NOT_IMPLEMENTED | Uses existing provider.py |
 
-## Git
-- Branch: feat/device-link
-- HEAD: 36c5653
-- Remote: nuodeng33/AgentState-Guard (PRIVATE)
+- Branch: `feat/r4-p7-test-restore`
+- Start commit: `60204c233136c5bcf58dfb45c5a477b978a987f8`
+- P7 changes are staged for the atomic commit; the ignored `.claude/retry-guard-state.json` is runtime state.
+- Frozen legacy workspace `/workspace/projects/agentstate-guard` was not accessed.
 
-## Next Actions
-1. Wait for Android Emulator CI result
-2. Implement QR pairing + DeviceLinkClient
-3. Build Android device link network layer
-4. Read current state docs before continuing
+## Evidence
 
-## Device Link Stable Baseline Handoff — 2026-07-27
+- `.venv/bin/python -m pytest -q`: 753 passed in 26.58s.
+- Scoped Ruff: all checks passed.
+- `.venv/bin/python -m build --wheel`: wheel built successfully.
+- Clean venv non-editable wheel install and `agentguard --help`, `agentguard recovery --help`, drill/baseline help, and read-only drill show smoke passed.
 
-- Current HEAD at repair start: `866a9ef`; the worktree also contains unrelated user changes that must not be reset or cleaned.
-- Closed blockers: FastAPI `Request` no longer becomes a query parameter; Device Link Bearer routes have real 401/200 coverage; pairing expiry/terminal states cannot reactivate; pair TTL reaches sessions; expired sessions free capacity; `pair_complete` expires before any binding side effect; Android uses the existing HTTP development transport with Bearer headers.
-- Fresh evidence: `/workspace/venv/bin/python -m pytest tests/ ...` → 281 passed; seven Device Link Python files → 117 passed; Android JUnit parser → 11 passed, 0 failed, 0 skipped; compileall and diff check passed.
-- Stable development baseline: YES. Merge-ready: NO.
-- P0/P1 follow-up: TLS 1.3 and SPKI pinning; dual SAS confirmation; complete mutually authenticated challenge transcript; UUID canonicalization; bounded challenge/session cleanup; complete route/schema migration.
+## P7 Contract
 
-## Commands
-```bash
-export PATH="/workspace/tools/bin:$PATH"
-gh run list --branch feat/device-link --limit 6
-python3 -m pytest tests/ -q
-git status --short
-```
+- Durable Supervision-bound recovery authorization is expiry/nonce/subject/context/policy/fingerprint bound and consumed once.
+- R3 evidence requires the complete drill event sequence, valid ledger, approved REVIEW session binding, matching session identity/policy, and no adverse scope/failure events.
+- Trusted baseline requires explicit separate approval; candidate, trusted, retired, and immutable states are distinct.
+- Recovery projection is server-computed and fail-closed; no CLI caller can assert recovery facts.
+
+## Remaining Release Gates
+
+- Run final staged diff/status check.
+- Commit the staged P7 changes atomically with requirement IDs.
+- Normal push to `feat/r4-p7-test-restore`.
+- Read-only GitHub Actions audit for the pushed SHA.
+
+## Boundaries
+
+No P8, UI, production restore, Windows/WSL recovery, Docker socket, secrets, worktree, child agents, force push, merge, rebase, reset, clean, stash, checkout/restore, or frozen-workspace access.

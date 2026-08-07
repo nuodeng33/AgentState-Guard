@@ -40,3 +40,4 @@
 | ASG-REL-002 | NOT_STARTED | — | — | — | — | — | — | — |
 | ASG-REL-003 | NOT_STARTED | — | — | — | — | — | — | — |
 | ASG-REL-004 | NOT_STARTED | — | — | — | — | — | — | — |
+| R4-P7-001 | VERIFIED_LOCALLY | recovery/service.py, supervision/service.py, migrations.py | recovery drill/baseline, migration, supervision | CLI smoke | wheel install smoke | 753 pytest; Ruff; wheel build | pending | CI audit and normal push pending at this documentation point |

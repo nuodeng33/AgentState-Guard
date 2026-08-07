@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import sqlite3
 import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -38,7 +39,6 @@ class RecoveryService:
         self._snapshots = snapshots
         self._adapters = dict(adapters)
         self._ledger = ledger or EvidenceLedger()
-        self._baseline_candidates: dict[str, tuple[dict[str, str], str]] = {}
 
     def snapshot(self, request: RecoveryRequest) -> RecoveryOperationResult:
         adapter = self._adapters.get(request.execution_domain_id)
@@ -288,66 +288,125 @@ class RecoveryService:
             return {"status": "FAILED", "reason_code": "DRILL_R2_EVIDENCE_REQUIRED"}
         drill_id = f"drill-{uuid4()}"
         binding = self._binding_digest(drill_id, context)
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(UTC)
         try:
             with self._database.transaction() as connection:
+                from agentguard.supervision.service import SupervisionService
+
+                supervision = SupervisionService(self._database)
+                session = supervision.create_recovery_approval_session(
+                    connection,
+                    operation_kind="SELF_RUNTIME_R3_DRILL",
+                )
+                session_identity = connection.execute(
+                    """SELECT declared_intent_digest FROM supervision_sessions
+                       WHERE supervision_session_id = ?""",
+                    (session.supervision_session_id,),
+                ).fetchone()[0]
                 connection.execute(
                     """INSERT INTO recovery_drills (
                            drill_id, checkpoint_id, execution_domain_id, manifest_digest,
                            target_refs_digest, binding_digest, status, created_at
                        ) VALUES (?, ?, ?, ?, ?, ?, 'AWAITING_APPROVAL', ?)""",
                     (drill_id, checkpoint_id, execution_domain_id, context["manifest_digest"],
-                     context["target_refs_digest"], binding, now),
+                     context["target_refs_digest"], binding, now.isoformat()),
+                )
+                connection.execute(
+                    """INSERT INTO recovery_drill_bindings
+                       (drill_id, supervision_session_id, session_identity_digest,
+                        policy_version, operation_kind, binding_digest, created_at)
+                       VALUES (?, ?, ?, ?, 'SELF_RUNTIME_R3_DRILL', ?, ?)""",
+                    (
+                        drill_id, session.supervision_session_id, session_identity,
+                        "P4-LOCAL-1", binding, now.isoformat(),
+                    ),
                 )
                 self._append_drill_event(
                     connection, EventType.RECOVERY_DRILL_PREPARED, drill_id,
                     "AWAITING_APPROVAL", context, binding,
+                    supervision_session_id=session.supervision_session_id,
                 )
-        except (sqlite3.DatabaseError, RuntimeError, ValueError):
+        except (sqlite3.DatabaseError, RuntimeError, ValueError, IndexError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
-        return {"drill_id": drill_id, "status": "AWAITING_APPROVAL", "binding_digest": binding}
+        return {
+            "drill_id": drill_id,
+            "supervision_session_id": session.supervision_session_id,
+            "status": "AWAITING_APPROVAL",
+            "binding_digest": binding,
+        }
 
     def approve_drill(self, drill_id: str) -> dict[str, object]:
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(minutes=15)
+        authorization_id = f"recovery-authorization-{uuid4()}"
+        nonce = uuid4().hex
         try:
             with self._database.transaction() as connection:
                 row = connection.execute(
-                    """SELECT checkpoint_id, execution_domain_id, manifest_digest,
-                              target_refs_digest, binding_digest, status
-                       FROM recovery_drills WHERE drill_id = ?""",
+                    """SELECT d.checkpoint_id, d.execution_domain_id, d.manifest_digest,
+                              d.target_refs_digest, d.binding_digest, d.status,
+                              b.supervision_session_id, b.session_identity_digest,
+                              b.policy_version
+                       FROM recovery_drills d
+                       JOIN recovery_drill_bindings b USING (drill_id)
+                       WHERE d.drill_id = ?""",
                     (drill_id,),
                 ).fetchone()
                 if row is None or row[5] != "AWAITING_APPROVAL":
                     return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_INVALID"}
-                approval_id = f"drill-approval-{uuid4()}"
-                connection.execute(
-                    """INSERT INTO recovery_drill_approvals
-                           (approval_id, drill_id, binding_digest, approved_at)
-                       VALUES (?, ?, ?, ?)""",
-                    (approval_id, drill_id, row[4], datetime.now(UTC).isoformat()),
-                )
-                connection.execute(
-                    "UPDATE recovery_drills SET status = 'APPROVED' WHERE drill_id = ?",
-                    (drill_id,),
-                )
                 context = {
                     "checkpoint_id": row[0], "execution_domain_id": row[1],
                     "manifest_digest": row[2], "target_refs_digest": row[3],
                 }
+                fingerprint = self._drill_fingerprint(drill_id, row[4])
+                binding = self._authorization_binding_digest(
+                    authorization_id, drill_id, row[7], context,
+                    "SELF_RUNTIME_R3_DRILL", fingerprint, row[8], nonce,
+                )
+                authorization = {
+                    "authorization_id": authorization_id, "subject_id": drill_id,
+                    "session_identity_digest": row[7], "checkpoint_id": row[0],
+                    "execution_domain_id": row[1], "manifest_digest": row[2],
+                    "operation_kind": "SELF_RUNTIME_R3_DRILL",
+                    "target_refs_digest": row[3], "drill_fingerprint": fingerprint,
+                    "policy_version": row[8], "binding_digest": binding,
+                    "issued_at": now.isoformat(), "expires_at": expires_at.isoformat(),
+                    "nonce": nonce,
+                }
+                from agentguard.supervision.service import SupervisionService
+
+                approved = SupervisionService(self._database)._approve_recovery_authorization_in_transaction(
+                    connection, row[6], authorization
+                )
+                if approved.status != "APPROVED":
+                    return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_INVALID"}
+                if connection.execute(
+                    """UPDATE recovery_drills SET status = 'APPROVED'
+                       WHERE drill_id = ? AND status = 'AWAITING_APPROVAL'""",
+                    (drill_id,),
+                ).rowcount != 1:
+                    raise RuntimeError("DRILL_APPROVAL_STATE_INVALID")
                 self._append_drill_event(
                     connection, EventType.RECOVERY_DRILL_APPROVED, drill_id,
                     "APPROVED", context, row[4],
+                    {"authorization_binding_digest": binding}, row[6],
                 )
-        except (sqlite3.DatabaseError, RuntimeError, ValueError):
+        except (sqlite3.DatabaseError, RuntimeError, ValueError, KeyError, IndexError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
         return {"drill_id": drill_id, "status": "APPROVED", "binding_digest": row[4]}
+
 
     def run_drill(self, drill_id: str) -> dict[str, object]:
         try:
             with self._database.transaction() as connection:
                 row = connection.execute(
-                    """SELECT checkpoint_id, execution_domain_id, manifest_digest,
-                              target_refs_digest, binding_digest, status
-                       FROM recovery_drills WHERE drill_id = ?""",
+                    """SELECT d.checkpoint_id, d.execution_domain_id, d.manifest_digest,
+                              d.target_refs_digest, d.binding_digest, d.status,
+                              b.supervision_session_id, b.session_identity_digest,
+                              b.policy_version
+                       FROM recovery_drills d
+                       JOIN recovery_drill_bindings b USING (drill_id)
+                       WHERE d.drill_id = ?""",
                     (drill_id,),
                 ).fetchone()
                 if row is None:
@@ -356,24 +415,45 @@ class RecoveryService:
                     "checkpoint_id": row[0], "execution_domain_id": row[1],
                     "manifest_digest": row[2], "target_refs_digest": row[3],
                 }
-                if row[5] != "APPROVED" or self._drill_context(row[0], row[1]) != context:
+                fingerprint = self._drill_fingerprint(drill_id, row[4])
+                authorization = connection.execute(
+                    """SELECT session_identity_digest, checkpoint_id, execution_domain_id,
+                              manifest_digest, operation_kind, target_refs_digest,
+                              drill_fingerprint, policy_version, expires_at, nonce, consumed_at
+                       FROM recovery_authorizations WHERE subject_id = ?""",
+                    (drill_id,),
+                ).fetchone()
+                if row[5] != "APPROVED" or authorization is None or authorization[10] is not None:
+                    return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
+                try:
+                    expired = datetime.now(UTC) >= datetime.fromisoformat(authorization[8])
+                except ValueError:
+                    return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
+                if expired or authorization[:8] != (
+                    row[7], row[0], row[1], row[2], "SELF_RUNTIME_R3_DRILL",
+                    row[3], fingerprint, row[8],
+                ):
                     return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
                 run_id = f"drill-run-{uuid4()}"
                 consumed = connection.execute(
-                    """UPDATE recovery_drill_approvals
-                       SET consumed_at = ?, consumed_by_run_id = ?
-                       WHERE drill_id = ? AND binding_digest = ? AND consumed_at IS NULL""",
-                    (datetime.now(UTC).isoformat(), run_id, drill_id, row[4]),
+                    """UPDATE recovery_authorizations
+                       SET consumed_at = ?, consumed_by_ref = ?
+                       WHERE subject_id = ? AND nonce = ? AND consumed_at IS NULL
+                         AND expires_at > ?""",
+                    (
+                        datetime.now(UTC).isoformat(), run_id, drill_id,
+                        authorization[9], datetime.now(UTC).isoformat(),
+                    ),
                 ).rowcount
                 if consumed != 1:
                     return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
                 connection.execute(
-                    "UPDATE recovery_drills SET status = 'RUNNING' WHERE drill_id = ?",
+                    "UPDATE recovery_drills SET status = 'RUNNING' WHERE drill_id = ? AND status = 'APPROVED'",
                     (drill_id,),
                 )
                 self._append_drill_event(
                     connection, EventType.RECOVERY_DRILL_STARTED, drill_id,
-                    "RUNNING", context, row[4], {"run_id": run_id},
+                    "RUNNING", context, row[4], {"run_id": run_id}, row[6],
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
@@ -407,25 +487,25 @@ class RecoveryService:
                 if result.details.get("drift_established"):
                     self._append_drill_event(
                         connection, EventType.DRIFT_ESTABLISHED, drill_id,
-                        "AVAILABLE", context, row[4], details,
+                        "AVAILABLE", context, row[4], details, row[6],
                     )
                 if result.ok:
                     self._append_drill_event(
                         connection, EventType.FILE_RESTORED, drill_id,
-                        "AVAILABLE", context, row[4], details,
+                        "AVAILABLE", context, row[4], details, row[6],
                     )
                     self._append_drill_event(
                         connection, EventType.VALIDATOR_PASSED, drill_id,
-                        "AVAILABLE", context, row[4], details,
+                        "AVAILABLE", context, row[4], details, row[6],
                     )
                     self._append_drill_event(
                         connection, EventType.RECOVERY_DRILL_VERIFIED, drill_id,
-                        "VERIFIED_R3", context, row[4], details,
+                        "VERIFIED_R3", context, row[4], details, row[6],
                     )
                 self._append_drill_event(
                     connection,
                     EventType.RECOVERY_DRILL_COMPLETED if result.ok else EventType.RESTORE_FAILED,
-                    drill_id, final_status, context, row[4], details,
+                    drill_id, final_status, context, row[4], details, row[6],
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
@@ -556,9 +636,17 @@ class RecoveryService:
         payload = {"operation": "SELF_RUNTIME_R3_DRILL", "drill_id": drill_id, **context}
         return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
+    @staticmethod
+    def _drill_fingerprint(drill_id: str, binding_digest: str) -> str:
+        return hashlib.sha256(canonical_json({
+            "drill_id": drill_id,
+            "binding_digest": binding_digest,
+        }).encode()).hexdigest()
+
     def _append_drill_event(
         self, connection, event_type: EventType, drill_id: str, result: str,
         context: dict[str, str], binding_digest: str, details: dict[str, object] | None = None,
+        supervision_session_id: str | None = None,
     ) -> None:
         self._ledger.append(
             connection,
@@ -567,7 +655,7 @@ class RecoveryService:
                 recorded_at=datetime.now(UTC), observed_at=None,
                 event_family=EventFamily.RECOVERY, event_type=event_type,
                 source="recovery-drill-service", result=result,
-                execution_domain_id=context["execution_domain_id"], supervision_session_id=None,
+                execution_domain_id=context["execution_domain_id"], supervision_session_id=supervision_session_id,
                 transaction_id=None, checkpoint_id=context["checkpoint_id"],
                 subject_ref=f"manifest:{context['manifest_digest']}", evidence_refs=(),
                 payload_safe={
@@ -589,43 +677,257 @@ class RecoveryService:
         if context is None:
             return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
         connection = self._database._conn
-        if connection is None or not self._has_r3_evidence(connection, context):
+        evidence = (
+            self._validated_r3_evidence(connection, context)
+            if connection is not None
+            else None
+        )
+        if evidence is None:
             return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
         candidate_id = f"baseline-candidate-{uuid4()}"
-        confirmation = hashlib.sha256(
-            canonical_json({"operation": "TRUSTED_BASELINE_CONFIRM", "candidate_id": candidate_id, **context}).encode()
-        ).hexdigest()
-        self._baseline_candidates[candidate_id] = (context, confirmation)
-        return {"candidate_id": candidate_id, "status": "AWAITING_CONFIRMATION", "confirmation_digest": confirmation, "reason_code": "TRUSTED_BASELINE_CONFIRMATION_REQUIRED"}
-
-    def confirm_trusted_baseline(self, candidate_id: str) -> dict[str, object]:
-        candidate = self._baseline_candidates.pop(candidate_id, None)
-        if candidate is None:
-            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
-        context, confirmation = candidate
-        connection = self._database._conn
-        if connection is None or not self._has_r3_evidence(connection, context):
-            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
-        baseline_id = f"baseline-{uuid4()}"
-        evidence_digest = hashlib.sha256(canonical_json({"confirmation": confirmation, **context}).encode()).hexdigest()
+        binding = self._baseline_binding_digest(candidate_id, context, evidence)
+        now = datetime.now(UTC)
         try:
             with self._database.transaction() as transaction:
-                transaction.execute(
-                    """INSERT INTO trusted_baselines (
-                           baseline_id, checkpoint_id, execution_domain_id, manifest_digest,
-                           target_refs_digest, recovery_evidence_digest, created_at
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (baseline_id, context["checkpoint_id"], context["execution_domain_id"],
-                     context["manifest_digest"], context["target_refs_digest"], evidence_digest,
-                     datetime.now(UTC).isoformat()),
+                from agentguard.supervision.service import SupervisionService
+
+                supervision = SupervisionService(self._database)
+                session = supervision.create_recovery_approval_session(
+                    transaction,
+                    operation_kind="TRUSTED_BASELINE_CONFIRM",
                 )
+                session_identity = transaction.execute(
+                    """SELECT declared_intent_digest FROM supervision_sessions
+                       WHERE supervision_session_id = ?""",
+                    (session.supervision_session_id,),
+                ).fetchone()[0]
+                transaction.execute(
+                    """INSERT INTO trusted_baseline_candidates
+                       (candidate_id, checkpoint_id, execution_domain_id, manifest_digest,
+                        target_refs_digest, recovery_evidence_digest, binding_digest, status, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'CANDIDATE', ?)""",
+                    (
+                        candidate_id,
+                        context["checkpoint_id"],
+                        context["execution_domain_id"],
+                        context["manifest_digest"],
+                        context["target_refs_digest"],
+                        evidence["recovery_evidence_digest"],
+                        binding,
+                        now.isoformat(),
+                    ),
+                )
+                transaction.execute(
+                    """INSERT INTO trusted_baseline_candidate_bindings
+                       (candidate_id, supervision_session_id, session_identity_digest,
+                        policy_version, drill_fingerprint, binding_digest, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        candidate_id,
+                        session.supervision_session_id,
+                        session_identity,
+                        evidence["policy_version"],
+                        evidence["drill_fingerprint"],
+                        binding,
+                        now.isoformat(),
+                    ),
+                )
+        except (sqlite3.DatabaseError, RuntimeError, ValueError, IndexError):
+            return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
+        return {
+            "candidate_id": candidate_id,
+            "supervision_session_id": session.supervision_session_id,
+            "status": "CANDIDATE",
+            "binding_digest": binding,
+            "reason_code": "TRUSTED_BASELINE_CONFIRMATION_REQUIRED",
+        }
+
+    def show_trusted_baseline(self, baseline_id: str) -> dict[str, object]:
+        connection = self._database._conn
+        if connection is None:
+            return {"status": "FAILED", "reason_code": "RECOVERY_DATABASE_UNREACHABLE"}
+        candidate = connection.execute(
+            "SELECT candidate_id, status, binding_digest, checkpoint_id, execution_domain_id, manifest_digest FROM trusted_baseline_candidates WHERE candidate_id = ?",
+            (baseline_id,),
+        ).fetchone()
+        if candidate is not None:
+            return {"candidate_id": candidate[0], "status": candidate[1], "binding_digest": candidate[2], "checkpoint_id": candidate[3], "execution_domain_id": candidate[4], "manifest_digest": candidate[5]}
+        baseline = connection.execute(
+            "SELECT baseline_id, checkpoint_id, execution_domain_id, manifest_digest FROM trusted_baselines WHERE baseline_id = ?",
+            (baseline_id,),
+        ).fetchone()
+        if baseline is None:
+            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_NOT_FOUND"}
+        retired = connection.execute(
+            "SELECT 1 FROM trusted_baseline_retirements WHERE baseline_id = ?", (baseline_id,)
+        ).fetchone()
+        return {"baseline_id": baseline[0], "status": "RETIRED" if retired else "TRUSTED", "checkpoint_id": baseline[1], "execution_domain_id": baseline[2], "manifest_digest": baseline[3]}
+
+    def show_drill(self, drill_id: str) -> dict[str, object]:
+        connection = self._database._conn
+        if connection is None:
+            return {"status": "FAILED", "reason_code": "RECOVERY_DATABASE_UNREACHABLE"}
+        row = connection.execute(
+            """SELECT drill_id, checkpoint_id, execution_domain_id, manifest_digest, status
+               FROM recovery_drills WHERE drill_id = ?""",
+            (drill_id,),
+        ).fetchone()
+        if row is None:
+            return {"status": "FAILED", "reason_code": "DRILL_NOT_FOUND"}
+        return {
+            "drill_id": row[0],
+            "checkpoint_id": row[1],
+            "execution_domain_id": row[2],
+            "manifest_digest": row[3],
+            "status": row[4],
+        }
+
+    def approve_trusted_baseline(self, candidate_id: str) -> dict[str, object]:
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(minutes=15)
+        authorization_id = f"recovery-authorization-{uuid4()}"
+        nonce = uuid4().hex
+        try:
+            with self._database.transaction() as connection:
+                row = connection.execute(
+                    """SELECT c.checkpoint_id, c.execution_domain_id, c.manifest_digest,
+                              c.target_refs_digest, c.recovery_evidence_digest, c.status,
+                              b.supervision_session_id, b.session_identity_digest,
+                              b.policy_version, b.drill_fingerprint
+                       FROM trusted_baseline_candidates c
+                       JOIN trusted_baseline_candidate_bindings b USING (candidate_id)
+                       WHERE c.candidate_id = ?""",
+                    (candidate_id,),
+                ).fetchone()
+                if row is None or row[5] != "CANDIDATE":
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                context = self._context_from_row(row)
+                evidence = self._validated_r3_evidence(connection, context)
+                if (
+                    evidence is None
+                    or evidence["recovery_evidence_digest"] != row[4]
+                    or evidence["drill_fingerprint"] != row[9]
+                    or evidence["policy_version"] != row[8]
+                ):
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
+                binding = self._authorization_binding_digest(
+                    authorization_id, candidate_id, row[7], context,
+                    "TRUSTED_BASELINE_CONFIRM", row[9], row[8], nonce,
+                )
+                authorization = {
+                    "authorization_id": authorization_id, "subject_id": candidate_id,
+                    "session_identity_digest": row[7], "checkpoint_id": row[0],
+                    "execution_domain_id": row[1], "manifest_digest": row[2],
+                    "operation_kind": "TRUSTED_BASELINE_CONFIRM",
+                    "target_refs_digest": row[3], "drill_fingerprint": row[9],
+                    "policy_version": row[8], "binding_digest": binding,
+                    "issued_at": now.isoformat(), "expires_at": expires_at.isoformat(),
+                    "nonce": nonce,
+                }
+                from agentguard.supervision.service import SupervisionService
+
+                approved = SupervisionService(self._database)._approve_recovery_authorization_in_transaction(
+                    connection, row[6], authorization
+                )
+                if approved.status != "APPROVED":
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+        except (sqlite3.DatabaseError, RuntimeError, ValueError, KeyError, IndexError):
+            return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
+        return {"authorization_id": authorization_id, "nonce": nonce, "status": "APPROVED"}
+
+    def confirm_trusted_baseline(
+        self,
+        candidate_id: str,
+        authorization_id: str | None = None,
+        nonce: str | None = None,
+    ) -> dict[str, object]:
+        if not authorization_id or not nonce:
+            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+        now = datetime.now(UTC)
+        baseline_id = f"baseline-{uuid4()}"
+        try:
+            with self._database.transaction() as transaction:
+                row = transaction.execute(
+                    """SELECT c.checkpoint_id, c.execution_domain_id, c.manifest_digest,
+                              c.target_refs_digest, c.recovery_evidence_digest, c.status,
+                              b.supervision_session_id, b.session_identity_digest,
+                              b.policy_version, b.drill_fingerprint
+                       FROM trusted_baseline_candidates c
+                       JOIN trusted_baseline_candidate_bindings b USING (candidate_id)
+                       WHERE c.candidate_id = ?""",
+                    (candidate_id,),
+                ).fetchone()
+                if row is None or row[5] != "CANDIDATE":
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                context = self._context_from_row(row)
+                evidence = self._validated_r3_evidence(transaction, context)
+                if (
+                    evidence is None
+                    or evidence["recovery_evidence_digest"] != row[4]
+                    or evidence["drill_fingerprint"] != row[9]
+                    or evidence["policy_version"] != row[8]
+                ):
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
+                authorization = transaction.execute(
+                    """SELECT supervision_session_id, session_identity_digest, checkpoint_id,
+                              execution_domain_id, manifest_digest, operation_kind,
+                              target_refs_digest, drill_fingerprint, policy_version,
+                              binding_digest, expires_at, nonce, consumed_at
+                       FROM recovery_authorizations WHERE authorization_id = ?""",
+                    (authorization_id,),
+                ).fetchone()
+                if authorization is None or authorization[12] is not None:
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                try:
+                    expired = now >= datetime.fromisoformat(authorization[10])
+                except ValueError:
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                if expired:
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_EXPIRED"}
+                expected = self._authorization_binding_digest(
+                    authorization_id, candidate_id, row[7], context,
+                    "TRUSTED_BASELINE_CONFIRM", row[9], row[8], nonce,
+                )
+                if authorization[:10] != (
+                    row[6], row[7], row[0], row[1], row[2],
+                    "TRUSTED_BASELINE_CONFIRM", row[3], row[9], row[8], expected,
+                ) or authorization[11] != nonce:
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                session = transaction.execute(
+                    """SELECT status, decision, declared_intent_digest FROM supervision_sessions
+                       WHERE supervision_session_id = ?""",
+                    (row[6],),
+                ).fetchone()
+                if session != ("APPROVED", "REVIEW", row[7]):
+                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                transaction.execute(
+                    """INSERT INTO trusted_baselines
+                       (baseline_id, checkpoint_id, execution_domain_id, manifest_digest,
+                        target_refs_digest, recovery_evidence_digest, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (baseline_id, row[0], row[1], row[2], row[3], row[4], now.isoformat()),
+                )
+                if transaction.execute(
+                    """UPDATE trusted_baseline_candidates SET status = 'CONSUMED'
+                       WHERE candidate_id = ? AND status = 'CANDIDATE'""",
+                    (candidate_id,),
+                ).rowcount != 1:
+                    raise RuntimeError("TRUSTED_BASELINE_CONSUME_FAILED")
+                if transaction.execute(
+                    """UPDATE recovery_authorizations
+                       SET consumed_at = ?, consumed_by_ref = ?
+                       WHERE authorization_id = ? AND nonce = ? AND consumed_at IS NULL
+                         AND expires_at > ?""",
+                    (now.isoformat(), baseline_id, authorization_id, nonce, now.isoformat()),
+                ).rowcount != 1:
+                    raise RuntimeError("RECOVERY_AUTHORIZATION_CONSUME_FAILED")
                 self._append_baseline_event(
                     transaction, EventType.TRUSTED_BASELINE_CREATED, baseline_id,
-                    "TRUSTED", context, evidence_digest,
+                    "TRUSTED", context, row[4], row[6], row[8], row[9],
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
-        return {"baseline_id": baseline_id, "status": "TRUSTED", "recovery_evidence_digest": evidence_digest}
+        return {"baseline_id": baseline_id, "status": "TRUSTED", "recovery_evidence_digest": row[4]}
 
     def retire_trusted_baseline(self, baseline_id: str, reason_code: str) -> dict[str, object]:
         if not reason_code or len(reason_code) > 128:
@@ -652,24 +954,164 @@ class RecoveryService:
                     (f"baseline-retirement-{uuid4()}", baseline_id, datetime.now(UTC).isoformat(), reason_code),
                 )
                 context = {"checkpoint_id": row[0], "execution_domain_id": row[1], "manifest_digest": row[2], "target_refs_digest": row[3]}
-                self._append_baseline_event(connection, EventType.TRUSTED_BASELINE_RETIRED, baseline_id, "RETIRED", context, reason_code)
+                self._append_baseline_event(
+                    connection, EventType.TRUSTED_BASELINE_RETIRED, baseline_id, "RETIRED",
+                    context, reason_code, "retired", "P4-LOCAL-1", "retired",
+                )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
         return {"baseline_id": baseline_id, "status": "RETIRED"}
 
     @staticmethod
-    def _has_r3_evidence(connection, context: dict[str, str]) -> bool:
-        row = connection.execute(
-            """SELECT 1 FROM recovery_drills WHERE checkpoint_id = ?
-               AND execution_domain_id = ? AND manifest_digest = ?
-               AND target_refs_digest = ? AND status = 'VERIFIED_R3'""",
-            (context["checkpoint_id"], context["execution_domain_id"], context["manifest_digest"], context["target_refs_digest"]),
+    def _context_from_row(row: tuple[object, ...]) -> dict[str, str]:
+        return {
+            "checkpoint_id": str(row[0]),
+            "execution_domain_id": str(row[1]),
+            "manifest_digest": str(row[2]),
+            "target_refs_digest": str(row[3]),
+        }
+
+    @staticmethod
+    def _baseline_binding_digest(
+        candidate_id: str,
+        context: dict[str, str],
+        evidence: dict[str, str],
+    ) -> str:
+        return hashlib.sha256(canonical_json({
+            "operation": "TRUSTED_BASELINE_CONFIRM",
+            "candidate_id": candidate_id,
+            **context,
+            "recovery_evidence_digest": evidence["recovery_evidence_digest"],
+            "drill_fingerprint": evidence["drill_fingerprint"],
+            "policy_version": evidence["policy_version"],
+        }).encode()).hexdigest()
+
+    @staticmethod
+    def _authorization_binding_digest(
+        authorization_id: str,
+        subject_id: str,
+        session_identity_digest: str,
+        context: dict[str, str],
+        operation_kind: str,
+        drill_fingerprint: str,
+        policy_version: str,
+        nonce: str,
+    ) -> str:
+        return hashlib.sha256(canonical_json({
+            "authorization_id": authorization_id,
+            "subject_id": subject_id,
+            "session_identity_digest": session_identity_digest,
+            **context,
+            "operation_kind": operation_kind,
+            "drill_fingerprint": drill_fingerprint,
+            "policy_version": policy_version,
+            "nonce": nonce,
+        }).encode()).hexdigest()
+
+    def _validated_r3_evidence(
+        self,
+        connection,
+        context: dict[str, str],
+    ) -> dict[str, str] | None:
+        from agentguard.evidence.ledger import verify_ledger
+
+        if verify_ledger(connection):
+            return None
+        drills = connection.execute(
+            """SELECT drill_id, binding_digest FROM recovery_drills
+               WHERE checkpoint_id = ? AND execution_domain_id = ?
+                 AND manifest_digest = ? AND target_refs_digest = ?
+                 AND status = 'VERIFIED_R3'""",
+            (
+                context["checkpoint_id"], context["execution_domain_id"],
+                context["manifest_digest"], context["target_refs_digest"],
+            ),
+        ).fetchall()
+        if len(drills) != 1:
+            return None
+        drill_id, binding_digest = drills[0]
+        binding = connection.execute(
+            """SELECT b.supervision_session_id, b.session_identity_digest, b.policy_version,
+                      b.binding_digest, s.status, s.decision, s.declared_intent_digest
+               FROM recovery_drill_bindings b
+               JOIN supervision_sessions s USING (supervision_session_id)
+               WHERE b.drill_id = ?""",
+            (drill_id,),
         ).fetchone()
-        return row is not None
+        if (
+            binding is None
+            or binding[3] != binding_digest
+            or binding[4] != "APPROVED"
+            or binding[5] != "REVIEW"
+            or binding[1] != binding[6]
+            or binding[2] != "P4-LOCAL-1"
+        ):
+            return None
+        adverse = connection.execute(
+            """SELECT 1 FROM evidence_ledger_events
+               WHERE checkpoint_id = ? AND execution_domain_id = ?
+                 AND event_type IN ('SCOPE_DRIFT', 'EXTERNAL_EFFECT_UNKNOWN', 'RESTORE_FAILED')
+               LIMIT 1""",
+            (context["checkpoint_id"], context["execution_domain_id"]),
+        ).fetchone()
+        if adverse is not None:
+            return None
+        events = connection.execute(
+            """SELECT event_id, event_type, result, supervision_session_id, payload_safe_json
+               FROM evidence_ledger_events WHERE checkpoint_id = ?
+                 AND execution_domain_id = ? AND subject_ref = ?
+               ORDER BY sequence""",
+            (
+                context["checkpoint_id"], context["execution_domain_id"],
+                f"manifest:{context['manifest_digest']}",
+            ),
+        ).fetchall()
+        required = {
+            "RECOVERY_DRILL_PREPARED", "RECOVERY_DRILL_APPROVED",
+            "RECOVERY_DRILL_STARTED", "DRIFT_ESTABLISHED", "FILE_RESTORED",
+            "VALIDATOR_PASSED", "RECOVERY_DRILL_VERIFIED", "RECOVERY_DRILL_COMPLETED",
+        }
+        seen: set[str] = set()
+        refs: list[str] = []
+        for event_id, event_type, result, supervision_session_id, payload_json in events:
+            try:
+                payload = json.loads(payload_json)
+            except (TypeError, json.JSONDecodeError):
+                return None
+            if payload.get("drill_id") != drill_id:
+                continue
+            if (
+                payload.get("binding_digest") != binding_digest
+                or payload.get("manifest_digest") != context["manifest_digest"]
+                or payload.get("target_refs_digest") != context["target_refs_digest"]
+            ):
+                return None
+            if event_type in required and supervision_session_id != binding[0]:
+                return None
+            if event_type in {"RESTORE_FAILED", "SCOPE_DRIFT", "EXTERNAL_EFFECT_UNKNOWN"}:
+                return None
+            if event_type in required:
+                seen.add(event_type)
+                refs.append(event_id)
+        if seen != required:
+            return None
+        return {
+            "recovery_evidence_digest": hashlib.sha256(
+                canonical_json(sorted(refs)).encode()
+            ).hexdigest(),
+            "drill_fingerprint": hashlib.sha256(canonical_json({
+                "drill_id": drill_id, "binding_digest": binding_digest,
+            }).encode()).hexdigest(),
+            "policy_version": "P4-LOCAL-1",
+        }
+
+    def _has_r3_evidence(self, connection, context: dict[str, str]) -> bool:
+        return self._validated_r3_evidence(connection, context) is not None
 
     def _append_baseline_event(
         self, connection, event_type: EventType, baseline_id: str, result: str,
-        context: dict[str, str], evidence_digest: str,
+        context: dict[str, str], evidence_digest: str, supervision_session_id: str,
+        policy_version: str, drill_fingerprint: str,
     ) -> None:
         self._ledger.append(
             connection,
@@ -678,10 +1120,18 @@ class RecoveryService:
                 recorded_at=datetime.now(UTC), observed_at=None,
                 event_family=EventFamily.RECOVERY, event_type=event_type,
                 source="trusted-baseline-service", result=result,
-                execution_domain_id=context["execution_domain_id"], supervision_session_id=None,
+                execution_domain_id=context["execution_domain_id"],
+                supervision_session_id=supervision_session_id,
                 transaction_id=None, checkpoint_id=context["checkpoint_id"],
                 subject_ref=f"manifest:{context['manifest_digest']}", evidence_refs=(),
-                payload_safe={"baseline_id": baseline_id, "manifest_digest": context["manifest_digest"], "target_refs_digest": context["target_refs_digest"], "recovery_evidence_digest": evidence_digest},
+                payload_safe={
+                    "baseline_id": baseline_id,
+                    "manifest_digest": context["manifest_digest"],
+                    "target_refs_digest": context["target_refs_digest"],
+                    "recovery_evidence_digest": evidence_digest,
+                    "policy_version": policy_version,
+                    "drill_fingerprint": drill_fingerprint,
+                },
             ),
         )
 
