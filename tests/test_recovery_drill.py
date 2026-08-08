@@ -237,3 +237,33 @@ def test_r3_adapter_failure_cleans_managed_target(tmp_path, monkeypatch):
         assert "RECOVERY_DRILL_VERIFIED" not in _drill_events(database, checkpoint.checkpoint_id)
     finally:
         database.close()
+
+
+def test_r3_final_state_transition_failure_never_returns_verified(tmp_path, monkeypatch):
+    _target, database, _snapshots, service, checkpoint = _service(tmp_path)
+    try:
+        prepared = _r2_then_approved_drill(service, checkpoint.checkpoint_id)
+        original = service._run_managed_drill
+
+        def interfere_with_final_transition(context):
+            outcome = original(context)
+            database._conn.execute(
+                "UPDATE recovery_drills SET status = 'FAILED' WHERE drill_id = ?",
+                (prepared["drill_id"],),
+            )
+            database._conn.commit()
+            return outcome
+
+        monkeypatch.setattr(service, "_run_managed_drill", interfere_with_final_transition)
+        assert service.run_drill(prepared["drill_id"]) == {
+            "status": "FAILED",
+            "reason_code": "RECOVERY_PERSISTENCE_FAILED",
+        }
+        assert service.show_drill(prepared["drill_id"])["status"] == "FAILED"
+        assert database._conn.execute(
+            """SELECT COUNT(*) FROM evidence_ledger_events
+               WHERE checkpoint_id = ? AND event_type = 'RECOVERY_DRILL_VERIFIED'""",
+            (checkpoint.checkpoint_id,),
+        ).fetchone()[0] == 0
+    finally:
+        database.close()

@@ -447,10 +447,12 @@ class RecoveryService:
                 ).rowcount
                 if consumed != 1:
                     return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
-                connection.execute(
+                transitioned = connection.execute(
                     "UPDATE recovery_drills SET status = 'RUNNING' WHERE drill_id = ? AND status = 'APPROVED'",
                     (drill_id,),
-                )
+                ).rowcount
+                if transitioned != 1:
+                    raise RuntimeError("DRILL_START_STATE_INVALID")
                 self._append_drill_event(
                     connection, EventType.RECOVERY_DRILL_STARTED, drill_id,
                     "RUNNING", context, row[4], {"run_id": run_id}, row[6],
@@ -473,11 +475,13 @@ class RecoveryService:
         try:
             with self._database.transaction() as connection:
                 final_status = "VERIFIED_R3" if result.ok else "FAILED"
-                connection.execute(
+                transitioned = connection.execute(
                     """UPDATE recovery_drills SET status = ?, completed_at = ?
                        WHERE drill_id = ? AND status = 'RUNNING'""",
                     (final_status, datetime.now(UTC).isoformat(), drill_id),
-                )
+                ).rowcount
+                if transitioned != 1:
+                    raise RuntimeError("DRILL_FINAL_STATE_INVALID")
                 details = {
                     "verified_targets": result.details.get("verified_targets", 0),
                     "drift_established": result.details.get("drift_established", False),
