@@ -506,7 +506,7 @@ class RecoveryCoverageService:
         ).fetchone()
         if retirement is not None:
             return "RETIRED", baseline_id
-        evidence = connection.execute(
+        evidence_rows = connection.execute(
             """SELECT payload_safe_json, supervision_session_id, result
                FROM evidence_ledger_events
                WHERE event_type = 'TRUSTED_BASELINE_CREATED'
@@ -515,9 +515,10 @@ class RecoveryCoverageService:
                  AND subject_ref = ?
                ORDER BY sequence DESC""",
             (checkpoint_id, execution_domain_id, f"baseline:{baseline_id}"),
-        ).fetchone()
-        if evidence is None:
+        ).fetchall()
+        if len(evidence_rows) != 1:
             return "NONE", None
+        evidence = evidence_rows[0]
         try:
             payload = json.loads(evidence[0])
         except (TypeError, json.JSONDecodeError):
@@ -578,6 +579,8 @@ class RecoveryCoverageService:
             or candidate[7] != expected_candidate_binding
             or candidate[12] != expected_candidate_binding
             or candidate[13:16] != ("APPROVED", "REVIEW", candidate[9])
+            or payload.get("policy_version") != candidate[10]
+            or payload.get("drill_fingerprint") != candidate[11]
             or authorization[1] != candidate[1]
             or authorization[2] != candidate[8]
             or authorization[3] != candidate[9]

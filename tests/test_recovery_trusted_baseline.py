@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -546,6 +547,59 @@ def test_post_trust_authority_chain_drift_removes_active_trust(tmp_path, mutatio
                 "UPDATE trusted_baseline_candidate_bindings SET binding_digest = 'forged' WHERE candidate_id = ?",
                 (candidate["candidate_id"],),
             )
+        database._conn.commit()
+
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="self-runtime",
+        )
+        assert facts.trusted_baseline_status == "NONE"
+        assert facts.trusted_baseline_id is None
+        assert service.show_trusted_baseline(baseline["baseline_id"]) == {
+            "status": "FAILED",
+            "reason_code": "TRUSTED_BASELINE_AUTHORITY_INVALID",
+        }
+    finally:
+        database.close()
+
+
+def test_conflicting_duplicate_baseline_creation_event_removes_active_trust(tmp_path):
+    target, database, snapshots, service, checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    baseline = service.confirm_trusted_baseline(
+        candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+    )
+    assert baseline["status"] == "TRUSTED"
+    try:
+        row = database._conn.execute(
+            """SELECT supervision_session_id, payload_safe_json
+               FROM evidence_ledger_events
+               WHERE event_type = 'TRUSTED_BASELINE_CREATED' AND subject_ref = ?""",
+            (f"baseline:{baseline['baseline_id']}",),
+        ).fetchone()
+        payload = json.loads(row[1])
+        payload["policy_version"] = "forged-policy"
+        payload["drill_fingerprint"] = "forged-fingerprint"
+        EvidenceLedger().append(
+            database._conn,
+            EvidenceEvent(
+                schema_version=1,
+                event_id="conflicting-baseline-created",
+                recorded_at=datetime.now(UTC),
+                observed_at=None,
+                event_family=EventFamily.RECOVERY,
+                event_type=EventType.TRUSTED_BASELINE_CREATED,
+                source="test",
+                result="TRUSTED",
+                execution_domain_id="self-runtime",
+                supervision_session_id=row[0],
+                transaction_id=None,
+                checkpoint_id=checkpoint.checkpoint_id,
+                subject_ref=f"baseline:{baseline['baseline_id']}",
+                evidence_refs=(),
+                payload_safe=payload,
+            ),
+        )
         database._conn.commit()
 
         facts = RecoveryCoverageService(database, snapshots).compute(
