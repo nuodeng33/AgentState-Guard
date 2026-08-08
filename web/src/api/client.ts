@@ -42,17 +42,21 @@ interface SessionResponse {
   token?: unknown;
 }
 
-export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
+export function createApiClient(fetchImpl?: typeof fetch): ApiClient {
   // In-memory only. Never persisted, never logged.
   let token: string | null = null;
   let bootstrapInFlight: Promise<string> | null = null;
+  // Resolve fetch at call time so late-bound environments (tests, Tauri
+  // injection) work; production uses the global fetch.
+  const callFetch: typeof fetch =
+    fetchImpl ?? ((input, init) => fetch(input, init));
 
   function bootstrapSession(): Promise<string> {
     if (!bootstrapInFlight) {
       bootstrapInFlight = (async () => {
         let response: Response;
         try {
-          response = await fetchImpl('/api/session', { headers: { Accept: 'application/json' } });
+          response = await callFetch('/api/session', { headers: { Accept: 'application/json' } });
         } catch {
           throw new ApiRequestError('API unreachable');
         }
@@ -78,7 +82,7 @@ export function createApiClient(fetchImpl: typeof fetch = fetch): ApiClient {
 
   async function request(path: string, sessionToken: string): Promise<Response> {
     try {
-      return await fetchImpl(path, {
+      return await callFetch(path, {
         headers: { Accept: 'application/json', 'X-Session-Token': sessionToken },
       });
     } catch {
