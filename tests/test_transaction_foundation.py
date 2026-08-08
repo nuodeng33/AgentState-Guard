@@ -47,6 +47,37 @@ def test_transaction_rolls_back_all_writes_on_error(tmp_path):
         database.close()
 
 
+def test_transaction_rolls_back_when_commit_itself_fails(tmp_path):
+    class CommitFailConnection(sqlite3.Connection):
+        fail_next_commit = False
+
+        def commit(self):
+            if self.fail_next_commit:
+                self.fail_next_commit = False
+                raise sqlite3.OperationalError("injected commit failure")
+            return super().commit()
+
+    database = _database(tmp_path)
+    database._conn.close()
+    database._conn = sqlite3.connect(
+        str(database.db_path),
+        factory=CommitFailConnection,
+    )
+    try:
+        database._conn.fail_next_commit = True
+        with pytest.raises(sqlite3.OperationalError, match="injected commit failure"):
+            with database.transaction() as connection:
+                connection.execute("CREATE TABLE commit_failure_probe (value TEXT NOT NULL)")
+                connection.execute("INSERT INTO commit_failure_probe VALUES ('ghost')")
+
+        assert database._conn.in_transaction is False
+        assert database._conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'commit_failure_probe'"
+        ).fetchone() is None
+    finally:
+        database.close()
+
+
 def test_transaction_rejects_nested_scope_without_committing_outer_writes(tmp_path):
     database = _database(tmp_path)
     try:

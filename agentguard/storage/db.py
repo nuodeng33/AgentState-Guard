@@ -62,7 +62,11 @@ class StateDB:
                 self._conn.rollback()
                 raise
             else:
-                self._conn.commit()
+                try:
+                    self._conn.commit()
+                except BaseException:
+                    self._conn.rollback()
+                    raise
         finally:
             self._transaction_active = False
 
