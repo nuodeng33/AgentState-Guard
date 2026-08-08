@@ -123,4 +123,19 @@ describe('RecoveryPage R0 fail-closed display', () => {
     expect(alert.textContent).toContain('R4_DATABASE_UNREACHABLE');
     expect(screen.getByText('DEGRADED')).toBeTruthy();
   });
+
+  it('shows an honest EMPTY state with R0 chain and NONE baseline', () => {
+    const empty: RecoveryView = {
+      ...DEGRADED,
+      status: 'EMPTY',
+      reason_code: 'R4_STATE_EMPTY',
+    };
+    const { container } = render(<RecoveryViewBody data={empty} />);
+    expect(screen.getByText('No recovery checkpoints')).toBeTruthy();
+    const current = container.querySelector('.chain-step.is-current');
+    expect(current?.textContent).toContain('R0');
+    expect(container.querySelector('.baseline-panel .badge')?.textContent).toBe('NONE');
+    // EMPTY is not dressed up as an error, but R0 is still not "recoverable".
+    expect(container.textContent).not.toContain('Recoverable');
+  });
 });
