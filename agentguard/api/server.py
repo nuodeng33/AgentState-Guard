@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import os
 import secrets
-import time
+import sqlite3
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import Request
 
@@ -15,26 +13,21 @@ HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
 
 
-def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = None):
+def create_app(state_db_path: Path | None = None, config: dict | None = None):
     """Create a FastAPI application instance.
 
     Uses lazy imports so core modules don't depend on FastAPI.
     """
-    from fastapi import FastAPI, HTTPException, Request
-    from fastapi.responses import JSONResponse
-    from fastapi.responses import FileResponse
+    from fastapi import FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.staticfiles import StaticFiles
-    import uvicorn
+    from fastapi.responses import JSONResponse
 
-    from ..storage.db import StateDB
-    from ..storage.snapshots import SnapshotStore
-    from ..core.config import Config
     from ..commands.doctor import doctor as _doctor
     from ..commands.status import status as _status_ptr
+    from ..core.config import Config
+    from ..storage.db import StateDB
+    from ..storage.snapshots import SnapshotStore
     from ..transactions.engine import TransactionEngine
-    from ..storage.gc import plan_gc
-    from ..storage.blob import BlobStore
 
     app = FastAPI(title="AgentState Guard API", version="0.9.0-dev")
 
@@ -131,37 +124,36 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
     # ---- R4 P8 authoritative read projections ----
 
-    def _r4_empty_projection(view: str) -> dict[str, Any]:
-        return {
-            "schema_version": "r4-p8-1",
-            "view": view,
-            "status": "EMPTY",
-            "reason_code": "R4_STATE_EMPTY",
-            "evidence_refs": [],
-            "items": [],
-        }
+    from .r4_projection import R4ReadProjectionService
+
+    def _r4_projection(view: str) -> dict[str, Any]:
+        try:
+            current_db = _get_db()
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return R4ReadProjectionService.unavailable(view)
+        try:
+            projector = R4ReadProjectionService(current_db, SnapshotStore(snapshots_dir))
+            return getattr(projector, view)()
+        except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
+            return R4ReadProjectionService.unavailable(view)
+        finally:
+            current_db.close()
 
     @app.get("/api/v1/runtime")
     async def api_r4_runtime():
-        return _r4_empty_projection("runtime")
+        return _r4_projection("runtime")
 
     @app.get("/api/v1/agents")
     async def api_r4_agents():
-        return _r4_empty_projection("agents")
+        return _r4_projection("agents")
 
     @app.get("/api/v1/supervision")
     async def api_r4_supervision():
-        return _r4_empty_projection("supervision")
+        return _r4_projection("supervision")
 
     @app.get("/api/v1/recovery")
     async def api_r4_recovery():
-        return {
-            **_r4_empty_projection("recovery"),
-            "recovery_level": "R0",
-            "r3_verified": False,
-            "trusted_baseline_status": "NONE",
-            "trusted_baseline_id": None,
-        }
+        return _r4_projection("recovery")
 
     @app.get("/api/handoff")
     async def api_handoff():
@@ -175,7 +167,10 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
     # ---- AI Provider (backend proxy, no CORS) ----
 
-    from ..ai.provider import OpenAICompatibleProvider, ProviderConfig, build_analysis_context
+    from ..ai.provider import (
+        OpenAICompatibleProvider,
+        ProviderConfig,
+    )
 
     _ai_provider = None
     _ai_config = None
@@ -220,9 +215,14 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
     # ---- Device Link Gateway (mounted at /device/v1/) ----
 
-    from ..device_link.gateway import DeviceLinkGateway
-    from ..device_link.crypto import generate_ecdsa_p256_keypair, public_key_to_der, random_session_id
     from fastapi import APIRouter
+
+    from ..device_link.crypto import (
+        generate_ecdsa_p256_keypair,
+        public_key_to_der,
+        random_session_id,
+    )
+    from ..device_link.gateway import DeviceLinkGateway
 
     # Generate in-memory ECDSA P-256 keys for the desktop identity
     _dev_priv_pem, _dev_pub_pem = generate_ecdsa_p256_keypair()
@@ -237,7 +237,7 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
     _device_router = APIRouter(prefix="/device/v1")
 
-    def _device_auth_token(request: Request) -> Optional[str]:
+    def _device_auth_token(request: Request) -> str | None:
         authorization = request.headers.get("Authorization", "")
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not token or " " in token:
@@ -320,7 +320,7 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str):
-        if full_path.startswith("api/") or full_path.startswith("_docs"):
+        if full_path.startswith(("api/", "_docs")):
             return JSONResponse({"error": "Not found"}, status_code=404)
         if not web_static.is_dir():
             return JSONResponse({"error": "Frontend not built"}, status_code=404)
@@ -344,7 +344,7 @@ def create_app(state_db_path: Optional[Path] = None, config: Optional[dict] = No
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8787, allow_remote: bool = False,
-               config: Optional[dict] = None):
+               config: dict | None = None):
     """Run the API server."""
     import uvicorn
     app = create_app(config=config)

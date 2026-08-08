@@ -25,8 +25,8 @@ Freeze the minimal read-only backend contract consumed by later UI work. This ph
 
 ## Authoritative Sources
 
-- Runtime: future safe projection from bounded discovery domain/runtime descriptors
-- Agents: future safe projection from bounded agent descriptors
+- Runtime: allowlisted fields from verified `RUNTIME_DETECTED` and `PROBE_UNREACHABLE` Ledger events
+- Agents: allowlisted fields from verified `AGENT_DETECTED` Ledger events; unknown workspace binding remains explicit
 - Supervision: durable `supervision_sessions` plus ledger-backed policy events
 - Recovery: `RecoveryCoverageService.compute(...).safe_summary()` and trusted baseline lifecycle records
 
@@ -44,7 +44,10 @@ All `/api/v1/*` routes return JSON with:
 `/api/v1/recovery` additionally returns:
 
 - `recovery_level`: `R0 | R1 | R2 | R3`
+- `r1_verified`: boolean
+- `r2_verified`: boolean
 - `r3_verified`: boolean
+- `test_restore_status`: stable service value
 - `trusted_baseline_status`: `NONE | TRUSTED | RETIRED`
 - `trusted_baseline_id`: string or `null`
 
@@ -54,6 +57,9 @@ All `/api/v1/*` routes return JSON with:
 - `reason_code` is `R4_STATE_EMPTY`
 - `items` is `[]`
 - Recovery empty state returns `R0`, `r3_verified: false`, `trusted_baseline_status: NONE`
+- Database or verified-Ledger failure returns `DEGRADED` with a stable reason code and no projected authority
+- Missing or corrupt Snapshot V3 content forces the affected recovery item to `R0`
+- Runtime and agent payloads use explicit field allowlists; arbitrary Ledger payload keys are never reflected
 
 ## Security Rules
 
@@ -64,6 +70,7 @@ All `/api/v1/*` routes return JSON with:
 ## Affected Files
 
 - `agentguard/api/server.py`
+- `agentguard/api/r4_projection.py`
 - `tests/test_api_r4_contract.py`
 - `docs/phases/08-ui-backend-contract.md`
 - phase completion docs after verification
@@ -86,7 +93,9 @@ Revert only the P8 contract commit(s) touching the API contract and docs; do not
 ## Exit Criteria
 
 - RED contract tests exist and fail before production implementation
+- populated discovery, supervision, and recovery state is projected from verified server-owned sources
 - `/api/v1/runtime`, `/api/v1/agents`, `/api/v1/supervision`, `/api/v1/recovery` return deterministic empty-state DTOs
 - session token is required
 - caller-provided authority query parameters do not change authoritative fields
+- database, Ledger, and Snapshot faults fail closed without raw exceptions
 - no path/secret leakage in test responses
