@@ -753,7 +753,8 @@ class RecoveryService:
         if candidate is not None:
             return {"candidate_id": candidate[0], "status": candidate[1], "binding_digest": candidate[2], "checkpoint_id": candidate[3], "execution_domain_id": candidate[4], "manifest_digest": candidate[5]}
         baseline = connection.execute(
-            "SELECT baseline_id, checkpoint_id, execution_domain_id, manifest_digest FROM trusted_baselines WHERE baseline_id = ?",
+            """SELECT baseline_id, checkpoint_id, execution_domain_id, manifest_digest
+               FROM trusted_baselines WHERE baseline_id = ?""",
             (baseline_id,),
         ).fetchone()
         if baseline is None:
@@ -761,25 +762,62 @@ class RecoveryService:
         retired = connection.execute(
             "SELECT 1 FROM trusted_baseline_retirements WHERE baseline_id = ?", (baseline_id,)
         ).fetchone()
-        return {"baseline_id": baseline[0], "status": "RETIRED" if retired else "TRUSTED", "checkpoint_id": baseline[1], "execution_domain_id": baseline[2], "manifest_digest": baseline[3]}
+        if retired is not None:
+            return {"baseline_id": baseline[0], "status": "RETIRED", "checkpoint_id": baseline[1], "execution_domain_id": baseline[2], "manifest_digest": baseline[3]}
+        try:
+            checkpoint = self._database.get_checkpoint(int(baseline[1]))
+            if checkpoint is None:
+                raise ValueError("checkpoint unavailable")
+            artifact, _reason = self._snapshots.load_recovery_v3_with_status(
+                checkpoint["snapshot_path"]
+            )
+            if artifact is None:
+                raise ValueError("artifact unavailable")
+            target_refs = tuple(
+                entry["logical_path"]
+                for entry in artifact["manifest"]
+                if entry["classification"] == "restorable"
+            )
+            from .coverage import RecoveryCoverageService
+
+            facts = RecoveryCoverageService(self._database, self._snapshots).compute(
+                checkpoint_id=baseline[1],
+                target_refs=target_refs,
+                execution_domain_id=baseline[2],
+            )
+        except (OSError, TypeError, ValueError, KeyError, sqlite3.DatabaseError):
+            facts = None
+        if facts is None or facts.trusted_baseline_status != "TRUSTED" or facts.trusted_baseline_id != baseline_id:
+            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_AUTHORITY_INVALID"}
+        return {"baseline_id": baseline[0], "status": "TRUSTED", "checkpoint_id": baseline[1], "execution_domain_id": baseline[2], "manifest_digest": baseline[3]}
 
     def show_drill(self, drill_id: str) -> dict[str, object]:
         connection = self._database._conn
         if connection is None:
             return {"status": "FAILED", "reason_code": "RECOVERY_DATABASE_UNREACHABLE"}
         row = connection.execute(
-            """SELECT drill_id, checkpoint_id, execution_domain_id, manifest_digest, status
+            """SELECT drill_id, checkpoint_id, execution_domain_id, manifest_digest,
+                      target_refs_digest, status
                FROM recovery_drills WHERE drill_id = ?""",
             (drill_id,),
         ).fetchone()
         if row is None:
             return {"status": "FAILED", "reason_code": "DRILL_NOT_FOUND"}
+        if row[5] == "VERIFIED_R3":
+            context = self._drill_context(row[1], row[2])
+            if (
+                context is None
+                or context["manifest_digest"] != row[3]
+                or context["target_refs_digest"] != row[4]
+                or self._validated_r3_evidence(connection, context, drill_id=row[0]) is None
+            ):
+                return {"status": "FAILED", "reason_code": "RECOVERY_DRILL_AUTHORITY_INVALID"}
         return {
             "drill_id": row[0],
             "checkpoint_id": row[1],
             "execution_domain_id": row[2],
             "manifest_digest": row[3],
-            "status": row[4],
+            "status": row[5],
         }
 
     def approve_trusted_baseline(self, candidate_id: str) -> dict[str, object]:
@@ -1013,6 +1051,8 @@ class RecoveryService:
         self,
         connection,
         context: dict[str, str],
+        *,
+        drill_id: str | None = None,
     ) -> dict[str, str] | None:
         from agentguard.evidence.ledger import verify_ledger
 
@@ -1022,16 +1062,28 @@ class RecoveryService:
             """SELECT drill_id, binding_digest FROM recovery_drills
                WHERE checkpoint_id = ? AND execution_domain_id = ?
                  AND manifest_digest = ? AND target_refs_digest = ?
+                 AND (? IS NULL OR drill_id = ?)
                  AND status = 'VERIFIED_R3'
                ORDER BY created_at, drill_id""",
             (
                 context["checkpoint_id"], context["execution_domain_id"],
                 context["manifest_digest"], context["target_refs_digest"],
+                drill_id, drill_id,
             ),
         ).fetchall()
         if not drills:
             return None
         drill_id, binding_digest = drills[0]
+        expected_results = {
+            "RECOVERY_DRILL_PREPARED": "AWAITING_APPROVAL",
+            "RECOVERY_DRILL_APPROVED": "APPROVED",
+            "RECOVERY_DRILL_STARTED": "RUNNING",
+            "DRIFT_ESTABLISHED": "AVAILABLE",
+            "FILE_RESTORED": "AVAILABLE",
+            "VALIDATOR_PASSED": "AVAILABLE",
+            "RECOVERY_DRILL_VERIFIED": "VERIFIED_R3",
+            "RECOVERY_DRILL_COMPLETED": "VERIFIED_R3",
+        }
         binding = connection.execute(
             """SELECT b.supervision_session_id, b.session_identity_digest, b.policy_version,
                       b.binding_digest, s.status, s.decision, s.declared_intent_digest
@@ -1068,11 +1120,7 @@ class RecoveryService:
                 f"manifest:{context['manifest_digest']}",
             ),
         ).fetchall()
-        required = {
-            "RECOVERY_DRILL_PREPARED", "RECOVERY_DRILL_APPROVED",
-            "RECOVERY_DRILL_STARTED", "DRIFT_ESTABLISHED", "FILE_RESTORED",
-            "VALIDATOR_PASSED", "RECOVERY_DRILL_VERIFIED", "RECOVERY_DRILL_COMPLETED",
-        }
+        required = set(expected_results)
         seen: set[str] = set()
         refs: list[str] = []
         for event_id, event_type, result, supervision_session_id, payload_json in events:
@@ -1093,6 +1141,8 @@ class RecoveryService:
             if event_type in {"RESTORE_FAILED", "SCOPE_DRIFT", "EXTERNAL_EFFECT_UNKNOWN"}:
                 return None
             if event_type in required:
+                if event_type in seen or result != expected_results[event_type]:
+                    return None
                 seen.add(event_type)
                 refs.append(event_id)
         if seen != required:

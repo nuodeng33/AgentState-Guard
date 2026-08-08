@@ -110,7 +110,7 @@ def test_baseline_confirmation_is_one_time_and_bound_to_candidate(tmp_path):
 
 
 def test_forged_trusted_baseline_row_never_projects_trusted(tmp_path):
-    target, database, snapshots, _service_instance, checkpoint = _verified_r3(tmp_path)
+    target, database, snapshots, service, checkpoint = _verified_r3(tmp_path)
     try:
         database._conn.execute(
             """INSERT INTO trusted_baselines
@@ -138,6 +138,10 @@ def test_forged_trusted_baseline_row_never_projects_trusted(tmp_path):
         assert facts.r3_verified is True
         assert facts.trusted_baseline_status == "NONE"
         assert facts.trusted_baseline_id is None
+        assert service.show_trusted_baseline("forged-baseline") == {
+            "status": "FAILED",
+            "reason_code": "TRUSTED_BASELINE_AUTHORITY_INVALID",
+        }
     finally:
         database.close()
 
@@ -158,6 +162,56 @@ def test_multiple_valid_r3_drills_preserve_authoritative_r3(tmp_path):
             execution_domain_id="self-runtime",
         )
         assert facts.r3_verified is True
+    finally:
+        database.close()
+
+
+def test_inconsistent_duplicate_r3_event_invalidates_service_truth(tmp_path):
+    _target, database, _snapshots, service, checkpoint = _verified_r3(tmp_path)
+    try:
+        row = database._conn.execute(
+            """SELECT d.drill_id, d.binding_digest, b.supervision_session_id,
+                      d.target_refs_digest
+               FROM recovery_drills d
+               JOIN recovery_drill_bindings b USING (drill_id)
+               WHERE d.checkpoint_id = ?""",
+            (checkpoint.checkpoint_id,),
+        ).fetchone()
+        EvidenceLedger().append(
+            database._conn,
+            EvidenceEvent(
+                schema_version=1,
+                event_id="conflicting-r3-completed",
+                recorded_at=datetime.now(UTC),
+                observed_at=None,
+                event_family=EventFamily.RECOVERY,
+                event_type=EventType.RECOVERY_DRILL_COMPLETED,
+                source="test",
+                result="FAILED",
+                execution_domain_id="self-runtime",
+                supervision_session_id=row[2],
+                transaction_id=None,
+                checkpoint_id=checkpoint.checkpoint_id,
+                subject_ref=f"manifest:{checkpoint.manifest_digest}",
+                evidence_refs=(),
+                payload_safe={
+                    "drill_id": row[0],
+                    "binding_digest": row[1],
+                    "manifest_digest": checkpoint.manifest_digest,
+                    "target_refs_digest": row[3],
+                },
+            ),
+        )
+        database._conn.commit()
+
+        assert service.create_trusted_baseline(
+            checkpoint_id=checkpoint.checkpoint_id,
+            execution_domain_id="self-runtime",
+        ) == {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
+        assert service.show_drill(row[0]) == {
+            "status": "FAILED",
+            "reason_code": "RECOVERY_DRILL_AUTHORITY_INVALID",
+        }
     finally:
         database.close()
 
@@ -454,5 +508,56 @@ def test_post_trust_adverse_evidence_removes_active_trust(tmp_path):
         assert facts.r3_verified is False
         assert facts.trusted_baseline_status != "TRUSTED"
         assert facts.trusted_baseline_id is None
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "baseline_supervision_decision",
+        "authorization_binding",
+        "candidate_binding",
+    ],
+)
+def test_post_trust_authority_chain_drift_removes_active_trust(tmp_path, mutation):
+    target, database, snapshots, service, checkpoint, candidate, authorization = _approved_baseline(tmp_path)
+    baseline = service.confirm_trusted_baseline(
+        candidate["candidate_id"], authorization["authorization_id"], authorization["nonce"]
+    )
+    assert baseline["status"] == "TRUSTED"
+    try:
+        if mutation == "baseline_supervision_decision":
+            database._conn.execute(
+                """UPDATE supervision_sessions SET decision = 'UNKNOWN'
+                   WHERE supervision_session_id = (
+                     SELECT supervision_session_id FROM recovery_authorizations
+                     WHERE authorization_id = ?
+                   )""",
+                (authorization["authorization_id"],),
+            )
+        elif mutation == "authorization_binding":
+            database._conn.execute(
+                "UPDATE recovery_authorizations SET binding_digest = 'forged' WHERE authorization_id = ?",
+                (authorization["authorization_id"],),
+            )
+        else:
+            database._conn.execute(
+                "UPDATE trusted_baseline_candidate_bindings SET binding_digest = 'forged' WHERE candidate_id = ?",
+                (candidate["candidate_id"],),
+            )
+        database._conn.commit()
+
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=checkpoint.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="self-runtime",
+        )
+        assert facts.trusted_baseline_status == "NONE"
+        assert facts.trusted_baseline_id is None
+        assert service.show_trusted_baseline(baseline["baseline_id"]) == {
+            "status": "FAILED",
+            "reason_code": "TRUSTED_BASELINE_AUTHORITY_INVALID",
+        }
     finally:
         database.close()

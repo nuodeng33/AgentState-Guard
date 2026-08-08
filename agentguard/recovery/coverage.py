@@ -261,11 +261,17 @@ class RecoveryCoverageService:
         r3_verified, r3_refs = self._r3_evidence(
             connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"]
         )
+        r3_evidence_digest = (
+            hashlib.sha256(canonical_json(sorted(r3_refs)).encode("utf-8")).hexdigest()
+            if r3_verified
+            else None
+        )
         trusted_status, trusted_id = self._trusted_baseline(
             connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"],
             hashlib.sha256(
                 canonical_json(sorted(self._target_digest(value) for value in requested)).encode("utf-8")
             ).hexdigest(),
+            r3_evidence_digest,
         )
         recovery_level = "R3" if r3_verified else "R2" if r2_verified else "R1" if status is RecoveryCoverageStatus.COMPLETE else "R0"
         return self._facts(
@@ -398,6 +404,16 @@ class RecoveryCoverageService:
         if not drills:
             return False, ()
         drill_id, binding_digest, _target_refs_digest = drills[0]
+        expected_results = {
+            "RECOVERY_DRILL_PREPARED": "AWAITING_APPROVAL",
+            "RECOVERY_DRILL_APPROVED": "APPROVED",
+            "RECOVERY_DRILL_STARTED": "RUNNING",
+            "DRIFT_ESTABLISHED": "AVAILABLE",
+            "FILE_RESTORED": "AVAILABLE",
+            "VALIDATOR_PASSED": "AVAILABLE",
+            "RECOVERY_DRILL_VERIFIED": "VERIFIED_R3",
+            "RECOVERY_DRILL_COMPLETED": "VERIFIED_R3",
+        }
         binding = connection.execute(
             """SELECT b.supervision_session_id, b.session_identity_digest, b.policy_version,
                       b.binding_digest, s.status, s.decision, s.declared_intent_digest
@@ -449,12 +465,14 @@ class RecoveryCoverageService:
             if (
                 payload.get("binding_digest") != binding_digest
                 or payload.get("manifest_digest") != manifest_digest
+                or payload.get("target_refs_digest") != _target_refs_digest
                 or event_type in {"RESTORE_FAILED", "SCOPE_DRIFT", "EXTERNAL_EFFECT_UNKNOWN"}
             ):
                 return False, ()
             if event_type in required:
                 if (
-                    result not in {"AWAITING_APPROVAL", "APPROVED", "RUNNING", "AVAILABLE", "VERIFIED_R3"}
+                    event_type in matched
+                    or result != expected_results[event_type]
                     or supervision_session_id != binding[0]
                 ):
                     return False, ()
@@ -469,6 +487,7 @@ class RecoveryCoverageService:
         execution_domain_id: str,
         manifest_digest: str,
         target_refs_digest: str,
+        r3_evidence_digest: str | None,
     ) -> tuple[str, str | None]:
         row = connection.execute(
             """SELECT baseline_id, target_refs_digest, recovery_evidence_digest, created_at
@@ -479,6 +498,8 @@ class RecoveryCoverageService:
         if row is None:
             return "NONE", None
         baseline_id, baseline_target_refs_digest, recovery_evidence_digest, created_at = row
+        if r3_evidence_digest is None or recovery_evidence_digest != r3_evidence_digest:
+            return "NONE", None
         retirement = connection.execute(
             "SELECT retired_at, reason_code FROM trusted_baseline_retirements WHERE baseline_id = ?",
             (baseline_id,),
@@ -516,10 +537,13 @@ class RecoveryCoverageService:
         candidate = connection.execute(
             """SELECT c.status, c.candidate_id, c.checkpoint_id, c.execution_domain_id,
                       c.manifest_digest, c.target_refs_digest, c.recovery_evidence_digest,
+                      c.binding_digest,
                       b.supervision_session_id, b.session_identity_digest, b.policy_version,
-                      b.drill_fingerprint
+                      b.drill_fingerprint, b.binding_digest,
+                      s.status, s.decision, s.declared_intent_digest
                FROM trusted_baseline_candidates c
                JOIN trusted_baseline_candidate_bindings b USING (candidate_id)
+               JOIN supervision_sessions s USING (supervision_session_id)
                WHERE c.candidate_id = ?""",
             (payload.get("candidate_id"),),
         ).fetchone()
@@ -528,28 +552,82 @@ class RecoveryCoverageService:
                       session_identity_digest, checkpoint_id, execution_domain_id,
                       manifest_digest, operation_kind, target_refs_digest,
                       drill_fingerprint, policy_version, binding_digest,
-                      consumed_at, consumed_by_ref
+                      nonce, consumed_at, consumed_by_ref
                FROM recovery_authorizations WHERE authorization_id = ?""",
             (payload.get("authorization_id"),),
         ).fetchone()
         if candidate is None or authorization is None:
             return "NONE", None
+        expected_candidate_binding = hashlib.sha256(canonical_json({
+            "operation": "TRUSTED_BASELINE_CONFIRM",
+            "candidate_id": candidate[1],
+            "checkpoint_id": checkpoint_id,
+            "execution_domain_id": execution_domain_id,
+            "manifest_digest": manifest_digest,
+            "target_refs_digest": baseline_target_refs_digest,
+            "recovery_evidence_digest": recovery_evidence_digest,
+            "drill_fingerprint": candidate[11],
+            "policy_version": candidate[10],
+        }).encode("utf-8")).hexdigest()
         if (
             candidate[0] != "CONSUMED"
             or candidate[2:7] != (
                 checkpoint_id, execution_domain_id, manifest_digest,
                 baseline_target_refs_digest, recovery_evidence_digest,
             )
+            or candidate[7] != expected_candidate_binding
+            or candidate[12] != expected_candidate_binding
+            or candidate[13:16] != ("APPROVED", "REVIEW", candidate[9])
             or authorization[1] != candidate[1]
-            or authorization[2] != candidate[7]
-            or authorization[3] != candidate[8]
+            or authorization[2] != candidate[8]
+            or authorization[3] != candidate[9]
             or authorization[4:7] != (checkpoint_id, execution_domain_id, manifest_digest)
             or authorization[7] != "TRUSTED_BASELINE_CONFIRM"
             or authorization[8] != baseline_target_refs_digest
-            or authorization[9] != candidate[10]
-            or authorization[10] != candidate[9]
-            or authorization[12] is None
-            or authorization[13] != baseline_id
+            or authorization[9] != candidate[11]
+            or authorization[10] != candidate[10]
+            or authorization[13] is None
+            or authorization[14] != baseline_id
+        ):
+            return "NONE", None
+        expected_authorization_binding = hashlib.sha256(canonical_json({
+            "authorization_id": authorization[0],
+            "subject_id": authorization[1],
+            "session_identity_digest": authorization[3],
+            "checkpoint_id": checkpoint_id,
+            "execution_domain_id": execution_domain_id,
+            "manifest_digest": manifest_digest,
+            "target_refs_digest": baseline_target_refs_digest,
+            "operation_kind": authorization[7],
+            "drill_fingerprint": authorization[9],
+            "policy_version": authorization[10],
+            "nonce": authorization[12],
+        }).encode("utf-8")).hexdigest()
+        if authorization[11] != expected_authorization_binding:
+            return "NONE", None
+        approval_rows = connection.execute(
+            """SELECT result, subject_ref, payload_safe_json
+               FROM evidence_ledger_events
+               WHERE event_type = 'USER_APPROVED' AND supervision_session_id = ?
+               ORDER BY sequence""",
+            (authorization[2],),
+        ).fetchall()
+        if len(approval_rows) != 1:
+            return "NONE", None
+        try:
+            approval_payload = json.loads(approval_rows[0][2])
+        except (TypeError, json.JSONDecodeError):
+            return "NONE", None
+        if (
+            approval_rows[0][0] != "APPROVED"
+            or approval_rows[0][1] != authorization[2]
+            or approval_payload != {
+                "status": "APPROVED",
+                "authorization_binding_digest": expected_authorization_binding,
+                "operation_kind": "TRUSTED_BASELINE_CONFIRM",
+                "policy_version": authorization[10],
+            }
+            or evidence[1] != authorization[2]
         ):
             return "NONE", None
         expected_digest = hashlib.sha256(
