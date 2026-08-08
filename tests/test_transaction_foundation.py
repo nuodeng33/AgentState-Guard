@@ -65,10 +65,12 @@ def test_transaction_rolls_back_when_commit_itself_fails(tmp_path):
     )
     try:
         database._conn.fail_next_commit = True
-        with pytest.raises(sqlite3.OperationalError, match="injected commit failure"):
-            with database.transaction() as connection:
-                connection.execute("CREATE TABLE commit_failure_probe (value TEXT NOT NULL)")
-                connection.execute("INSERT INTO commit_failure_probe VALUES ('ghost')")
+        with (
+            pytest.raises(sqlite3.OperationalError, match="injected commit failure"),
+            database.transaction() as connection,
+        ):
+            connection.execute("CREATE TABLE commit_failure_probe (value TEXT NOT NULL)")
+            connection.execute("INSERT INTO commit_failure_probe VALUES ('ghost')")
 
         assert database._conn.in_transaction is False
         assert database._conn.execute(
