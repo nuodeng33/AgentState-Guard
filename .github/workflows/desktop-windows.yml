@@ -341,9 +341,12 @@ jobs:
             $token = ($sessionResp.Content | ConvertFrom-Json).token
             if (-not $token) { throw "Session API returned no token" }
             $headers = @{ "X-Session-Token" = $token }
-            $statusResp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/status" -UseBasicParsing -Headers $headers -NoProxy -TimeoutSec 5
-            if ($statusResp.StatusCode -ne 200) { throw "Status API returned $($statusResp.StatusCode)" }
-            Write-Host "Status API OK"
+            $readinessResp = Invoke-WebRequest -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/readiness" -UseBasicParsing -Headers $headers -NoProxy -TimeoutSec 5
+            $readiness = $readinessResp.Content | ConvertFrom-Json
+            if ($readinessResp.StatusCode -ne 200 -or $readiness.status -ne "ready" -or $readiness.database -ne "available") {
+              throw "Readiness API did not confirm runtime and database health"
+            }
+            Write-Host "Runtime readiness API OK"
           } catch {
             Write-Host "ERROR: $($_.Exception.Message)"
             Get-NetTCPConnection -LocalPort $env:SIDECAR_PORT -ErrorAction SilentlyContinue | Format-Table -AutoSize | Out-String | Write-Host

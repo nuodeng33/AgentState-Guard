@@ -78,6 +78,30 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
     async def get_session():
         return {"token": session_token}
 
+    @app.get("/api/readiness")
+    async def readiness():
+        try:
+            current_db = _get_db()
+            current_db._conn.execute(
+                "SELECT COUNT(*) FROM schema_migrations"
+            ).fetchone()
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return JSONResponse(
+                {
+                    "status": "degraded",
+                    "database": "unreachable",
+                    "reason_code": "RUNTIME_DATABASE_UNREACHABLE",
+                },
+                status_code=503,
+            )
+        finally:
+            db.close()
+        return {
+            "status": "ready",
+            "database": "available",
+            "reason_code": "RUNTIME_READY",
+        }
+
     @app.get("/api/status")
     async def api_status():
         db = _get_db()

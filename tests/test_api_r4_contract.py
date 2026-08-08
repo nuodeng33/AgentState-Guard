@@ -103,6 +103,29 @@ def test_r4_contract_requires_session_token(api):
     assert status == 401
 
 
+def test_runtime_readiness_is_authenticated_and_checks_database(api, tmp_path):
+    base_url, token, _root = api
+    assert _get(base_url, "/api/readiness")[0] == 401
+    status, body = _get(base_url, "/api/readiness", token)
+    assert status == 200
+    assert body == {
+        "status": "ready",
+        "database": "available",
+        "reason_code": "RUNTIME_READY",
+    }
+
+    blocked = tmp_path / "readiness-database-is-a-directory"
+    blocked.mkdir()
+    with _running_api(tmp_path, blocked) as (blocked_url, blocked_token, _root):
+        status, body = _get(blocked_url, "/api/readiness", blocked_token)
+    assert status == 503
+    assert body == {
+        "status": "degraded",
+        "database": "unreachable",
+        "reason_code": "RUNTIME_DATABASE_UNREACHABLE",
+    }
+
+
 def test_r4_runtime_and_agents_project_verified_ledger_facts(tmp_path):
     database = StateDB(tmp_path / "state.db")
     database.connect()
