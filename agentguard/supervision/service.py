@@ -546,6 +546,11 @@ class SupervisionService:
             "policy_payload_digest": policy[0][6],
             "policy_curr_hash": policy[0][7],
             "policy_binding_digest": policy_digest,
+            "session_context_sequence": events[-1][0],
+            "session_context_event_id": events[-1][1],
+            "session_context_event_type": events[-1][2],
+            "session_context_payload_digest": events[-1][6],
+            "session_context_curr_hash": events[-1][7],
         }
         return _ActionAuthority(
             action_ref=hashlib.sha256(

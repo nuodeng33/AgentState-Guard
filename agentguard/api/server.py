@@ -82,10 +82,21 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=[
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=[
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "X-Session-Token",
+        ],
     )
 
     # Serve web_static if built (AFTER API routes are defined below)

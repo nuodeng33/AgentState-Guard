@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from agentguard.evidence.ledger import EvidenceLedger
+from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.policy.models import Decision, PolicyDecision
 from agentguard.storage.db import StateDB
-from agentguard.supervision.service import SupervisionService
+from agentguard.supervision.service import SupervisionActionError, SupervisionService
 from tests.test_api_r4_contract import _get, _running_api
 
 
@@ -288,3 +291,55 @@ def test_action_request_rejects_caller_authority_fields(tmp_path):
     assert status == 422
     assert body["reason_code"] == "SUPERVISION_ACTION_REQUEST_INVALID"
     assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+def test_same_session_evidence_drift_invalidates_old_action_ref(tmp_path):
+    db_path = tmp_path / "state.db"
+    database = StateDB(db_path)
+    database.connect()
+    service = SupervisionService(database)
+    try:
+        session = service.create("bounded-p8-action", _decision(Decision.REVIEW))
+        session_id = session.supervision_session_id
+        stale_ref = service.action_ref(session_id)
+        assert stale_ref is not None
+        with database.transaction() as connection:
+            EvidenceLedger().append(
+                connection,
+                EvidenceEvent(
+                    schema_version=1,
+                    event_id="p8-evidence-drift",
+                    recorded_at=datetime.now(UTC),
+                    observed_at=None,
+                    event_family=EventFamily.SUPERVISION,
+                    event_type=EventType.AI_ASSESSED,
+                    source="ai-supervisor",
+                    result="REVIEW",
+                    execution_domain_id=None,
+                    supervision_session_id=session_id,
+                    transaction_id=None,
+                    checkpoint_id=None,
+                    subject_ref=session_id,
+                    evidence_refs=(session_id,),
+                    payload_safe={"decision": "REVIEW", "severity": "LOW"},
+                ),
+            )
+
+        with pytest.raises(SupervisionActionError) as exc_info:
+            service.approve_once(session_id, stale_ref)
+        assert exc_info.value.reason_code == "SUPERVISION_ACTION_STALE"
+        assert service._read(session_id).status == "AWAITING_APPROVAL"
+        assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+    finally:
+        database.close()
+
+
+def test_untrusted_web_origin_cannot_read_session_bootstrap_token(tmp_path):
+    with _running_api(tmp_path) as (base_url, _token, _root):
+        request = urllib.request.Request(
+            f"{base_url}/api/session",
+            headers={"Origin": "https://attacker.invalid"},
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.status == 200
+            assert response.headers.get("Access-Control-Allow-Origin") is None
