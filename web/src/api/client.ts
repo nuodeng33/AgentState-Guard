@@ -31,11 +31,34 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Stable machine-readable failure codes are the only detail a mutation may surface. */
+const STABLE_REASON_CODE = /^[A-Z0-9_]{1,64}$/;
+
+/**
+ * Thrown for failed mutations (non-401 HTTP status). Carries only the HTTP
+ * status and the backend's stable reason_code; raw response text is dropped.
+ */
+export class ApiActionError extends Error {
+  readonly status: number;
+  readonly reasonCode: string | null;
+  constructor(status: number, reasonCode: string | null = null) {
+    super(`Action failed (HTTP ${status})`);
+    this.name = 'ApiActionError';
+    this.status = status;
+    this.reasonCode = reasonCode;
+  }
+}
+
 export interface ApiClient {
   /** Establish (or re-establish) the in-memory session token. */
   bootstrap(): Promise<void>;
   /** GET a protected API path with the session token attached. */
   get<T>(path: string): Promise<T>;
+  /**
+   * POST a JSON mutation with the session token attached. Sent exactly once
+   * per call; the only retry is the shared single 401 re-bootstrap.
+   */
+  post<T>(path: string, body: unknown): Promise<T>;
 }
 
 interface SessionResponse {
@@ -108,7 +131,52 @@ export function createApiClient(fetchImpl?: typeof fetch): ApiClient {
     return (await response.json()) as T;
   }
 
-  return { bootstrap, get };
+  async function send(path: string, sessionToken: string, body: unknown): Promise<Response> {
+    try {
+      return await callFetch(path, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Session-Token': sessionToken,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new ApiRequestError('API unreachable');
+    }
+  }
+
+  /** Extract only the stable reason_code atom from a failure body; drop everything else. */
+  async function readFailureReasonCode(response: Response): Promise<string | null> {
+    try {
+      const body = (await response.json()) as { reason_code?: unknown };
+      const code = body?.reason_code;
+      return typeof code === 'string' && STABLE_REASON_CODE.test(code) ? code : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function post<T>(path: string, body: unknown): Promise<T> {
+    const sessionToken = token ?? (await bootstrapSession());
+    let response = await send(path, sessionToken, body);
+    if (response.status === 401) {
+      // Same bounded policy as reads: one re-bootstrap + one retry, never a loop.
+      token = null;
+      const freshToken = await bootstrapSession();
+      response = await send(path, freshToken, body);
+      if (response.status === 401) {
+        throw new SessionUnavailableError();
+      }
+    }
+    if (!response.ok) {
+      throw new ApiActionError(response.status, await readFailureReasonCode(response));
+    }
+    return (await response.json()) as T;
+  }
+
+  return { bootstrap, get, post };
 }
 
 /** Shared singleton for the running app. Tests build isolated clients via createApiClient. */

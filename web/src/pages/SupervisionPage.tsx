@@ -13,12 +13,20 @@ import {
   type BadgeTone,
 } from '../components/StateBadge';
 import { ViewGate } from '../components/ViewGate';
+import { isActionable, SupervisionActions } from './SupervisionActions';
 
 export default function SupervisionPage({ client = apiClient }: { client?: ApiClient }) {
   const state = useR4View<SupervisionView>('supervision', client);
   return (
     <ViewGate state={state} label="Supervision">
-      {(data) => <SupervisionViewBody data={data} />}
+      {(data) => (
+        <SupervisionViewBody
+          data={data}
+          client={client}
+          onChanged={state.reload}
+          busy={state.refreshing}
+        />
+      )}
     </ViewGate>
   );
 }
@@ -42,7 +50,17 @@ function yesNo(value: boolean): string {
   return value ? 'Yes' : 'No';
 }
 
-export function SupervisionViewBody({ data }: { data: SupervisionView }) {
+export function SupervisionViewBody({
+  data,
+  client,
+  onChanged,
+  busy = false,
+}: {
+  data: SupervisionView;
+  client?: ApiClient;
+  onChanged?: () => void;
+  busy?: boolean;
+}) {
   return (
     <div>
       <div className="view-head">
@@ -79,20 +97,37 @@ export function SupervisionViewBody({ data }: { data: SupervisionView }) {
       )}
 
       {data.items.map((item) => (
-        <SupervisionCard key={item.supervision_session_id} item={item} />
+        <SupervisionCard
+          key={item.supervision_session_id}
+          item={item}
+          client={client}
+          onChanged={onChanged}
+          busy={busy}
+        />
       ))}
 
       <EvidenceRefs refs={data.evidence_refs} />
 
       <p className="readonly-note">
-        Read-only view. Approve Once / Reject are not available in this build: the frozen P8
-        backend contract exposes no mutation endpoint.
+        Actions are limited to one-time Approve Once / Reject on sessions awaiting manual
+        approval, bound to the latest authoritative read. Everything else stays read-only:
+        no activation, no checkpoint creation, no policy change.
       </p>
     </div>
   );
 }
 
-function SupervisionCard({ item }: { item: SupervisionItem }) {
+function SupervisionCard({
+  item,
+  client,
+  onChanged,
+  busy = false,
+}: {
+  item: SupervisionItem;
+  client?: ApiClient;
+  onChanged?: () => void;
+  busy?: boolean;
+}) {
   return (
     <section className="card">
       <div className="card-head">
@@ -123,6 +158,15 @@ function SupervisionCard({ item }: { item: SupervisionItem }) {
           }
         />
       </KeyValueGrid>
+      {isActionable(item) && client && onChanged && item.action_ref !== null && (
+        <SupervisionActions
+          sessionId={item.supervision_session_id}
+          actionRef={item.action_ref}
+          client={client}
+          onChanged={onChanged}
+          busy={busy}
+        />
+      )}
       {item.recovery_facts && <RecoveryFacts facts={item.recovery_facts} />}
       <EvidenceRefs refs={item.evidence_refs} />
     </section>

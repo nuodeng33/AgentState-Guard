@@ -607,6 +607,67 @@ code {
   margin-top: 18px;
 }
 
+/* ---- Supervision one-time actions ---- */
+
+.action-area {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.action-row .btn {
+  margin-top: 0;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(0.94);
+}
+
+.btn-danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--bad-bg);
+}
+
+.action-pending {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.action-feedback {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--bad);
+}
+
+.action-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 /* ---- Narrow windows: keep usable, never broken ---- */
 
 @media (max-width: 900px) {

@@ -97,6 +97,26 @@ export interface SupervisionItem {
   requires_checkpoint: boolean;
   ai_assessment: SupervisionAiAssessment | null;
   recovery_facts: SupervisionRecoveryFacts | null;
+  /**
+   * Opaque server-issued one-time action binding (64 lowercase hex), present
+   * only while a REVIEW session genuinely awaits manual approval. Never
+   * generated, stored, or reused across sessions by the client.
+   */
+  action_ref: string | null;
+  evidence_refs: string[];
+}
+
+/**
+ * r4-p8-action-1 mutation acknowledgement. The UI never treats this as
+ * authority on its own; the supervision view is always re-read afterwards.
+ */
+export interface SupervisionActionResult {
+  schema_version: string;
+  action: string;
+  supervision_session_id: string;
+  status: string;
+  reason_code: string;
+  consumed: boolean;
   evidence_refs: string[];
 }
 

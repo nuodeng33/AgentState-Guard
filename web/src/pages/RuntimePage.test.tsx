@@ -88,6 +88,9 @@ describe('RuntimePage transport handling', () => {
       get: async () => {
         throw new Error('sqlite3.OperationalError: /secret/dir/state.db is corrupt');
       },
+      post: async () => {
+        throw new Error('unused in this test');
+      },
     };
     render(<RuntimePage client={failingClient} />);
     const alert = await screen.findByRole('alert');
@@ -101,6 +104,9 @@ describe('RuntimePage transport handling', () => {
       bootstrap: async () => {},
       get: async () => {
         throw new SessionUnavailableError();
+      },
+      post: async () => {
+        throw new Error('unused in this test');
       },
     };
     render(<RuntimePage client={failingClient} />);

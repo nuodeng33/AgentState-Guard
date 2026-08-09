@@ -14,6 +14,7 @@ function session(partial: Partial<SupervisionItem>): SupervisionItem {
     requires_checkpoint: false,
     ai_assessment: null,
     recovery_facts: null,
+    action_ref: null,
     evidence_refs: [],
     ...partial,
   };
@@ -88,9 +89,10 @@ describe('SupervisionPage policy display', () => {
     expect(screen.getByText('VERIFIED_R2')).toBeTruthy();
   });
 
-  it('states the read-only action gap honestly', () => {
+  it('states the action boundary honestly', () => {
     render(<SupervisionViewBody data={VIEW} />);
-    expect(screen.getByText(/Read-only view/)).toBeTruthy();
+    // Sessions without a server-issued action_ref expose no executable action.
+    expect(screen.getByText(/stays read-only/)).toBeTruthy();
     expect(screen.queryByText('Approve Once')).toBeNull();
     expect(screen.queryByText('Reject')).toBeNull();
   });
