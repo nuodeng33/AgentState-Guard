@@ -126,7 +126,7 @@ def test_runtime_readiness_is_authenticated_and_checks_database(api, tmp_path):
     }
 
 
-def test_r4_runtime_and_agents_project_verified_ledger_facts(tmp_path):
+def test_r4_runtime_projects_verified_fact_and_unbound_agent_degrades(tmp_path):
     database = StateDB(tmp_path / "state.db")
     database.connect()
     snapshot = DiscoverySnapshot(
@@ -173,10 +173,18 @@ def test_r4_runtime_and_agents_project_verified_ledger_facts(tmp_path):
     assert runtime["items"][0]["runtime_type"] == "python"
     assert runtime["items"][0]["availability"] == "AVAILABLE"
     assert runtime["items"][0]["execution_domain_id"] == "self-runtime"
-    assert agents["status"] == "AVAILABLE"
+    assert agents["status"] == "DEGRADED"
+    assert agents["reason_code"] == "R4_WORKSPACE_BINDING_INCOMPLETE"
     assert agents["items"][0]["detected_identity"] == "cloudcli"
     assert agents["items"][0]["lifecycle"] == "DETECTED"
     assert agents["items"][0]["execution_domain_id"] == "self-runtime"
+    assert agents["items"][0]["uncertainty"] is True
+    assert agents["items"][0]["workspace"] == {
+        "status": "UNKNOWN",
+        "workspace_id": None,
+        "binding_ref": None,
+        "reason_code": "WORKSPACE_BINDING_MISSING",
+    }
     assert "do-not-project" not in json.dumps(runtime)
 
 
