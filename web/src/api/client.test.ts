@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  ApiActionError,
   ApiRequestError,
   createApiClient,
   SessionUnavailableError,
@@ -146,5 +147,162 @@ describe('api client error safety', () => {
     expect(failure).toBeInstanceOf(ApiRequestError);
     expect((failure as ApiRequestError).message).toBe('API request failed (HTTP 500)');
     expect((failure as ApiRequestError).message).not.toContain('state.db');
+  });
+});
+
+describe('api client mutation POST', () => {
+  type PostCall = { path: string; method: string; token: string | null; body: unknown; contentType: string | null };
+
+  function mockPostFetch(handlers: Array<() => Response | Promise<Response>>) {
+    const calls: PostCall[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      calls.push({
+        path: String(input),
+        method: init?.method ?? 'GET',
+        token: headers.get('X-Session-Token'),
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+        contentType: headers.get('Content-Type'),
+      });
+      const handler = handlers.length > 1 ? handlers.shift()! : handlers[0];
+      if (!handler) throw new Error('unexpected fetch call');
+      return handler();
+    });
+    return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
+  }
+
+  const ACTION_OK = {
+    schema_version: 'r4-p8-action-1',
+    action: 'APPROVE_ONCE',
+    supervision_session_id: 'ssn-1',
+    status: 'APPROVED',
+    reason_code: 'SUPERVISION_APPROVED_ONCE',
+    consumed: true,
+    evidence_refs: ['evt-1'],
+  };
+
+  it('sends exactly one POST with only the caller body and the session token', async () => {
+    const { calls, fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () => jsonResponse(ACTION_OK),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const ref = 'a'.repeat(64);
+    const result = await client.post<typeof ACTION_OK>(
+      '/api/v1/supervision/ssn-1/approve-once',
+      { action_ref: ref },
+    );
+
+    expect(result.status).toBe('APPROVED');
+    expect(calls).toHaveLength(2);
+    const post = calls[1];
+    expect(post.method).toBe('POST');
+    expect(post.path).toBe('/api/v1/supervision/ssn-1/approve-once');
+    expect(post.token).toBe('token-a');
+    expect(post.contentType).toBe('application/json');
+    expect(post.body).toEqual({ action_ref: ref });
+    expect(Object.keys(post.body as object)).toEqual(['action_ref']);
+  });
+
+  it('re-bootstraps at most once on 401, then retries the mutation once', async () => {
+    const { calls, fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () => jsonResponse({ error: 'Unauthorized' }, 401),
+      () => jsonResponse({ token: 'token-b' }),
+      () => jsonResponse(ACTION_OK),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    await client.post('/api/v1/supervision/ssn-1/reject', { action_ref: 'b'.repeat(64) });
+
+    expect(calls.map((c) => [c.method, c.path, c.token])).toEqual([
+      ['GET', '/api/session', null],
+      ['POST', '/api/v1/supervision/ssn-1/reject', 'token-a'],
+      ['GET', '/api/session', null],
+      ['POST', '/api/v1/supervision/ssn-1/reject', 'token-b'],
+    ]);
+  });
+
+  it('surfaces SESSION_UNAVAILABLE after a second 401 without further retries', async () => {
+    const { calls, fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () => jsonResponse({ error: 'Unauthorized' }, 401),
+      () => jsonResponse({ token: 'token-b' }),
+      () => jsonResponse({ error: 'Unauthorized' }, 401),
+      () => jsonResponse(ACTION_OK), // must never be reached
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    await expect(
+      client.post('/api/v1/supervision/ssn-1/reject', { action_ref: 'b'.repeat(64) }),
+    ).rejects.toBeInstanceOf(SessionUnavailableError);
+    expect(calls).toHaveLength(4);
+  });
+
+  it('carries only the stable reason_code from a failure body', async () => {
+    const { fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () =>
+        jsonResponse(
+          {
+            schema_version: 'r4-p8-action-1',
+            action: 'APPROVE_ONCE',
+            supervision_session_id: 'ssn-1',
+            status: 'UNCHANGED',
+            reason_code: 'SUPERVISION_ACTION_STALE',
+            consumed: false,
+            evidence_refs: [],
+          },
+          409,
+        ),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const failure = await client
+      .post('/api/v1/supervision/ssn-1/approve-once', { action_ref: 'a'.repeat(64) })
+      .catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(ApiActionError);
+    expect((failure as ApiActionError).status).toBe(409);
+    expect((failure as ApiActionError).reasonCode).toBe('SUPERVISION_ACTION_STALE');
+    expect((failure as ApiActionError).message).toBe('Action failed (HTTP 409)');
+  });
+
+  it('never leaks raw backend error text, paths, or tokens from a failure body', async () => {
+    const { fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () =>
+        jsonResponse(
+          {
+            detail: 'sqlite3.OperationalError: /secret/dir/state.db token=deadbeef',
+            reason_code: '../../etc/passwd',
+          },
+          503,
+        ),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const failure = await client
+      .post('/api/v1/supervision/ssn-1/approve-once', { action_ref: 'a'.repeat(64) })
+      .catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(ApiActionError);
+    // A non-allowlisted reason_code is dropped, not surfaced.
+    expect((failure as ApiActionError).reasonCode).toBeNull();
+    const rendered = `${(failure as ApiActionError).message} ${(failure as ApiActionError).reasonCode}`;
+    expect(rendered).not.toContain('state.db');
+    expect(rendered).not.toContain('sqlite3');
+    expect(rendered).not.toContain('deadbeef');
+    expect(rendered).not.toContain('/etc/passwd');
+  });
+
+  it('maps network failures during mutation to a display-safe message', async () => {
+    const fetchImpl = (async () => {
+      throw new TypeError('fetch failed: connect ECONNREFUSED 127.0.0.1:8787');
+    }) as unknown as typeof fetch;
+    const client = createApiClient(fetchImpl);
+
+    await expect(
+      client.post('/api/v1/supervision/ssn-1/reject', { action_ref: 'b'.repeat(64) }),
+    ).rejects.toMatchObject({ name: 'ApiRequestError', message: 'API unreachable' });
   });
 });
