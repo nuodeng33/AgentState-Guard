@@ -6,11 +6,14 @@ import hashlib
 import hmac
 import json
 import sqlite3
+import stat
+import tomllib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from agentguard.commands.restore import _atomic_restore
 from agentguard.core.versions import exact_product_sha, is_exact_git_sha
 from agentguard.evidence.canonical import canonical_json
 from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
@@ -29,6 +32,7 @@ from agentguard.recovery.coverage import (
     RecoveryCoverageStatus,
 )
 from agentguard.recovery.manifest import validate_snapshot_v3
+from agentguard.recovery.policy import RestorePolicy
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
 
@@ -73,9 +77,91 @@ class SupervisionActionResult:
 
 
 @dataclass(frozen=True)
+class ControlledChangeResult:
+    """Outcome of the single authority-bound MVP configuration change."""
+
+    supervision_session_id: str
+    status: str
+    reason_code: str
+    changed: bool = False
+    before_digest: str | None = None
+    after_digest: str | None = None
+    verification: str = "NOT_RUN"
+    rolled_back: bool = False
+    evidence_refs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class _ActionAuthority:
     action_ref: str
     status: str
+
+
+def _authoritative_diff(
+    target: Path,
+    *,
+    before_digest: str,
+    expected_after_digest: str,
+) -> dict[str, object]:
+    content, _file_stat = RestorePolicy._read_once(target)
+    after_digest = hashlib.sha256(content).hexdigest()
+    if after_digest != expected_after_digest or after_digest == before_digest:
+        raise ValueError("CONTROLLED_CHANGE_DIFF_INVALID")
+    return {
+        "before_digest": before_digest,
+        "after_digest": after_digest,
+        "changed": True,
+    }
+
+
+def _offline_verify(
+    target: Path,
+    *,
+    validator: str,
+    expected_digest: str,
+    target_ref_digest: str,
+) -> dict[str, object]:
+    result = "FAIL"
+    verified_digest: str | None = None
+    try:
+        content, _file_stat = RestorePolicy._read_once(target)
+        verified_digest = hashlib.sha256(content).hexdigest()
+        if validator == "toml-parse" and verified_digest == expected_digest:
+            tomllib.loads(content.decode("utf-8"))
+            result = "PASS"
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        pass
+    return {
+        "method": "tomllib.loads",
+        "network_used": False,
+        "result": result,
+        "target_ref_digest": target_ref_digest,
+        "verified_digest": verified_digest,
+    }
+
+
+def _rollback_file(
+    target: Path,
+    content: bytes,
+    before_stat,
+) -> bool:
+    digest = hashlib.sha256(content).hexdigest()
+    result = _atomic_restore(
+        target,
+        content,
+        {
+            "mode_oct": oct(stat.S_IMODE(before_stat.st_mode)),
+            "sha256": digest,
+        },
+    )
+    try:
+        restored, _file_stat = RestorePolicy._read_once(target)
+    except OSError:
+        return False
+    return (
+        result.get("status") == "success"
+        or hashlib.sha256(restored).hexdigest() == digest
+    )
 
 
 class SupervisionService:
@@ -472,8 +558,8 @@ class SupervisionService:
             self._append(
                 connection,
                 session_id,
-                EventType.OBSERVED_CHANGE,
-                "ACTIVATION_ALLOWED" if activation_context else "ACTIVE",
+                EventType.SESSION_ACTIVATED,
+                "ACTIVE",
                 now,
                 evidence_refs=(
                     tuple(activation_context["evidence_refs"])
@@ -492,12 +578,488 @@ class SupervisionService:
                 raise RuntimeError("SUPERVISION_LEDGER_INVALID")
         return SupervisionSession(session_id, "ACTIVE")
 
+    def apply_config_change(
+        self,
+        session_id: str,
+        checkpoint_id: str,
+        *,
+        requested_target: Path,
+        content: bytes,
+    ) -> ControlledChangeResult:
+        """Apply one approved TOML file change through the active R4 authority."""
+        rollback: dict[str, object] = {}
+        try:
+            return self._apply_config_change(
+                session_id,
+                checkpoint_id,
+                requested_target=requested_target,
+                content=content,
+                rollback=rollback,
+            )
+        except (OSError, RuntimeError, sqlite3.DatabaseError, ValueError):
+            target = rollback.get("target")
+            before = rollback.get("before")
+            before_stat = rollback.get("before_stat")
+            rolled_back = (
+                _rollback_file(target, before, before_stat)
+                if isinstance(target, Path)
+                and isinstance(before, bytes)
+                and before_stat is not None
+                else False
+            )
+            result = ControlledChangeResult(
+                session_id,
+                "FAILED",
+                "CONTROLLED_CHANGE_PERSISTENCE_FAILED",
+                before_digest=rollback.get("before_digest"),
+                after_digest=rollback.get("after_digest"),
+                rolled_back=rolled_back,
+            )
+            try:
+                with self._database.transaction() as connection:
+                    if verify_ledger(connection):
+                        connection.execute(
+                            """UPDATE supervision_sessions SET status = ?, updated_at = ?
+                               WHERE supervision_session_id = ? AND status = 'ACTIVE'""",
+                            ("FAILED", datetime.now(UTC).isoformat(), session_id),
+                        )
+                    else:
+                        context = rollback.get("context")
+                        result = self._fail_controlled_change(
+                            connection,
+                            session_id=session_id,
+                            checkpoint_id=checkpoint_id,
+                            reason_code="CONTROLLED_CHANGE_PERSISTENCE_FAILED",
+                            context=context if isinstance(context, dict) else None,
+                            before_digest=rollback.get("before_digest"),
+                            after_digest=rollback.get("after_digest"),
+                            rolled_back=rolled_back,
+                        )
+            except (OSError, RuntimeError, sqlite3.DatabaseError, ValueError):
+                pass
+            return result
+
+    def _apply_config_change(
+        self,
+        session_id: str,
+        checkpoint_id: str,
+        *,
+        requested_target: Path,
+        content: bytes,
+        rollback: dict[str, object],
+    ) -> ControlledChangeResult:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT status FROM supervision_sessions WHERE supervision_session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError("SUPERVISION_SESSION_NOT_FOUND")
+            if row[0] != "ACTIVE":
+                return ControlledChangeResult(
+                    session_id,
+                    row[0],
+                    "CONTROLLED_CHANGE_REPLAYED",
+                )
+            if verify_ledger(connection):
+                connection.execute(
+                    """UPDATE supervision_sessions SET status = ?, updated_at = ?
+                       WHERE supervision_session_id = ? AND status = 'ACTIVE'""",
+                    ("FAILED", datetime.now(UTC).isoformat(), session_id),
+                )
+                return ControlledChangeResult(
+                    session_id,
+                    "FAILED",
+                    "CONTROLLED_CHANGE_LEDGER_INVALID",
+                )
+            context: dict[str, object] | None = None
+
+            def fail(reason_code: str, **details) -> ControlledChangeResult:
+                return self._fail_controlled_change(
+                    connection,
+                    session_id=session_id,
+                    checkpoint_id=checkpoint_id,
+                    reason_code=reason_code,
+                    context=context,
+                    **details,
+                )
+
+            context = self._controlled_change_context(
+                connection,
+                session_id=session_id,
+                checkpoint_id=checkpoint_id,
+            )
+            if context is None:
+                return fail("CONTROLLED_CHANGE_AUTHORITY_STALE")
+            requested = Path(requested_target)
+            if (
+                not requested.is_absolute()
+                or ".." in requested.parts
+                or RestorePolicy._path_is_unsafe(requested)
+            ):
+                return fail("CONTROLLED_CHANGE_PATH_UNSAFE")
+            entry = self._controlled_change_entry(checkpoint_id, context)
+            if entry is None:
+                return fail("CONTROLLED_CHANGE_AUTHORITY_STALE")
+            if str(requested) != entry["logical_path"]:
+                return fail("CONTROLLED_CHANGE_SCOPE_DRIFT")
+            if not isinstance(content, bytes):
+                return fail("CONTROLLED_CHANGE_CONTENT_INVALID")
+            try:
+                before, before_stat = RestorePolicy._read_once(requested)
+            except (OSError, ValueError):
+                return fail("CONTROLLED_CHANGE_AUTHORITY_STALE")
+            before_digest = hashlib.sha256(before).hexdigest()
+            after_digest = hashlib.sha256(content).hexdigest()
+            rollback.update(
+                target=requested,
+                before=before,
+                before_stat=before_stat,
+                before_digest=before_digest,
+                after_digest=after_digest,
+                context=context,
+            )
+            if before_digest != entry["sha256"]:
+                return fail(
+                    "CONTROLLED_CHANGE_AUTHORITY_STALE",
+                    before_digest=before_digest,
+                )
+            if before_digest == after_digest:
+                return fail(
+                    "CONTROLLED_CHANGE_NO_EFFECT",
+                    before_digest=before_digest,
+                    after_digest=after_digest,
+                )
+            target_ref_digest = hashlib.sha256(str(requested).encode("utf-8")).hexdigest()
+            change_id = f"change-{uuid4()}"
+            write_result = _atomic_restore(
+                requested,
+                content,
+                {
+                    "mode_oct": oct(stat.S_IMODE(before_stat.st_mode)),
+                    "sha256": after_digest,
+                },
+            )
+            if write_result.get("status") != "success":
+                try:
+                    current, _current_stat = RestorePolicy._read_once(requested)
+                    current_digest = hashlib.sha256(current).hexdigest()
+                except OSError:
+                    current_digest = None
+                rolled_back = (
+                    _rollback_file(requested, before, before_stat)
+                    if current_digest != before_digest
+                    else False
+                )
+                return fail(
+                    "CONTROLLED_CHANGE_WRITE_FAILED",
+                    before_digest=before_digest,
+                    after_digest=after_digest,
+                    rolled_back=rolled_back,
+                )
+            try:
+                diff = _authoritative_diff(
+                    requested,
+                    before_digest=before_digest,
+                    expected_after_digest=after_digest,
+                )
+            except (OSError, ValueError):
+                rolled_back = _rollback_file(requested, before, before_stat)
+                effect_ref = self._append_change(
+                    connection,
+                    session_id=session_id,
+                    checkpoint_id=checkpoint_id,
+                    change_id=change_id,
+                    event_type=EventType.EXTERNAL_EFFECT_UNKNOWN,
+                    result=(
+                        "DIFF_FAILED_ROLLED_BACK"
+                        if rolled_back
+                        else "DIFF_FAILED_ROLLBACK_UNKNOWN"
+                    ),
+                    context=context,
+                    payload={
+                        "before_digest": before_digest,
+                        "expected_after_digest": after_digest,
+                        "rolled_back": rolled_back,
+                        "target_ref_digest": target_ref_digest,
+                    },
+                )
+                return fail(
+                    "CONTROLLED_CHANGE_DIFF_FAILED",
+                    before_digest=before_digest,
+                    after_digest=after_digest,
+                    rolled_back=rolled_back,
+                    evidence_refs=(effect_ref,),
+                )
+            change_ref = self._append_change(
+                connection,
+                session_id=session_id,
+                checkpoint_id=checkpoint_id,
+                change_id=change_id,
+                event_type=EventType.OBSERVED_CHANGE,
+                result="CHANGED",
+                context=context,
+                payload={
+                    **diff,
+                    "workspace_id": context["workspace_id"],
+                    "approved_scope_digest": context["approved_scope_digest"],
+                    "manifest_digest": context["manifest_digest"],
+                    "product_sha": context["product_sha"],
+                    "target_ref_digest": target_ref_digest,
+                },
+            )
+            verification = _offline_verify(
+                requested,
+                validator=str(entry["validator"]),
+                expected_digest=after_digest,
+                target_ref_digest=target_ref_digest,
+            )
+            if verification["result"] != "PASS":
+                rolled_back = _rollback_file(requested, before, before_stat)
+                return fail(
+                    "CONTROLLED_CHANGE_VERIFY_FAILED",
+                    before_digest=before_digest,
+                    after_digest=after_digest,
+                    verification=str(verification["result"]),
+                    rolled_back=rolled_back,
+                    evidence_refs=(change_ref,),
+                    payload_extra={"verification": verification},
+                )
+            now = datetime.now(UTC)
+            updated = connection.execute(
+                """UPDATE supervision_sessions SET status = ?, updated_at = ?
+                   WHERE supervision_session_id = ? AND status = 'ACTIVE'""",
+                ("COMPLETED", now.isoformat(), session_id),
+            ).rowcount
+            if updated != 1:
+                rolled_back = _rollback_file(requested, before, before_stat)
+                return ControlledChangeResult(
+                    session_id,
+                    self._read(session_id, connection).status,
+                    "CONTROLLED_CHANGE_REPLAYED",
+                    False,
+                    before_digest,
+                    after_digest,
+                    "PASS",
+                    rolled_back,
+                    (change_ref,),
+                )
+            completed_ref = self._append(
+                connection,
+                session_id,
+                EventType.SESSION_COMPLETED,
+                "COMPLETED",
+                now,
+                evidence_refs=(change_ref,),
+                payload_extra={
+                    "change_id": change_id,
+                    "verification": verification,
+                    "workspace_id": context["workspace_id"],
+                    "approved_scope_digest": context["approved_scope_digest"],
+                    "manifest_digest": context["manifest_digest"],
+                    "product_sha": context["product_sha"],
+                },
+                execution_domain_id=str(context["execution_domain_id"]),
+                checkpoint_id=checkpoint_id,
+            )
+            if verify_ledger(connection):
+                raise RuntimeError("CONTROLLED_CHANGE_LEDGER_INVALID")
+            return ControlledChangeResult(
+                session_id,
+                "COMPLETED",
+                "CONTROLLED_CHANGE_COMPLETED",
+                True,
+                before_digest,
+                after_digest,
+                "PASS",
+                False,
+                (change_ref, completed_ref),
+            )
+
+    def _controlled_change_context(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        checkpoint_id: str,
+    ) -> dict[str, object] | None:
+        context = self._checkpoint_activation_context(
+            connection,
+            session_id=session_id,
+            checkpoint_id=checkpoint_id,
+            require_manifest_tail=False,
+        )
+        if context is None:
+            return None
+        events = connection.execute(
+            """SELECT event_id, result, execution_domain_id, checkpoint_id,
+                      evidence_refs_json, payload_safe_json
+               FROM evidence_ledger_events
+               WHERE supervision_session_id = ? AND event_type = 'SESSION_ACTIVATED'""",
+            (session_id,),
+        ).fetchall()
+        if len(events) != 1:
+            return None
+        event = events[0]
+        try:
+            evidence_refs = json.loads(event[4])
+            payload = self._json_payload(event[5])
+        except (json.JSONDecodeError, SupervisionActionError):
+            return None
+        if (
+            event[1] != "ACTIVE"
+            or event[2] != context["execution_domain_id"]
+            or event[3] != checkpoint_id
+            or payload != {"status": "ACTIVE", **context}
+            or not isinstance(evidence_refs, list)
+            or set(evidence_refs) != {session_id, *context["evidence_refs"]}
+        ):
+            return None
+        later = connection.execute(
+            """SELECT COUNT(*) FROM evidence_ledger_events
+               WHERE supervision_session_id = ?
+                 AND event_type IN ('OBSERVED_CHANGE', 'SESSION_COMPLETED', 'SESSION_FAILED')""",
+            (session_id,),
+        ).fetchone()[0]
+        if later:
+            return None
+        return {**context, "activation_event_id": event[0]}
+
+    def _controlled_change_entry(
+        self,
+        checkpoint_id: str,
+        context: dict[str, object],
+    ) -> dict[str, object] | None:
+        if self._snapshots is None or not checkpoint_id.isdecimal():
+            return None
+        checkpoint = self._database.get_checkpoint(int(checkpoint_id))
+        if (
+            checkpoint is None
+            or checkpoint["git_commit"] != self._product_sha
+            or checkpoint["hash_sha256"] != context["manifest_digest"]
+        ):
+            return None
+        artifact, _reason = self._snapshots.load_recovery_v3_with_status(
+            checkpoint["snapshot_path"]
+        )
+        if artifact is None:
+            return None
+        valid, _reason, digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=str(context["execution_domain_id"]),
+        )
+        entries = [
+            entry
+            for entry in artifact.get("manifest", ())
+            if entry.get("classification") == "restorable"
+        ]
+        if (
+            not valid
+            or digest != context["manifest_digest"]
+            or len(entries) != 1
+            or self._refs_digest((str(entries[0]["logical_path"]),))
+            != context["approved_scope_digest"]
+        ):
+            return None
+        return entries[0]
+
+    def _fail_controlled_change(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        checkpoint_id: str,
+        reason_code: str,
+        context: dict[str, object] | None = None,
+        before_digest: str | None = None,
+        after_digest: str | None = None,
+        verification: str = "NOT_RUN",
+        rolled_back: bool = False,
+        evidence_refs: tuple[str, ...] = (),
+        payload_extra: dict[str, object] | None = None,
+    ) -> ControlledChangeResult:
+        now = datetime.now(UTC)
+        connection.execute(
+            """UPDATE supervision_sessions SET status = ?, updated_at = ?
+               WHERE supervision_session_id = ? AND status = 'ACTIVE'""",
+            ("FAILED", now.isoformat(), session_id),
+        )
+        event_id = self._append(
+            connection,
+            session_id,
+            EventType.SESSION_FAILED,
+            "FAILED",
+            now,
+            evidence_refs=evidence_refs,
+            payload_extra={
+                "reason_code": reason_code,
+                "committed": False,
+                "rolled_back": rolled_back,
+                **(payload_extra or {}),
+            },
+            execution_domain_id=(
+                str(context["execution_domain_id"]) if context else None
+            ),
+            checkpoint_id=checkpoint_id,
+        )
+        return ControlledChangeResult(
+            session_id,
+            "FAILED",
+            reason_code,
+            False,
+            before_digest,
+            after_digest,
+            verification,
+            rolled_back,
+            (*evidence_refs, event_id),
+        )
+
+    def _append_change(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        checkpoint_id: str,
+        change_id: str,
+        event_type: EventType,
+        result: str,
+        context: dict[str, object],
+        payload: dict[str, object],
+    ) -> str:
+        event_id = f"change-event-{uuid4()}"
+        self._ledger.append(
+            connection,
+            EvidenceEvent(
+                schema_version=1,
+                event_id=event_id,
+                recorded_at=datetime.now(UTC),
+                observed_at=None,
+                event_family=EventFamily.CHANGE,
+                event_type=event_type,
+                source="r4-config-change",
+                result=result,
+                execution_domain_id=str(context["execution_domain_id"]),
+                supervision_session_id=session_id,
+                transaction_id=change_id,
+                checkpoint_id=checkpoint_id,
+                subject_ref=f"target:{payload['target_ref_digest']}",
+                evidence_refs=(
+                    session_id,
+                    str(context["activation_event_id"]),
+                    *tuple(str(item) for item in context["evidence_refs"]),
+                ),
+                payload_safe=payload,
+            ),
+        )
+        return event_id
+
     def _checkpoint_activation_context(
         self,
         connection: sqlite3.Connection,
         *,
         session_id: str,
         checkpoint_id: str | None,
+        require_manifest_tail: bool = True,
     ) -> dict[str, object] | None:
         if (
             self._snapshots is None
@@ -644,7 +1206,10 @@ class SupervisionService:
             not policy_event[0] < approval_event[0]
             or created[0] != approval_event[0] + 1
             or manifested[0] != created[0] + 1
-            or tail != (manifested[0], manifested[1], manifested[8])
+            or (
+                require_manifest_tail
+                and tail != (manifested[0], manifested[1], manifested[8])
+            )
         ):
             return None
         return {

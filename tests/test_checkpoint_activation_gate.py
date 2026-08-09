@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import agentguard.supervision.service as supervision_module
 from agentguard.discovery import (
     AgentDescriptor,
     AgentLifecycleStatus,
@@ -238,10 +241,24 @@ def _bound_checkpoint(
     )
 
 
+def _active_session(database, snapshots, target):
+    sessions, session_id = _approved_session(database, snapshots, target)
+    created = _bound_checkpoint(database, snapshots, target, session_id)
+    assert sessions.activate(session_id, created.checkpoint_id).status == "ACTIVE"
+    return sessions, session_id, created.checkpoint_id
+
+
 def _activation_count(database: StateDB) -> int:
     return database._conn.execute(
         "SELECT COUNT(*) FROM evidence_ledger_events "
-        "WHERE event_type = 'OBSERVED_CHANGE' AND result = 'ACTIVATION_ALLOWED'"
+        "WHERE event_type = 'SESSION_ACTIVATED' AND result = 'ACTIVE'"
+    ).fetchone()[0]
+
+
+def _session_status(database: StateDB, session_id: str) -> str:
+    return database._conn.execute(
+        "SELECT status FROM supervision_sessions WHERE supervision_session_id = ?",
+        (session_id,),
     ).fetchone()[0]
 
 
@@ -263,13 +280,390 @@ def test_valid_authority_chain_allows_activation_without_executing_change(author
         """SELECT supervision_session_id, checkpoint_id, execution_domain_id,
                   payload_safe_json
            FROM evidence_ledger_events
-           WHERE event_type = 'OBSERVED_CHANGE' AND result = 'ACTIVATION_ALLOWED'"""
+           WHERE event_type = 'SESSION_ACTIVATED' AND result = 'ACTIVE'"""
     ).fetchone()
     assert event[:3] == (session_id, created.checkpoint_id, "local-domain")
     payload = json.loads(event[3])
     assert payload["product_sha"] == PRODUCT_SHA
     assert payload["workspace_id"] == "workspace-one"
     assert str(target) not in event[3]
+
+
+def test_active_authority_changes_one_config_then_diffs_and_verifies_offline(
+    authority,
+    tmp_path,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    dirty = tmp_path / "unrelated-dirty.txt"
+    before = b"safe = false\n"
+    after = b"safe = true\n"
+    dirty_before = b"leave me alone\n"
+    target.write_bytes(before)
+    dirty.write_bytes(dirty_before)
+    sessions, session_id, checkpoint_id = _active_session(
+        database,
+        snapshots,
+        target,
+    )
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=after,
+    )
+
+    assert result.status == "COMPLETED"
+    assert result.reason_code == "CONTROLLED_CHANGE_COMPLETED"
+    assert result.changed is True
+    assert result.before_digest == hashlib.sha256(before).hexdigest()
+    assert result.after_digest == hashlib.sha256(after).hexdigest()
+    assert result.verification == "PASS"
+    assert target.read_bytes() == after
+    assert dirty.read_bytes() == dirty_before
+    assert verify_ledger(database._conn) == []
+    events = database._conn.execute(
+        """SELECT event_type, result, checkpoint_id, execution_domain_id,
+                  payload_safe_json
+           FROM evidence_ledger_events
+           WHERE supervision_session_id = ?
+             AND event_type IN ('OBSERVED_CHANGE', 'SESSION_COMPLETED')
+           ORDER BY sequence""",
+        (session_id,),
+    ).fetchall()
+    assert [(event[0], event[1]) for event in events] == [
+        ("OBSERVED_CHANGE", "CHANGED"),
+        ("SESSION_COMPLETED", "COMPLETED"),
+    ]
+    change = json.loads(events[0][4])
+    assert events[0][2:4] == (checkpoint_id, "local-domain")
+    assert change["before_digest"] == hashlib.sha256(before).hexdigest()
+    assert change["after_digest"] == hashlib.sha256(after).hexdigest()
+    assert change["changed"] is True
+    assert change["workspace_id"] == "workspace-one"
+    assert change["approved_scope_digest"]
+    assert change["target_ref_digest"]
+    completed = json.loads(events[1][4])
+    assert completed["verification"] == {
+        "method": "tomllib.loads",
+        "network_used": False,
+        "result": "PASS",
+        "target_ref_digest": change["target_ref_digest"],
+        "verified_digest": hashlib.sha256(after).hexdigest(),
+    }
+    assert str(target) not in events[0][4]
+    assert str(target) not in events[1][4]
+
+
+@pytest.mark.parametrize(
+    ("requested", "reason_code"),
+    [
+        ("other", "CONTROLLED_CHANGE_SCOPE_DRIFT"),
+        ("traversal", "CONTROLLED_CHANGE_PATH_UNSAFE"),
+    ],
+)
+def test_unapproved_or_traversal_target_fails_without_mutation(
+    authority,
+    tmp_path,
+    requested,
+    reason_code,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    other = tmp_path / "other.toml"
+    before = b"safe = false\n"
+    target.write_bytes(before)
+    other.write_bytes(b"other = true\n")
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    requested_target = (
+        other
+        if requested == "other"
+        else target.parent / "nested" / ".." / target.name
+    )
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=requested_target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == reason_code
+    assert result.changed is False
+    assert target.read_bytes() == before
+    assert other.read_bytes() == b"other = true\n"
+    assert _session_status(database, session_id) == "FAILED"
+    assert verify_ledger(database._conn) == []
+
+
+def test_symlink_escape_fails_without_touching_link_target(authority, tmp_path):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    outside = tmp_path / "outside.toml"
+    target.write_bytes(b"safe = false\n")
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    target.unlink()
+    outside.write_bytes(b"outside = true\n")
+    target.symlink_to(outside)
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_PATH_UNSAFE"
+    assert outside.read_bytes() == b"outside = true\n"
+    assert target.is_symlink()
+    assert verify_ledger(database._conn) == []
+
+
+def test_atomic_write_failure_never_records_observed_change(
+    authority,
+    tmp_path,
+    monkeypatch,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    def partial_write(path, content, _entry):
+        path.write_bytes(content)
+        return {"status": "error", "message": "injected after write"}
+
+    monkeypatch.setattr(supervision_module, "_atomic_restore", partial_write)
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_WRITE_FAILED"
+    assert result.rolled_back is True
+    assert target.read_bytes() == before
+    assert database._conn.execute(
+        "SELECT COUNT(*) FROM evidence_ledger_events WHERE event_type = 'OBSERVED_CHANGE'"
+    ).fetchone()[0] == 0
+    assert verify_ledger(database._conn) == []
+
+
+def test_diff_failure_rolls_back_and_records_failed_external_effect(
+    authority,
+    tmp_path,
+    monkeypatch,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+
+    def fail_diff(*_args, **_kwargs):
+        raise OSError("injected diff failure")
+
+    monkeypatch.setattr(supervision_module, "_authoritative_diff", fail_diff)
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_DIFF_FAILED"
+    assert result.rolled_back is True
+    assert target.read_bytes() == before
+    assert database._conn.execute(
+        "SELECT result FROM evidence_ledger_events WHERE event_type = 'EXTERNAL_EFFECT_UNKNOWN'"
+    ).fetchone()[0] == "DIFF_FAILED_ROLLED_BACK"
+    assert verify_ledger(database._conn) == []
+
+
+def test_persistence_commit_failure_rolls_back_filesystem_change(authority, tmp_path):
+    class CommitFailConnection(sqlite3.Connection):
+        fail_next_commit = False
+
+        def commit(self):
+            if self.fail_next_commit:
+                self.fail_next_commit = False
+                raise sqlite3.OperationalError("injected commit failure")
+            return super().commit()
+
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    database._conn.close()
+    database._conn = sqlite3.connect(
+        str(database.db_path),
+        factory=CommitFailConnection,
+    )
+    database._conn.fail_next_commit = True
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_PERSISTENCE_FAILED"
+    assert result.rolled_back is True
+    assert target.read_bytes() == before
+    assert _session_status(database, session_id) == "FAILED"
+    assert database._conn.execute(
+        "SELECT COUNT(*) FROM evidence_ledger_events WHERE event_type = 'OBSERVED_CHANGE'"
+    ).fetchone()[0] == 0
+    assert verify_ledger(database._conn) == []
+
+
+def test_offline_verify_failure_rolls_back_and_cannot_complete(authority, tmp_path):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    invalid = b"safe = [\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=invalid,
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_VERIFY_FAILED"
+    assert result.verification == "FAIL"
+    assert result.rolled_back is True
+    assert target.read_bytes() == before
+    assert _session_status(database, session_id) == "FAILED"
+    types = [
+        row[0]
+        for row in database._conn.execute(
+            "SELECT event_type FROM evidence_ledger_events WHERE supervision_session_id = ?",
+            (session_id,),
+        )
+    ]
+    assert "OBSERVED_CHANGE" in types
+    assert "SESSION_COMPLETED" not in types
+    assert types[-1] == "SESSION_FAILED"
+    assert verify_ledger(database._conn) == []
+
+
+def test_corrupt_ledger_fails_closed_before_filesystem_change(authority, tmp_path):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    database._conn.execute("DROP TRIGGER evidence_ledger_events_no_update")
+    database._conn.execute(
+        "UPDATE evidence_ledger_events SET result = 'forged' WHERE event_type = 'SESSION_ACTIVATED'"
+    )
+    database._conn.commit()
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_LEDGER_INVALID"
+    assert result.evidence_refs == ()
+    assert target.read_bytes() == before
+    assert _session_status(database, session_id) == "FAILED"
+    assert verify_ledger(database._conn)
+
+
+def test_completed_change_cannot_be_replayed(authority, tmp_path):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    target.write_bytes(b"safe = false\n")
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    first = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    replay = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = false\n",
+    )
+
+    assert first.status == "COMPLETED"
+    assert replay.status == "COMPLETED"
+    assert replay.reason_code == "CONTROLLED_CHANGE_REPLAYED"
+    assert replay.changed is False
+    assert target.read_bytes() == b"safe = true\n"
+    assert database._conn.execute(
+        "SELECT COUNT(*) FROM evidence_ledger_events WHERE event_type = 'OBSERVED_CHANGE'"
+    ).fetchone()[0] == 1
+    assert verify_ledger(database._conn) == []
+
+
+@pytest.mark.parametrize(
+    "authority_change",
+    ["stale-target", "wrong-checkpoint", "cross-workspace", "wrong-product-sha"],
+)
+def test_active_authority_is_revalidated_immediately_before_change(
+    authority,
+    tmp_path,
+    authority_change,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    requested_checkpoint = checkpoint_id
+    expected_bytes = before
+    if authority_change == "stale-target":
+        expected_bytes = b"external = true\n"
+        target.write_bytes(expected_bytes)
+    elif authority_change == "wrong-checkpoint":
+        requested_checkpoint = "999999"
+    elif authority_change == "cross-workspace":
+        later = OBSERVED_AT + timedelta(minutes=1)
+        _record_workspace(
+            database,
+            snapshot_id="post-activation-workspace",
+            workspace_id="workspace-two",
+            observed_at=later,
+        )
+    else:
+        sessions = _sessions(database, snapshots, product_sha=OTHER_SHA)
+
+    result = sessions.apply_config_change(
+        session_id,
+        requested_checkpoint,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code.startswith("CONTROLLED_CHANGE_")
+    assert result.changed is False
+    assert target.read_bytes() == expected_bytes
+    assert _session_status(database, session_id) == "FAILED"
+    assert verify_ledger(database._conn) == []
 
 
 def test_required_checkpoint_missing_never_activates(authority, tmp_path):
