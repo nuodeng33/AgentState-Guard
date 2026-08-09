@@ -24,6 +24,7 @@ class RecoveryRequest:
     execution_domain_id: str
     target_path: Path | None = None
     checkpoint_id: str | None = None
+    supervision_session_id: str | None = None
     user_approved: bool = False
     artifact: dict[str, Any] | None = None
     sandbox_path: Path | None = None

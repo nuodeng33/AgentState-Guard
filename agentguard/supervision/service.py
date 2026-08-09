@@ -6,12 +6,14 @@ import hashlib
 import hmac
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from agentguard.core.versions import exact_product_sha, is_exact_git_sha
 from agentguard.evidence.canonical import canonical_json
+from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.policy.engine import evaluate
@@ -21,7 +23,12 @@ from agentguard.policy.models import (
     PolicyDecision,
     PolicyInput,
 )
-from agentguard.recovery.coverage import RecoveryCoverageFacts, RecoveryCoverageService
+from agentguard.recovery.coverage import (
+    RecoveryCoverageFacts,
+    RecoveryCoverageService,
+    RecoveryCoverageStatus,
+)
+from agentguard.recovery.manifest import validate_snapshot_v3
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
 
@@ -74,10 +81,19 @@ class _ActionAuthority:
 class SupervisionService:
     """Owns session transitions and ledger writes in one StateDB transaction."""
 
-    def __init__(self, database: StateDB, *, snapshots: SnapshotStore | None = None) -> None:
+    def __init__(
+        self,
+        database: StateDB,
+        *,
+        snapshots: SnapshotStore | None = None,
+        product_sha: str | None = None,
+    ) -> None:
         self._database = database
         self._snapshots = snapshots
         self._ledger = EvidenceLedger()
+        self._product_sha = (
+            product_sha if is_exact_git_sha(product_sha) else exact_product_sha()
+        )
 
     @classmethod
     def for_path(cls, path: Path) -> SupervisionService:
@@ -218,24 +234,61 @@ class SupervisionService:
     ) -> tuple[SupervisionSession, PolicyDecision, RecoveryCoverageFacts]:
         if self._snapshots is None:
             raise RuntimeError("RECOVERY_FACTS_UNAVAILABLE")
+        if self._product_sha is None:
+            raise RuntimeError("PRODUCT_PROVENANCE_UNAVAILABLE")
         try:
             with self._database.transaction() as connection:
+                workspace = resolve_verified_workspace_binding(
+                    connection,
+                    execution_domain_id=policy_input.execution_domain_id,
+                )
+                if workspace["reason_code"] == "WORKSPACE_LEDGER_INVALID":
+                    raise SupervisionActionError("WORKSPACE_AUTHORITY_UNAVAILABLE")
+                authoritative_input = (
+                    replace(
+                        policy_input,
+                        evidence_refs=(workspace["binding_ref"],),
+                    )
+                    if workspace["status"] == "BOUND"
+                    else policy_input
+                )
                 facts = RecoveryCoverageService(
                     self._database,
                     self._snapshots,
                 ).compute_with_connection(
                     connection,
                     checkpoint_id=checkpoint_id,
-                    target_refs=policy_input.target_refs,
-                    execution_domain_id=policy_input.execution_domain_id,
+                    target_refs=authoritative_input.target_refs,
+                    execution_domain_id=authoritative_input.execution_domain_id,
                 )
-                decision = evaluate(policy_input, recovery_facts=facts)
+                decision = evaluate(authoritative_input, recovery_facts=facts)
                 session = self._create_in_transaction(
                     connection,
                     declared_intent,
                     decision,
                     recovery_facts=facts,
+                    authority_context=(
+                        {
+                            "execution_domain_id": authoritative_input.execution_domain_id,
+                            "workspace_id": workspace["workspace_id"],
+                            "workspace_binding_ref": workspace["binding_ref"],
+                            "approved_scope_digest": self._refs_digest(
+                                authoritative_input.declared_scope
+                            ),
+                            "target_refs_digest": self._refs_digest(
+                                authoritative_input.target_refs
+                            ),
+                            "product_sha": self._product_sha,
+                        }
+                        if workspace["status"] == "BOUND"
+                        else None
+                    ),
+                    checkpoint_binding_required=(
+                        authoritative_input.intent_kind == "change"
+                    ),
                 )
+        except SupervisionActionError as exc:
+            raise RuntimeError(exc.reason_code) from None
         except (OSError, sqlite3.DatabaseError, ValueError):
             raise RuntimeError("SUPERVISION_PERSISTENCE_FAILED") from None
         return session, decision, facts
@@ -247,6 +300,8 @@ class SupervisionService:
         decision: PolicyDecision,
         *,
         recovery_facts: RecoveryCoverageFacts | None = None,
+        authority_context: dict[str, object] | None = None,
+        checkpoint_binding_required: bool = False,
     ) -> SupervisionSession:
         session_id = f"session-{uuid4()}"
         status = "REJECTED" if decision.decision is Decision.BLOCK else (
@@ -266,6 +321,12 @@ class SupervisionService:
             "requires_checkpoint": decision.requires_checkpoint,
             "requires_manual_approval": decision.requires_manual_approval,
             "policy_version": decision.policy_version,
+            "checkpoint_binding_required": checkpoint_binding_required,
+            **(
+                {"activation_context": authority_context}
+                if authority_context is not None
+                else {}
+            ),
         }
         policy_binding_digest = hashlib.sha256(
             canonical_json(policy_authority).encode("utf-8")
@@ -303,6 +364,11 @@ class SupervisionService:
                     else {}
                 ),
             },
+            execution_domain_id=(
+                str(authority_context["execution_domain_id"])
+                if authority_context is not None
+                else None
+            ),
         )
         return SupervisionSession(session_id, status)
 
@@ -382,9 +448,20 @@ class SupervisionService:
             if (
                 status not in {"APPROVED", "EVALUATED"}
                 or decision in {Decision.BLOCK.value, Decision.UNKNOWN.value}
-                or requires_checkpoint
             ):
                 return SupervisionSession(session_id, status)
+            activation_context = None
+            if requires_checkpoint or self._checkpoint_binding_required(
+                connection,
+                session_id,
+            ):
+                activation_context = self._checkpoint_activation_context(
+                    connection,
+                    session_id=session_id,
+                    checkpoint_id=checkpoint_id,
+                )
+                if activation_context is None:
+                    return SupervisionSession(session_id, status)
             updated = connection.execute(
                 """UPDATE supervision_sessions SET status = ?, updated_at = ?
                    WHERE supervision_session_id = ? AND status = ?""",
@@ -392,8 +469,227 @@ class SupervisionService:
             ).rowcount
             if not updated:
                 return self._read(session_id, connection)
-            self._append(connection, session_id, EventType.OBSERVED_CHANGE, "ACTIVE", now)
+            self._append(
+                connection,
+                session_id,
+                EventType.OBSERVED_CHANGE,
+                "ACTIVATION_ALLOWED" if activation_context else "ACTIVE",
+                now,
+                evidence_refs=(
+                    tuple(activation_context["evidence_refs"])
+                    if activation_context
+                    else ()
+                ),
+                payload_extra=activation_context,
+                execution_domain_id=(
+                    str(activation_context["execution_domain_id"])
+                    if activation_context
+                    else None
+                ),
+                checkpoint_id=checkpoint_id if activation_context else None,
+            )
+            if verify_ledger(connection):
+                raise RuntimeError("SUPERVISION_LEDGER_INVALID")
         return SupervisionSession(session_id, "ACTIVE")
+
+    def _checkpoint_activation_context(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        session_id: str,
+        checkpoint_id: str | None,
+    ) -> dict[str, object] | None:
+        if (
+            self._snapshots is None
+            or self._product_sha is None
+            or checkpoint_id is None
+            or not checkpoint_id.isdecimal()
+            or verify_ledger(connection)
+        ):
+            return None
+        session_events = connection.execute(
+            """SELECT sequence, event_id, event_type, result, payload_safe_json
+               FROM evidence_ledger_events
+               WHERE supervision_session_id = ? ORDER BY sequence""",
+            (session_id,),
+        ).fetchall()
+        policy_events = [
+            event for event in session_events
+            if event[2] == EventType.POLICY_EVALUATED.value
+        ]
+        approvals = [
+            event for event in session_events
+            if event[2] == EventType.USER_APPROVED.value
+        ]
+        if len(policy_events) != 1 or len(approvals) != 1:
+            return None
+        policy_event = policy_events[0]
+        approval_event = approvals[0]
+        try:
+            policy_payload = self._json_payload(policy_event[4])
+        except SupervisionActionError:
+            return None
+        policy_authority = policy_payload.get("policy_authority")
+        policy_digest = policy_payload.get("policy_binding_digest")
+        if (
+            not isinstance(policy_authority, dict)
+            or not isinstance(policy_digest, str)
+            or hashlib.sha256(
+                canonical_json(policy_authority).encode("utf-8")
+            ).hexdigest() != policy_digest
+        ):
+            return None
+        context = policy_authority.get("activation_context")
+        required_context = {
+            "execution_domain_id",
+            "workspace_id",
+            "workspace_binding_ref",
+            "approved_scope_digest",
+            "target_refs_digest",
+            "product_sha",
+        }
+        if not isinstance(context, dict) or set(context) != required_context:
+            return None
+        domain = context["execution_domain_id"]
+        workspace = resolve_verified_workspace_binding(
+            connection,
+            execution_domain_id=domain if isinstance(domain, str) else None,
+        )
+        if (
+            workspace["status"] != "BOUND"
+            or workspace["workspace_id"] != context["workspace_id"]
+            or workspace["binding_ref"] != context["workspace_binding_ref"]
+            or context["product_sha"] != self._product_sha
+            or context["approved_scope_digest"] != context["target_refs_digest"]
+        ):
+            return None
+        checkpoint = self._database.get_checkpoint(int(checkpoint_id))
+        if checkpoint is None or checkpoint["git_commit"] != self._product_sha:
+            return None
+        artifact, _reason = self._snapshots.load_recovery_v3_with_status(
+            checkpoint["snapshot_path"]
+        )
+        if artifact is None:
+            return None
+        valid, _reason, manifest_digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=domain,
+        )
+        if not valid or manifest_digest != checkpoint["hash_sha256"]:
+            return None
+        target_refs = tuple(
+            sorted(
+                entry["logical_path"]
+                for entry in artifact["manifest"]
+                if entry["classification"] == "restorable"
+            )
+        )
+        if not target_refs or self._refs_digest(target_refs) != context["target_refs_digest"]:
+            return None
+        facts = RecoveryCoverageService(
+            self._database,
+            self._snapshots,
+        ).compute_with_connection(
+            connection,
+            checkpoint_id=checkpoint_id,
+            target_refs=target_refs,
+            execution_domain_id=domain,
+        )
+        if (
+            facts.status is not RecoveryCoverageStatus.COMPLETE
+            or facts.authorized_snapshot_coverage != 1.0
+            or facts.manifest_blob_coverage != 1.0
+        ):
+            return None
+        checkpoint_events = connection.execute(
+            """SELECT sequence, event_id, event_type, result, execution_domain_id,
+                      supervision_session_id, subject_ref, payload_safe_json, curr_hash
+               FROM evidence_ledger_events
+               WHERE checkpoint_id = ?
+                 AND event_type IN ('CHECKPOINT_CREATED', 'MANIFEST_VERIFIED')
+               ORDER BY sequence""",
+            (checkpoint_id,),
+        ).fetchall()
+        if len(checkpoint_events) != 2:
+            return None
+        created, manifested = checkpoint_events
+        if created[2] != EventType.CHECKPOINT_CREATED.value:
+            return None
+        if manifested[2] != EventType.MANIFEST_VERIFIED.value:
+            return None
+        expected_target_digests = sorted(
+            hashlib.sha256(value.encode("utf-8")).hexdigest()
+            for value in target_refs
+        )
+        for event in checkpoint_events:
+            try:
+                payload = self._json_payload(event[7])
+            except SupervisionActionError:
+                return None
+            if (
+                event[3] != "AVAILABLE"
+                or event[4] != domain
+                or event[5] != session_id
+                or event[6] != f"manifest:{manifest_digest}"
+                or payload.get("manifest_digest") != manifest_digest
+                or payload.get("product_sha") != self._product_sha
+                or payload.get("target_ref_digests") != expected_target_digests
+            ):
+                return None
+        tail = connection.execute(
+            """SELECT sequence, event_id, curr_hash FROM evidence_ledger_events
+               ORDER BY sequence DESC LIMIT 1"""
+        ).fetchone()
+        if (
+            not policy_event[0] < approval_event[0]
+            or created[0] != approval_event[0] + 1
+            or manifested[0] != created[0] + 1
+            or tail != (manifested[0], manifested[1], manifested[8])
+        ):
+            return None
+        return {
+            "execution_domain_id": domain,
+            "workspace_id": context["workspace_id"],
+            "workspace_binding_ref": context["workspace_binding_ref"],
+            "approved_scope_digest": context["approved_scope_digest"],
+            "manifest_digest": manifest_digest,
+            "product_sha": self._product_sha,
+            "evidence_refs": [
+                context["workspace_binding_ref"],
+                policy_event[1],
+                approval_event[1],
+                created[1],
+                manifested[1],
+            ],
+        }
+
+    def _checkpoint_binding_required(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+    ) -> bool:
+        rows = connection.execute(
+            """SELECT payload_safe_json FROM evidence_ledger_events
+               WHERE supervision_session_id = ? AND event_type = 'POLICY_EVALUATED'""",
+            (session_id,),
+        ).fetchall()
+        if len(rows) != 1:
+            return False
+        try:
+            payload = self._json_payload(rows[0][0])
+        except SupervisionActionError:
+            return False
+        authority = payload.get("policy_authority")
+        return (
+            isinstance(authority, dict)
+            and authority.get("checkpoint_binding_required") is True
+        )
+
+    @staticmethod
+    def _refs_digest(values: tuple[str, ...]) -> str:
+        return hashlib.sha256(
+            canonical_json(sorted(set(values))).encode("utf-8")
+        ).hexdigest()
 
     def complete(self, session_id: str) -> SupervisionSession:
         return self._transition(session_id, "ACTIVE", "COMPLETED", EventType.SESSION_COMPLETED)
@@ -608,6 +904,8 @@ class SupervisionService:
         *,
         evidence_refs: tuple[str, ...] = (),
         payload_extra: dict | None = None,
+        execution_domain_id: str | None = None,
+        checkpoint_id: str | None = None,
     ) -> str:
         payload_safe = {"status": result}
         if payload_extra:
@@ -624,10 +922,10 @@ class SupervisionService:
                 event_type=event_type,
                 source="supervision-service",
                 result=result,
-                execution_domain_id=None,
+                execution_domain_id=execution_domain_id,
                 supervision_session_id=session_id,
                 transaction_id=None,
-                checkpoint_id=None,
+                checkpoint_id=checkpoint_id,
                 subject_ref=session_id,
                 evidence_refs=(session_id, *evidence_refs),
                 payload_safe=payload_safe,

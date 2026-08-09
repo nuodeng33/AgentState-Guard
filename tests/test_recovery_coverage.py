@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import UTC, datetime
 
 import pytest
 
 from agentguard.discovery.domains import SelfRuntimeAdapter
-from agentguard.evidence.ledger import verify_ledger
+from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
+from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.policy.models import Decision, PolicyInput
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
 from agentguard.recovery.coverage import RecoveryCoverageService, RecoveryCoverageStatus
@@ -33,6 +35,75 @@ def _policy_input(target: str) -> PolicyInput:
         secret_access=False,
         evidence_refs=("evidence-1",),
     )
+
+
+def _record_workspace_authority(database: StateDB) -> None:
+    observed_at = datetime(2026, 8, 9, 10, 0, tzinfo=UTC)
+    common = {
+        "schema_version": 1,
+        "recorded_at": observed_at,
+        "observed_at": observed_at,
+        "event_family": EventFamily.DISCOVERY,
+        "source": "test-discovery",
+        "result": "available",
+        "execution_domain_id": "local-domain",
+        "supervision_session_id": None,
+        "transaction_id": None,
+        "checkpoint_id": None,
+    }
+    events = (
+        EvidenceEvent(
+            **common,
+            event_id="coverage-runtime-event",
+            event_type=EventType.RUNTIME_DETECTED,
+            subject_ref="coverage-runtime",
+            evidence_refs=("coverage-runtime-source",),
+            payload_safe={
+                "fact_type": "runtime.metadata",
+                "snapshot_id": "coverage-snapshot",
+                "runtime_id": "coverage-runtime",
+                "value": {"runtime_kind": "SELF_RUNTIME"},
+            },
+        ),
+        EvidenceEvent(
+            **common,
+            event_id="coverage-agent-event",
+            event_type=EventType.AGENT_DETECTED,
+            subject_ref="coverage-agent",
+            evidence_refs=("coverage-agent-source",),
+            payload_safe={
+                "fact_type": "agent.metadata",
+                "snapshot_id": "coverage-snapshot",
+                "agent_id": "coverage-agent",
+                "agent_type": "CLOUDCLI",
+                "runtime_id": "coverage-runtime",
+                "workspace_ids": ["coverage-workspace"],
+                "confidence": 0.8,
+                "value": {"agent_kind": "CLOUDCLI"},
+            },
+        ),
+        EvidenceEvent(
+            **common,
+            event_id="coverage-workspace-binding",
+            event_type=EventType.WORKSPACE_LINKED,
+            subject_ref="coverage-agent",
+            evidence_refs=("coverage-workspace-source",),
+            payload_safe={
+                "fact_type": "workspace.binding",
+                "snapshot_id": "coverage-snapshot",
+                "binding_id": "coverage-workspace-binding",
+                "workspace_id": "coverage-workspace",
+                "runtime_id": "coverage-runtime",
+                "agent_id": "coverage-agent",
+                "runtime_event_id": "coverage-runtime-event",
+                "agent_event_id": "coverage-agent-event",
+            },
+        ),
+    )
+    with database.transaction() as connection:
+        ledger = EvidenceLedger()
+        for event in events:
+            ledger.append(connection, event)
 
 
 def _recovery(tmp_path):
@@ -171,6 +242,7 @@ def test_missing_checkpoint_and_unreachable_artifact_are_distinct(tmp_path):
 
 def test_authoritative_supervision_persists_safe_coverage_facts_atomically(tmp_path):
     target, database, snapshots, created = _recovery(tmp_path)
+    _record_workspace_authority(database)
     sessions = SupervisionService(database, snapshots=snapshots)
     try:
         session, decision, facts = sessions.create_authoritative(
@@ -227,6 +299,7 @@ def test_test_restore_updates_authoritative_r2_coverage_facts(tmp_path):
 
 def test_authoritative_supervision_ledger_fault_rolls_back_session(tmp_path, monkeypatch):
     target, database, snapshots, created = _recovery(tmp_path)
+    _record_workspace_authority(database)
     sessions = SupervisionService(database, snapshots=snapshots)
     before_events = database._conn.execute(
         "SELECT COUNT(*) FROM evidence_ledger_events"

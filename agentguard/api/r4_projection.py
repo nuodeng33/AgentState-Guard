@@ -7,6 +7,7 @@ import re
 import sqlite3
 from typing import Any
 
+from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.recovery.coverage import RecoveryCoverageService
 from agentguard.recovery.manifest import validate_snapshot_v3
@@ -119,20 +120,6 @@ class R4ReadProjectionService:
                FROM evidence_ledger_events WHERE event_type = 'AGENT_DETECTED'
                ORDER BY sequence"""
         ).fetchall()
-        runtime_rows = {
-            row[1]: row
-            for row in connection.execute(
-                """SELECT sequence, event_id, result, observed_at,
-                          execution_domain_id, subject_ref, payload_safe_json
-                   FROM evidence_ledger_events WHERE event_type = 'RUNTIME_DETECTED'"""
-            ).fetchall()
-        }
-        binding_rows = connection.execute(
-            """SELECT sequence, event_id, result, observed_at,
-                      execution_domain_id, subject_ref, payload_safe_json
-               FROM evidence_ledger_events WHERE event_type = 'WORKSPACE_LINKED'
-               ORDER BY sequence"""
-        ).fetchall()
         latest_rows: dict[str, tuple[Any, ...]] = {}
         for row in rows:
             payload = _json_object(row[6])
@@ -162,15 +149,9 @@ class R4ReadProjectionService:
             domain = _atom(event_domain)
             if domain is None and payload.get("agent_id") is None:
                 domain = _atom(value.get("execution_domain_id"))
-            workspace = _verified_workspace_binding(
-                agent_sequence=_sequence,
+            workspace = resolve_verified_workspace_binding(
+                connection,
                 agent_event_id=event_id,
-                agent_observed_at=observed_at,
-                agent_domain=domain,
-                agent_subject=_atom(subject_ref),
-                agent_payload=payload,
-                binding_rows=binding_rows,
-                runtime_rows=runtime_rows,
             )
             items.append({
                 "detected_identity": identity,
@@ -337,98 +318,6 @@ def _recovery_failure_item(checkpoint_id: str, reason_code: str, domain: str | N
         "trusted_baseline_status": "NONE",
         "trusted_baseline_id": None,
         "evidence_refs": [],
-    }
-
-
-def _verified_workspace_binding(
-    *,
-    agent_sequence: int,
-    agent_event_id: str,
-    agent_observed_at: str | None,
-    agent_domain: str | None,
-    agent_subject: str | None,
-    agent_payload: dict[str, Any],
-    binding_rows: list[tuple[Any, ...]],
-    runtime_rows: dict[str, tuple[Any, ...]],
-) -> dict[str, Any]:
-    def unknown(reason_code: str) -> dict[str, Any]:
-        return {
-            "status": "UNKNOWN",
-            "workspace_id": None,
-            "binding_ref": None,
-            "reason_code": reason_code,
-        }
-
-    if agent_subject is None or _atom(agent_payload.get("agent_id")) != agent_subject:
-        return unknown("WORKSPACE_BINDING_MISSING")
-    subject_matches = []
-    current_matches = []
-    for row in binding_rows:
-        payload = _json_object(row[6])
-        if payload and _atom(row[5]) == agent_subject:
-            subject_matches.append((row, payload))
-            if payload.get("agent_event_id") == agent_event_id:
-                current_matches.append((row, payload))
-    if len(current_matches) > 1:
-        return unknown("WORKSPACE_BINDING_CONFLICT")
-    if not current_matches:
-        return unknown(
-            "WORKSPACE_BINDING_STALE"
-            if subject_matches
-            else "WORKSPACE_BINDING_MISSING"
-        )
-    binding, payload = current_matches[0]
-    runtime_event_id = _atom(payload.get("runtime_event_id"))
-    runtime = runtime_rows.get(runtime_event_id or "")
-    expected_workspaces = agent_payload.get("workspace_ids")
-    workspace_id = _atom(payload.get("workspace_id"))
-    runtime_id = _atom(payload.get("runtime_id"))
-    snapshot_id = _atom(payload.get("snapshot_id"))
-    if (
-        binding[2].casefold() != "available"
-        or payload.get("fact_type") != "workspace.binding"
-        or _atom(payload.get("binding_id")) != binding[1]
-        or _atom(binding[5]) != agent_subject
-        or _atom(payload.get("agent_id")) != agent_subject
-    ):
-        return unknown("WORKSPACE_BINDING_INVALID")
-    if _atom(binding[4]) != agent_domain:
-        return unknown("WORKSPACE_BINDING_DOMAIN_MISMATCH")
-    if (
-        binding[3] != agent_observed_at
-        or snapshot_id != _atom(agent_payload.get("snapshot_id"))
-    ):
-        return unknown("WORKSPACE_BINDING_STALE")
-    if (
-        not isinstance(expected_workspaces, list)
-        or len(expected_workspaces) != 1
-        or workspace_id != _atom(expected_workspaces[0])
-    ):
-        return unknown("WORKSPACE_BINDING_WORKSPACE_MISMATCH")
-    if runtime_id != _atom(agent_payload.get("runtime_id")) or runtime is None:
-        return unknown("WORKSPACE_BINDING_RUNTIME_MISMATCH")
-    if binding[0] <= agent_sequence or binding[0] <= runtime[0]:
-        return unknown("WORKSPACE_BINDING_STALE")
-    runtime_payload = _json_object(runtime[6])
-    if runtime_payload is None or runtime[2].casefold() != "available":
-        return unknown("WORKSPACE_BINDING_RUNTIME_MISMATCH")
-    if _atom(runtime[4]) != agent_domain:
-        return unknown("WORKSPACE_BINDING_DOMAIN_MISMATCH")
-    if (
-        runtime[3] != agent_observed_at
-        or _atom(runtime_payload.get("snapshot_id")) != snapshot_id
-    ):
-        return unknown("WORKSPACE_BINDING_STALE")
-    if (
-        _atom(runtime[5]) != runtime_id
-        or _atom(runtime_payload.get("runtime_id")) != runtime_id
-    ):
-        return unknown("WORKSPACE_BINDING_RUNTIME_MISMATCH")
-    return {
-        "status": "BOUND",
-        "workspace_id": workspace_id,
-        "binding_ref": binding[1],
-        "reason_code": "WORKSPACE_BINDING_VERIFIED",
     }
 
 

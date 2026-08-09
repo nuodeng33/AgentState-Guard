@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from agentguard.core.versions import exact_product_sha, is_exact_git_sha
 from agentguard.discovery.capabilities import CapabilityStatus
 from agentguard.evidence.canonical import canonical_json
 from agentguard.evidence.ledger import EvidenceLedger
@@ -34,13 +35,21 @@ class RecoveryService:
         snapshots: SnapshotStore,
         adapters: Mapping[str, object],
         ledger: EvidenceLedger | None = None,
+        product_sha: str | None = None,
     ) -> None:
         self._database = database
         self._snapshots = snapshots
         self._adapters = dict(adapters)
         self._ledger = ledger or EvidenceLedger()
+        self._product_sha = product_sha if is_exact_git_sha(product_sha) else exact_product_sha()
 
     def snapshot(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        if request.supervision_session_id is not None and self._product_sha is None:
+            return self._result(
+                request,
+                CapabilityStatus.ERROR,
+                "RECOVERY_PRODUCT_PROVENANCE_UNAVAILABLE",
+            )
         adapter = self._adapters.get(request.execution_domain_id)
         if adapter is None:
             outcome = self._result(
@@ -86,7 +95,7 @@ class RecoveryService:
                     file_count,
                     {},
                     None,
-                    None,
+                    self._product_sha,
                 )
                 relative_path = self._snapshots.save_recovery_v3(checkpoint_id, artifact)
                 expected_path = f"snapshots/snapshot-{checkpoint_id:06d}.dat"
@@ -105,6 +114,7 @@ class RecoveryService:
                     digest,
                     file_count,
                     target_ref_digests,
+                    supervision_session_id=request.supervision_session_id,
                 )
                 self._append_event(
                     connection,
@@ -114,6 +124,7 @@ class RecoveryService:
                     digest,
                     file_count,
                     target_ref_digests,
+                    supervision_session_id=request.supervision_session_id,
                 )
         except OSError:
             self._remove_artifact(relative_path)
@@ -1254,6 +1265,8 @@ class RecoveryService:
         digest: str | None,
         file_count: int,
         target_ref_digests: tuple[str, ...],
+        *,
+        supervision_session_id: str | None = None,
     ) -> None:
         self._ledger.append(
             connection,
@@ -1267,7 +1280,7 @@ class RecoveryService:
                 source="recovery-service",
                 result=outcome.status.value,
                 execution_domain_id=outcome.execution_domain_id,
-                supervision_session_id=None,
+                supervision_session_id=supervision_session_id,
                 transaction_id=None,
                 checkpoint_id=checkpoint_id,
                 subject_ref=(f"manifest:{digest}" if digest else None),
@@ -1278,6 +1291,7 @@ class RecoveryService:
                     "manifest_digest": digest,
                     "file_count": file_count,
                     "target_ref_digests": list(target_ref_digests),
+                    "product_sha": self._product_sha,
                 },
             ),
         )
