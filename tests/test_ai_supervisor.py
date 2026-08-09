@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+
+from agentguard.ai.provider import AIResult, OpenAICompatibleProvider, ProviderConfig
 from agentguard.ai.supervisor import AIAssessment, AISupervisor
 from agentguard.policy.models import Decision, PolicyDecision
 from agentguard.storage.db import StateDB
@@ -133,3 +136,71 @@ def test_ai_cannot_upgrade_authoritative_unknown_policy(tmp_path):
         }
     finally:
         database.close()
+
+
+def test_openai_compatible_provider_maps_legacy_result_conservatively(monkeypatch):
+    provider = OpenAICompatibleProvider(
+        ProviderConfig(
+            base_url="https://provider.invalid/v1",
+            api_key="memory-only",
+            model="review-model",
+        )
+    )
+    monkeypatch.setattr(
+        provider,
+        "analyze",
+        lambda _context: AIResult(
+            status="attention",
+            severity="critical",
+            summary="Potential risk requires review.",
+            possible_causes=["untrusted root cause"],
+            recommended_checks=["untrusted command"],
+            evidence=["untrusted evidence"],
+        ),
+    )
+
+    assessment = provider.assess(
+        {
+            "policy_decision": "REVIEW",
+            "evidence_refs": ("server-evidence",),
+            "requires_checkpoint": True,
+            "requires_manual_approval": True,
+        }
+    )
+
+    assert provider.model == "review-model"
+    assert assessment == AIAssessment(
+        decision="REVIEW",
+        severity="HIGH",
+        summary="Potential risk requires review.",
+        evidence_refs=("server-evidence",),
+        uncertainties=(),
+        required_checks=("human_review",),
+        requires_checkpoint=True,
+        requires_manual_approval=True,
+    )
+
+
+def test_openai_compatible_provider_error_is_unavailable_not_an_assessment(monkeypatch):
+    provider = OpenAICompatibleProvider(
+        ProviderConfig(base_url="https://provider.invalid/v1", model="review-model")
+    )
+    monkeypatch.setattr(
+        provider,
+        "analyze",
+        lambda _context: AIResult(
+            status="error",
+            severity="low",
+            summary="provider unavailable",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="AI_ASSESSMENT_UNAVAILABLE"):
+        provider.assess(
+            {
+                "policy_decision": "REVIEW",
+                "evidence_refs": ("server-evidence",),
+                "requires_checkpoint": True,
+                "requires_manual_approval": True,
+            }
+        )

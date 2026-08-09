@@ -114,6 +114,11 @@ class OpenAICompatibleProvider(AIProvider):
         self._config = config
         self._timeout = timeout
 
+    @property
+    def model(self) -> str:
+        """Expose the configured model for the existing R4 assessment cache key."""
+        return self._config.model
+
     def _base(self) -> str:
         return self._config.base_url.rstrip("/")
 
@@ -234,6 +239,37 @@ Return format:
                 analyzed_at=now,
                 raw_error=str(e)[:200],
             )
+
+    def assess(self, authority_package: dict):
+        """Conservatively adapt legacy analysis to the existing R4 P5 contract."""
+        from .supervisor import AIAssessment
+
+        result = self.analyze(authority_package)
+        if result.status not in {"ok", "warn", "attention"}:
+            raise RuntimeError("AI_ASSESSMENT_UNAVAILABLE")
+        if not isinstance(result.summary, str) or not result.summary:
+            raise RuntimeError("AI_ASSESSMENT_UNAVAILABLE")
+        refs = authority_package.get("evidence_refs")
+        if not isinstance(refs, (list, tuple)) or not all(
+            isinstance(item, str) and item for item in refs
+        ):
+            raise RuntimeError("AI_ASSESSMENT_UNAVAILABLE")
+        severity = {
+            "low": "LOW",
+            "medium": "MEDIUM",
+            "high": "HIGH",
+            "critical": "HIGH",
+        }.get(str(result.severity).casefold(), "UNKNOWN")
+        return AIAssessment(
+            decision="REVIEW",
+            severity=severity,
+            summary=result.summary,
+            evidence_refs=tuple(refs),
+            uncertainties=(),
+            required_checks=("human_review",),
+            requires_checkpoint=authority_package.get("requires_checkpoint") is True,
+            requires_manual_approval=True,
+        )
 
 
 # ── Environment context builder ──────────────────────────────

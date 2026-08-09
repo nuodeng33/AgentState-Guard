@@ -1,0 +1,248 @@
+"""Production FastAPI wiring for the bounded R4 controlled configuration change."""
+
+from __future__ import annotations
+
+import json
+import socket
+import threading
+import time
+import urllib.error
+import urllib.request
+from contextlib import contextmanager
+from pathlib import Path
+
+import uvicorn
+
+from agentguard.ai.supervisor import AIAssessment
+from agentguard.api.server import create_app
+from agentguard.evidence.ledger import verify_ledger
+from agentguard.storage.db import StateDB
+from tests.test_api_r4_actions import _action_ref
+from tests.test_api_r4_contract import _get
+
+
+class _ReviewProvider:
+    model = "r4-review-test"
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def assess(self, authority_package: dict) -> AIAssessment:
+        self.calls.append(authority_package)
+        return AIAssessment(
+            decision="ALLOW",
+            severity="LOW",
+            summary="Unsafe upgrade attempt must be clamped.",
+            evidence_refs=tuple(authority_package["evidence_refs"]),
+            uncertainties=(),
+            required_checks=(),
+            requires_checkpoint=False,
+            requires_manual_approval=False,
+        )
+
+
+def _free_port() -> int:
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+
+@contextmanager
+def _running_change_api(root: Path, provider=None):
+    config_dir = root / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    target = config_dir / "agentguard.toml"
+    target.write_text("safe = false\n", encoding="utf-8")
+    db_path = root / "state.db"
+    port = _free_port()
+    app = create_app(
+        state_db_path=db_path,
+        config={"base_dir": str(root)},
+        assessment_provider=provider,
+    )
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not server.started and thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert server.started
+    base_url = f"http://127.0.0.1:{port}"
+    token = _get(base_url, "/api/session")[1]["token"]
+    try:
+        yield base_url, token, db_path, target
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+
+
+def _post(base_url: str, path: str, token: str | None, payload: object):
+    request = urllib.request.Request(
+        f"{base_url}{path}",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    if token is not None:
+        request.add_header("X-Session-Token", token)
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def _events(db_path: Path, session_id: str | None = None) -> list[str]:
+    database = StateDB(db_path)
+    database.connect()
+    try:
+        if session_id is None:
+            rows = database._conn.execute(
+                "SELECT event_type FROM evidence_ledger_events ORDER BY sequence"
+            ).fetchall()
+        else:
+            rows = database._conn.execute(
+                """SELECT event_type FROM evidence_ledger_events
+                   WHERE supervision_session_id = ? ORDER BY sequence""",
+                (session_id,),
+            ).fetchall()
+        assert verify_ledger(database._conn) == []
+        return [row[0] for row in rows]
+    finally:
+        database.close()
+
+
+def test_review_prepare_uses_ai_advisory_then_p8_approval_and_authoritative_apply(tmp_path):
+    provider = _ReviewProvider()
+    content = "safe = true\n"
+    with _running_change_api(tmp_path, provider) as (base_url, token, db_path, target):
+        status, prepared = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": content},
+        )
+
+        assert status == 200
+        session_id = prepared["supervision_session_id"]
+        assert prepared == {
+            "schema_version": "r4-p9-controlled-change-1",
+            "supervision_session_id": session_id,
+            "status": "AWAITING_APPROVAL",
+            "decision": "REVIEW",
+            "reason_code": "CONTROLLED_CHANGE_PREPARED",
+            "requires_manual_approval": True,
+            "requires_checkpoint": True,
+            "ai_advisory": "REVIEW",
+        }
+        assert len(provider.calls) == 1
+        assert provider.calls[0]["policy_decision"] == "REVIEW"
+        assert target.read_text(encoding="utf-8") == "safe = false\n"
+        assert {"RUNTIME_DETECTED", "AGENT_DETECTED", "WORKSPACE_LINKED"}.issubset(
+            _events(db_path)
+        )
+        assert "AI_ASSESSED" in _events(db_path, session_id)
+
+        action_ref = _action_ref(base_url, token, session_id)
+        approved_status, approved = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )
+        assert approved_status == 200
+        assert approved["status"] == "APPROVED"
+        assert target.read_text(encoding="utf-8") == "safe = false\n"
+
+        applied_status, applied = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": content},
+        )
+
+    assert applied_status == 200
+    assert applied["status"] == "COMPLETED"
+    assert applied["reason_code"] == "CONTROLLED_CHANGE_COMPLETED"
+    assert applied["changed"] is True
+    assert applied["verification"] == "PASS"
+    assert "checkpoint_id" in applied
+    assert str(tmp_path) not in json.dumps(applied)
+    assert content not in json.dumps(applied)
+    assert target.read_text(encoding="utf-8") == content
+    session_events = _events(db_path, session_id)
+    assert session_events == [
+        "SESSION_CREATED",
+        "POLICY_EVALUATED",
+        "AI_ASSESSED",
+        "USER_APPROVED",
+        "CHECKPOINT_CREATED",
+        "MANIFEST_VERIFIED",
+        "SESSION_ACTIVATED",
+        "OBSERVED_CHANGE",
+        "SESSION_COMPLETED",
+    ]
+
+
+def test_ai_unavailable_keeps_review_and_does_not_add_inaccurate_event(tmp_path):
+    with _running_change_api(tmp_path) as (base_url, token, db_path, _target):
+        status, prepared = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": "safe = true\n"},
+        )
+
+    assert status == 200
+    assert prepared["decision"] == "REVIEW"
+    assert prepared["status"] == "AWAITING_APPROVAL"
+    assert prepared["requires_manual_approval"] is True
+    assert prepared["requires_checkpoint"] is True
+    assert prepared["ai_advisory"] == "UNAVAILABLE"
+    assert "AI_ASSESSED" not in _events(
+        db_path, prepared["supervision_session_id"]
+    )
+
+
+def test_approved_content_cannot_drift_and_caller_cannot_supply_target(tmp_path):
+    approved_content = "safe = true\n"
+    with _running_change_api(tmp_path) as (base_url, token, db_path, target):
+        status, prepared = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": approved_content},
+        )
+        assert status == 200
+        session_id = prepared["supervision_session_id"]
+        action_ref = _action_ref(base_url, token, session_id)
+        assert _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )[0] == 200
+
+        drift_status, drift = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": "safe = 'changed-after-approval'\n"},
+        )
+        target_status, target_error = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": approved_content, "target_path": str(tmp_path / "other.toml")},
+        )
+
+    assert drift_status == 409
+    assert drift["reason_code"] == "CONTROLLED_CHANGE_INTENT_MISMATCH"
+    assert target_status == 422
+    assert target_error["reason_code"] == "CONTROLLED_CHANGE_REQUEST_INVALID"
+    assert target.read_text(encoding="utf-8") == "safe = false\n"
+    assert "CHECKPOINT_CREATED" not in _events(db_path, session_id)

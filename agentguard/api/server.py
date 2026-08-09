@@ -24,7 +24,19 @@ class SupervisionActionRequest(BaseModel):
     action_ref: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-def create_app(state_db_path: Path | None = None, config: dict | None = None):
+class ControlledChangeRequest(BaseModel):
+    """Caller intent contains content only; target and authority stay server-owned."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    content: str = Field(min_length=1, max_length=1_048_576)
+
+
+def create_app(
+    state_db_path: Path | None = None,
+    config: dict | None = None,
+    assessment_provider=None,
+):
     """Create a FastAPI application instance.
 
     Uses lazy imports so core modules don't depend on FastAPI.
@@ -61,7 +73,11 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
         path = request.url.path
-        if path.startswith("/api/v1/supervision/") and request.method == "POST":
+        if (
+            path.startswith("/api/v1/supervision/")
+            and request.method == "POST"
+            and path.endswith(("/approve-once", "/reject"))
+        ):
             parts = path.rstrip("/").split("/")
             raw_session_id = parts[-2] if len(parts) >= 2 else ""
             session_id = (
@@ -76,6 +92,20 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
                     session_id,
                     "SUPERVISION_ACTION_REQUEST_INVALID",
                 ),
+                status_code=422,
+            )
+        if (
+            request.method == "POST"
+            and path.startswith("/api/v1/supervision/")
+            and (
+                path == "/api/v1/supervision/changes"
+                or path.endswith("/apply")
+            )
+        ):
+            from .r4_controlled_change import controlled_change_failure
+
+            return JSONResponse(
+                controlled_change_failure("CONTROLLED_CHANGE_REQUEST_INVALID"),
                 status_code=422,
             )
         return JSONResponse({"detail": exc.errors()}, status_code=422)
@@ -131,6 +161,7 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
     db_path = state_db_path or cfg_o.state_db()
     db = StateDB(db_path)
     snapshots_dir = cfg_o.snapshot_dir()
+    _ai_provider = assessment_provider
 
     def _get_db():
         db.connect()
@@ -321,6 +352,76 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
     ):
         return _supervision_action(session_id, body, action="REJECT")
 
+    # ---- R4 P9 bounded controlled configuration change ----
+
+    from .r4_controlled_change import (
+        ControlledChangeError,
+        apply_controlled_change,
+        controlled_change_failure,
+        prepare_controlled_change,
+    )
+
+    @app.post("/api/v1/supervision/changes")
+    async def api_r4_controlled_change_prepare(body: ControlledChangeRequest):
+        try:
+            current_db = _get_db()
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return JSONResponse(
+                controlled_change_failure("CONTROLLED_CHANGE_AUTHORITY_UNAVAILABLE"),
+                status_code=503,
+            )
+        try:
+            return prepare_controlled_change(
+                current_db,
+                SnapshotStore(snapshots_dir),
+                base_dir=cfg_o.base_dir,
+                content=body.content.encode("utf-8"),
+                assessment_provider=_ai_provider,
+            )
+        except ControlledChangeError as exc:
+            return JSONResponse(
+                controlled_change_failure(exc.reason_code),
+                status_code=exc.status_code,
+            )
+        finally:
+            current_db.close()
+
+    @app.post("/api/v1/supervision/{session_id}/apply")
+    async def api_r4_controlled_change_apply(
+        session_id: str,
+        body: ControlledChangeRequest,
+    ):
+        if not _SUPERVISION_SESSION_ID.fullmatch(session_id):
+            return JSONResponse(
+                controlled_change_failure("CONTROLLED_CHANGE_REQUEST_INVALID"),
+                status_code=422,
+            )
+        try:
+            current_db = _get_db()
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return JSONResponse(
+                controlled_change_failure(
+                    "CONTROLLED_CHANGE_AUTHORITY_UNAVAILABLE",
+                    session_id=session_id,
+                ),
+                status_code=503,
+            )
+        try:
+            return apply_controlled_change(
+                current_db,
+                SnapshotStore(snapshots_dir),
+                base_dir=cfg_o.base_dir,
+                session_id=session_id,
+                content=body.content.encode("utf-8"),
+            )
+        except ControlledChangeError as exc:
+            return JSONResponse(
+                controlled_change_failure(exc.reason_code, session_id=session_id),
+                status_code=exc.status_code,
+            )
+        finally:
+            current_db.close()
+
     @app.get("/api/handoff")
     async def api_handoff():
         db = _get_db()
@@ -338,12 +439,12 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
         ProviderConfig,
     )
 
-    _ai_provider = None
     _ai_config = None
 
     @app.post("/api/ai/test")
     async def _ai_test(body: dict):
         """Test AI provider connection. API key stays in memory."""
+        nonlocal _ai_provider
         api_key = body.get("api_key", "")
         base_url = body.get("base_url", "")
         model = body.get("model", "")
@@ -351,7 +452,10 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
             return {"ok": False, "error": "Base URL required"}
         cfg = ProviderConfig(base_url=base_url, api_key=api_key, model=model)
         provider = OpenAICompatibleProvider(cfg, timeout=10)
-        return provider.test_connection()
+        result = provider.test_connection()
+        if result.get("ok") is True:
+            _ai_provider = provider
+        return result
 
     @app.post("/api/ai/models")
     async def _ai_models(body: dict):
