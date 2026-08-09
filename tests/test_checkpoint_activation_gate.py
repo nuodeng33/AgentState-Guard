@@ -471,6 +471,43 @@ def test_parent_symlink_swap_cannot_redirect_controlled_write(
     assert verify_ledger(database._conn) == []
 
 
+def test_target_replacement_at_write_boundary_preserves_concurrent_content(
+    authority,
+    tmp_path,
+    monkeypatch,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    target.write_bytes(b"safe = false\n")
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    original = supervision_module._atomic_restore
+    concurrent = b"concurrent = true\n"
+    replaced = False
+
+    def replace_target_then_write(path, content, entry):
+        nonlocal replaced
+        if not replaced:
+            replaced = True
+            path.unlink()
+            path.write_bytes(concurrent)
+        return original(path, content, entry)
+
+    monkeypatch.setattr(supervision_module, "_atomic_restore", replace_target_then_write)
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_AUTHORITY_STALE"
+    assert result.changed is False
+    assert target.read_bytes() == concurrent
+    assert _session_status(database, session_id) == "FAILED"
+    assert verify_ledger(database._conn) == []
+
+
 def test_atomic_write_failure_never_records_observed_change(
     authority,
     tmp_path,

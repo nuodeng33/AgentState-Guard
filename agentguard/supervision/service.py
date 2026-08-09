@@ -165,6 +165,27 @@ def _replace_at(parent_fd: int, name: str, content: bytes, mode: int) -> None:
             pass
 
 
+def _digest_at(parent_fd: int, name: str) -> tuple[str, os.stat_result]:
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        dir_fd=parent_fd,
+    )
+    try:
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise OSError("CONTROLLED_CHANGE_TARGET_CHANGED")
+        actual = hashlib.sha256()
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            actual.update(chunk)
+    finally:
+        os.close(descriptor)
+    return actual.hexdigest(), file_stat
+
+
 def _atomic_restore(target: Path, content: bytes, file_entry: dict) -> dict[str, object]:
     """Atomically replace one controlled file without following its parent."""
     parent_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(
@@ -181,28 +202,24 @@ def _atomic_restore(target: Path, content: bytes, file_entry: dict) -> dict[str,
         current_stat = os.stat(target.name, dir_fd=parent_fd, follow_symlinks=False)
         if not stat.S_ISREG(current_stat.st_mode):
             return {"status": "error", "message": "Controlled target unavailable"}
+        current_digest, opened_stat = _digest_at(parent_fd, target.name)
+        expected_before = file_entry.get("_expected_before_sha256")
+        expected_identity = file_entry.get("_expected_before_identity")
+        if (
+            not isinstance(expected_before, str)
+            or current_digest != expected_before
+            or expected_identity != (opened_stat.st_dev, opened_stat.st_ino)
+        ):
+            return {"status": "authority_stale", "message": "Controlled target changed"}
         mode_value = file_entry.get("mode_oct", "0o644")
         try:
             mode = int(mode_value, 8) if str(mode_value).startswith("0") else int(mode_value)
         except (TypeError, ValueError):
             mode = 0o644
         _replace_at(parent_fd, target.name, content, mode)
-        descriptor = os.open(
-            target.name,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=parent_fd,
-        )
-        try:
-            actual = hashlib.sha256()
-            while True:
-                chunk = os.read(descriptor, 1024 * 1024)
-                if not chunk:
-                    break
-                actual.update(chunk)
-        finally:
-            os.close(descriptor)
+        actual, _written_stat = _digest_at(parent_fd, target.name)
         expected = file_entry.get("sha256")
-        if not isinstance(expected, str) or actual.hexdigest() != expected:
+        if not isinstance(expected, str) or actual != expected:
             return {"status": "hash_mismatch", "message": "Controlled hash mismatch"}
         try:
             current_parent = os.stat(target.parent, follow_symlinks=False)
@@ -275,12 +292,21 @@ def _rollback_file(
     before_stat,
 ) -> bool:
     digest = hashlib.sha256(content).hexdigest()
+    try:
+        current, current_stat = _read_controlled_target(target)
+    except OSError:
+        return False
+    current_digest = hashlib.sha256(current).hexdigest()
+    if current_digest == digest:
+        return True
     result = _atomic_restore(
         target,
         content,
         {
             "mode_oct": oct(stat.S_IMODE(before_stat.st_mode)),
             "sha256": digest,
+            "_expected_before_sha256": current_digest,
+            "_expected_before_identity": (current_stat.st_dev, current_stat.st_ino),
         },
     )
     try:
@@ -907,11 +933,19 @@ class SupervisionService:
                 {
                     "mode_oct": oct(stat.S_IMODE(before_stat.st_mode)),
                     "sha256": after_digest,
+                    "_expected_before_sha256": before_digest,
+                    "_expected_before_identity": (before_stat.st_dev, before_stat.st_ino),
                     "_rollback_content": before,
                     "_rollback_mode": before_stat.st_mode,
                 },
             )
             if write_result.get("status") != "success":
+                if write_result.get("status") == "authority_stale":
+                    return fail(
+                        "CONTROLLED_CHANGE_AUTHORITY_STALE",
+                        before_digest=before_digest,
+                        after_digest=after_digest,
+                    )
                 try:
                     current, _current_stat = _read_controlled_target(requested)
                     current_digest = hashlib.sha256(current).hexdigest()
