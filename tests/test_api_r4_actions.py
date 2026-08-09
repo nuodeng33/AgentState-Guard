@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+import threading
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
@@ -10,12 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.evidence.ledger import EvidenceLedger
+from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.policy.models import Decision, PolicyDecision
+from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
 from agentguard.storage.db import StateDB
 from agentguard.supervision.service import SupervisionActionError, SupervisionService
 from tests.test_api_r4_contract import _get, _running_api
+from tests.test_recovery_drill import _service as _recovery_service
 
 
 def _decision(decision: Decision, *, checkpoint: bool = False) -> PolicyDecision:
@@ -343,3 +347,420 @@ def test_untrusted_web_origin_cannot_read_session_bootstrap_token(tmp_path):
         with urllib.request.urlopen(request, timeout=5) as response:
             assert response.status == 200
             assert response.headers.get("Access-Control-Allow-Origin") is None
+
+
+def test_unknown_session_returns_stable_404(tmp_path):
+    missing = "session-00000000-0000-0000-0000-000000000000"
+    with _running_api(tmp_path) as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{missing}/approve-once",
+            token,
+            {"action_ref": "0" * 64},
+        )
+    assert status == 404
+    assert body["reason_code"] == "SUPERVISION_SESSION_NOT_FOUND"
+    assert body["status"] == "UNCHANGED"
+    assert body["consumed"] is False
+    assert body["evidence_refs"] == []
+
+
+@pytest.mark.parametrize("payload", [{}, {"action_ref": "invalid"}, []])
+def test_malformed_action_body_has_stable_422(tmp_path, payload):
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path)
+    with _running_api(tmp_path, db_path) as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            payload,
+        )
+    assert status == 422
+    assert body["reason_code"] == "SUPERVISION_ACTION_REQUEST_INVALID"
+    assert body["status"] == "UNCHANGED"
+    assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+@pytest.mark.parametrize("column", ["curr_hash", "prev_hash", "payload_digest"])
+def test_tampered_ledger_authority_fails_closed(tmp_path, column):
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path)
+    database = StateDB(db_path)
+    database.connect()
+    try:
+        action_ref = SupervisionService(database).action_ref(session_id)
+        assert action_ref is not None
+        database._conn.execute("DROP TRIGGER evidence_ledger_events_no_update")
+        if column == "curr_hash":
+            database._conn.execute(
+                """UPDATE evidence_ledger_events SET curr_hash = ?
+                   WHERE supervision_session_id = ? AND event_type = 'POLICY_EVALUATED'""",
+                ("f" * 64, session_id),
+            )
+        elif column == "prev_hash":
+            database._conn.execute(
+                """UPDATE evidence_ledger_events SET prev_hash = ?
+                   WHERE supervision_session_id = ? AND event_type = 'POLICY_EVALUATED'""",
+                ("f" * 64, session_id),
+            )
+        else:
+            database._conn.execute(
+                """UPDATE evidence_ledger_events SET payload_digest = ?
+                   WHERE supervision_session_id = ? AND event_type = 'POLICY_EVALUATED'""",
+                ("f" * 64, session_id),
+            )
+        database._conn.commit()
+    finally:
+        database.close()
+
+    with _running_api(tmp_path, db_path) as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )
+    assert status == 503
+    assert body["reason_code"] == "SUPERVISION_LEDGER_INVALID"
+    assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+def test_manually_inserted_session_without_policy_evidence_cannot_act(tmp_path):
+    db_path = tmp_path / "state.db"
+    database = StateDB(db_path)
+    database.connect()
+    session_id = "session-11111111-1111-1111-1111-111111111111"
+    try:
+        now = datetime.now(UTC).isoformat()
+        database._conn.execute(
+            """INSERT INTO supervision_sessions (
+                   supervision_session_id, status, declared_intent_digest, decision,
+                   requires_checkpoint, requires_manual_approval, created_at, updated_at
+               ) VALUES (?, 'AWAITING_APPROVAL', ?, 'REVIEW', 0, 1, ?, ?)""",
+            (session_id, "0" * 64, now, now),
+        )
+        database._conn.commit()
+    finally:
+        database.close()
+
+    with _running_api(tmp_path, db_path) as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": "0" * 64},
+        )
+    assert status == 503
+    assert body["reason_code"] == "SUPERVISION_POLICY_EVIDENCE_INVALID"
+    assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+def test_conflicting_policy_evidence_fails_closed(tmp_path):
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path)
+    database = StateDB(db_path)
+    database.connect()
+    try:
+        row = database._conn.execute(
+            """SELECT payload_safe_json FROM evidence_ledger_events
+               WHERE supervision_session_id = ? AND event_type = 'POLICY_EVALUATED'""",
+            (session_id,),
+        ).fetchone()
+        with database.transaction() as connection:
+            EvidenceLedger().append(
+                connection,
+                EvidenceEvent(
+                    schema_version=1,
+                    event_id="p8-conflicting-policy",
+                    recorded_at=datetime.now(UTC),
+                    observed_at=None,
+                    event_family=EventFamily.SUPERVISION,
+                    event_type=EventType.POLICY_EVALUATED,
+                    source="supervision-service",
+                    result="REVIEW",
+                    execution_domain_id=None,
+                    supervision_session_id=session_id,
+                    transaction_id=None,
+                    checkpoint_id=None,
+                    subject_ref=session_id,
+                    evidence_refs=(session_id,),
+                    payload_safe=json.loads(row[0]),
+                ),
+            )
+    finally:
+        database.close()
+
+    with _running_api(tmp_path, db_path) as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": "0" * 64},
+        )
+    assert status == 503
+    assert body["reason_code"] == "SUPERVISION_POLICY_EVIDENCE_INVALID"
+    assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+def test_authoritative_row_binding_drift_fails_closed(tmp_path):
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path, checkpoint=True)
+    database = StateDB(db_path)
+    database.connect()
+    try:
+        action_ref = SupervisionService(database).action_ref(session_id)
+        database._conn.execute(
+            """UPDATE supervision_sessions SET requires_checkpoint = 0
+               WHERE supervision_session_id = ?""",
+            (session_id,),
+        )
+        database._conn.commit()
+    finally:
+        database.close()
+    with _running_api(tmp_path, db_path) as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )
+    assert status == 503
+    assert body["reason_code"] == "SUPERVISION_POLICY_EVIDENCE_INVALID"
+    assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+@pytest.mark.parametrize(
+    ("method_name", "event_type"),
+    [("approve_once", "USER_APPROVED"), ("reject_once", "USER_REJECTED")],
+)
+def test_ledger_append_failure_rolls_back_action(
+    tmp_path,
+    monkeypatch,
+    method_name,
+    event_type,
+):
+    db_path = tmp_path / "state.db"
+    database = StateDB(db_path)
+    database.connect()
+    service = SupervisionService(database)
+    try:
+        session = service.create("bounded-p8-action", _decision(Decision.REVIEW))
+        session_id = session.supervision_session_id
+        action_ref = service.action_ref(session_id)
+
+        def fail_append(*_args, **_kwargs):
+            raise sqlite3.IntegrityError("synthetic private database path")
+
+        monkeypatch.setattr(service._ledger, "append", fail_append)
+        with pytest.raises(SupervisionActionError) as exc_info:
+            getattr(service, method_name)(session_id, action_ref)
+        assert exc_info.value.reason_code == "SUPERVISION_AUTHORITY_UNAVAILABLE"
+        assert service._read(session_id).status == "AWAITING_APPROVAL"
+        assert _event_count(db_path, session_id, event_type) == 0
+        assert verify_ledger(database._conn) == []
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    ("method_name", "event_type"),
+    [("approve_once", "USER_APPROVED"), ("reject_once", "USER_REJECTED")],
+)
+def test_commit_failure_rolls_back_action(tmp_path, method_name, event_type):
+    class CommitFailConnection(sqlite3.Connection):
+        fail_next_commit = False
+
+        def commit(self):
+            if self.fail_next_commit:
+                self.fail_next_commit = False
+                raise sqlite3.OperationalError("synthetic private database path")
+            return super().commit()
+
+    db_path = tmp_path / "state.db"
+    database = StateDB(db_path)
+    database.connect()
+    service = SupervisionService(database)
+    session = service.create("bounded-p8-action", _decision(Decision.REVIEW))
+    session_id = session.supervision_session_id
+    action_ref = service.action_ref(session_id)
+    database._conn.close()
+    database._conn = sqlite3.connect(str(db_path), factory=CommitFailConnection)
+    try:
+        database._conn.fail_next_commit = True
+        with pytest.raises(SupervisionActionError) as exc_info:
+            getattr(service, method_name)(session_id, action_ref)
+        assert exc_info.value.reason_code == "SUPERVISION_AUTHORITY_UNAVAILABLE"
+        assert service._read(session_id).status == "AWAITING_APPROVAL"
+        assert _event_count(db_path, session_id, event_type) == 0
+        assert verify_ledger(database._conn) == []
+    finally:
+        database.close()
+
+
+def test_recovery_bound_session_is_not_downgraded_by_generic_action(tmp_path):
+    _target, database, _snapshots, recovery, checkpoint = _recovery_service(tmp_path)
+    try:
+        restored = recovery.test_restore(
+            RecoveryRequest(
+                operation=RecoveryOperation.TEST_RESTORE,
+                execution_domain_id="self-runtime",
+                checkpoint_id=checkpoint.checkpoint_id,
+            )
+        )
+        assert restored.reason_code == "TEST_RESTORE_VERIFIED"
+        prepared = recovery.prepare_drill(
+            checkpoint_id=checkpoint.checkpoint_id,
+            execution_domain_id="self-runtime",
+        )
+        session_id = database._conn.execute(
+            """SELECT supervision_session_id FROM recovery_drill_bindings
+               WHERE drill_id = ?""",
+            (prepared["drill_id"],),
+        ).fetchone()[0]
+        assert SupervisionService(database).action_ref(session_id) is None
+    finally:
+        database.close()
+
+    with _running_api(tmp_path, tmp_path / "state.db") as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": "0" * 64},
+        )
+    assert status == 409
+    assert body["reason_code"] == "SUPERVISION_RECOVERY_AUTHORIZATION_REQUIRED"
+    assert _event_count(tmp_path / "state.db", session_id, "USER_APPROVED") == 0
+
+
+def test_ai_allow_assessment_cannot_replace_local_review_decision(tmp_path):
+    db_path = tmp_path / "state.db"
+    database = StateDB(db_path)
+    database.connect()
+    service = SupervisionService(database)
+    try:
+        session = service.create("bounded-p8-action", _decision(Decision.REVIEW))
+        session_id = session.supervision_session_id
+        with database.transaction() as connection:
+            EvidenceLedger().append(
+                connection,
+                EvidenceEvent(
+                    schema_version=1,
+                    event_id="p8-ai-cannot-authorize",
+                    recorded_at=datetime.now(UTC),
+                    observed_at=None,
+                    event_family=EventFamily.SUPERVISION,
+                    event_type=EventType.AI_ASSESSED,
+                    source="ai-supervisor",
+                    result="ALLOW",
+                    execution_domain_id=None,
+                    supervision_session_id=session_id,
+                    transaction_id=None,
+                    checkpoint_id=None,
+                    subject_ref=session_id,
+                    evidence_refs=(session_id,),
+                    payload_safe={"decision": "ALLOW", "severity": "LOW"},
+                ),
+            )
+        fresh_ref = service.action_ref(session_id)
+        assert fresh_ref is not None
+        assert service.approve_once(session_id, fresh_ref).status == "APPROVED"
+        assert database._conn.execute(
+            """SELECT decision FROM supervision_sessions
+               WHERE supervision_session_id = ?""",
+            (session_id,),
+        ).fetchone() == ("REVIEW",)
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("approve_once", "approve_once"),
+        ("approve_once", "reject_once"),
+        ("reject_once", "reject_once"),
+    ],
+)
+def test_concurrent_actions_have_one_transition_and_one_event(tmp_path, first, second):
+    db_path = tmp_path / "state.db"
+    database = StateDB(db_path)
+    database.connect()
+    session = SupervisionService(database).create(
+        "bounded-p8-action",
+        _decision(Decision.REVIEW),
+    )
+    session_id = session.supervision_session_id
+    action_ref = SupervisionService(database).action_ref(session_id)
+    database.close()
+
+    barrier = threading.Barrier(2)
+    lock = threading.Lock()
+    outcomes: list[tuple[str, str]] = []
+
+    def invoke(method_name: str) -> None:
+        worker_db = StateDB(db_path)
+        worker_db.connect()
+        try:
+            barrier.wait(timeout=5)
+            try:
+                result = getattr(SupervisionService(worker_db), method_name)(
+                    session_id,
+                    action_ref,
+                )
+                outcome = ("success", result.status)
+            except SupervisionActionError as exc:
+                outcome = ("error", exc.reason_code)
+            with lock:
+                outcomes.append(outcome)
+        finally:
+            worker_db.close()
+
+    threads = [threading.Thread(target=invoke, args=(name,)) for name in (first, second)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+
+    assert len([item for item in outcomes if item[0] == "success"]) == 1
+    assert outcomes.count(("error", "SUPERVISION_ACTION_REPLAYED")) == 1
+    database = StateDB(db_path)
+    database.connect()
+    try:
+        row = database._conn.execute(
+            """SELECT status FROM supervision_sessions
+               WHERE supervision_session_id = ?""",
+            (session_id,),
+        ).fetchone()
+        events = database._conn.execute(
+            """SELECT event_type FROM evidence_ledger_events
+               WHERE supervision_session_id = ?
+                 AND event_type IN ('USER_APPROVED', 'USER_REJECTED')""",
+            (session_id,),
+        ).fetchall()
+        assert row[0] in {"APPROVED", "REJECTED"}
+        assert len(events) == 1
+        assert verify_ledger(database._conn) == []
+    finally:
+        database.close()
+
+
+def test_database_failure_response_does_not_leak_path_or_exception(tmp_path):
+    blocked = tmp_path / "private-state.db"
+    blocked.mkdir()
+    session_id = "session-22222222-2222-2222-2222-222222222222"
+    with _running_api(tmp_path, blocked) as (base_url, token, _root):
+        status, body = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/reject",
+            token,
+            {"action_ref": "0" * 64},
+        )
+    encoded = json.dumps(body)
+    assert status == 503
+    assert body["reason_code"] == "SUPERVISION_AUTHORITY_UNAVAILABLE"
+    assert str(tmp_path) not in encoded
+    assert "private-state.db" not in encoded
+    assert "sqlite" not in encoded.casefold()
