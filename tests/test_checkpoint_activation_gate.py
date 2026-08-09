@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
@@ -356,6 +357,74 @@ def test_active_authority_changes_one_config_then_diffs_and_verifies_offline(
     assert str(target) not in events[1][4]
 
 
+def test_controlled_change_works_without_dir_fd_support(
+    authority,
+    tmp_path,
+    monkeypatch,
+):
+    """Windows exposes these APIs but rejects every non-None dir_fd."""
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    after = b"safe = true\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(
+        database,
+        snapshots,
+        target,
+    )
+    real_open = os.open
+    real_stat = os.stat
+    real_replace = os.replace
+    real_unlink = os.unlink
+
+    def open_without_dir_fd(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is not None:
+            raise NotImplementedError("dir_fd unavailable")
+        return real_open(path, flags, mode)
+
+    def stat_without_dir_fd(path, *, dir_fd=None, follow_symlinks=True):
+        if dir_fd is not None:
+            raise NotImplementedError("dir_fd unavailable")
+        return real_stat(path, follow_symlinks=follow_symlinks)
+
+    def replace_without_dir_fd(
+        source,
+        destination,
+        *,
+        src_dir_fd=None,
+        dst_dir_fd=None,
+    ):
+        if src_dir_fd is not None or dst_dir_fd is not None:
+            raise NotImplementedError("dir_fd unavailable")
+        return real_replace(source, destination)
+
+    def unlink_without_dir_fd(path, *, dir_fd=None):
+        if dir_fd is not None:
+            raise NotImplementedError("dir_fd unavailable")
+        return real_unlink(path)
+
+    monkeypatch.setattr(os, "supports_dir_fd", set())
+    monkeypatch.setattr(os, "open", open_without_dir_fd)
+    monkeypatch.setattr(os, "stat", stat_without_dir_fd)
+    monkeypatch.setattr(os, "replace", replace_without_dir_fd)
+    monkeypatch.setattr(os, "unlink", unlink_without_dir_fd)
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=after,
+    )
+
+    assert result.status == "COMPLETED"
+    assert result.reason_code == "CONTROLLED_CHANGE_COMPLETED"
+    assert result.changed is True
+    assert result.verification == "PASS"
+    assert target.read_bytes() == after
+    assert verify_ledger(database._conn) == []
+
+
 @pytest.mark.parametrize(
     ("requested", "reason_code"),
     [
@@ -505,6 +574,50 @@ def test_target_replacement_at_write_boundary_preserves_concurrent_content(
     assert result.changed is False
     assert target.read_bytes() == concurrent
     assert _session_status(database, session_id) == "FAILED"
+    assert verify_ledger(database._conn) == []
+
+
+def test_portable_write_rechecks_target_identity_before_replace(
+    authority,
+    tmp_path,
+    monkeypatch,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    target.write_bytes(b"safe = false\n")
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    original = supervision_module._write_portable_temp
+    concurrent = b"concurrent = true\n"
+
+    def write_temp_then_replace_target(path, content, mode):
+        temp = original(path, content, mode)
+        path.unlink()
+        path.write_bytes(concurrent)
+        return temp
+
+    monkeypatch.setattr(
+        supervision_module,
+        "_handle_relative_paths_supported",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        supervision_module,
+        "_write_portable_temp",
+        write_temp_then_replace_target,
+    )
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_AUTHORITY_STALE"
+    assert result.changed is False
+    assert target.read_bytes() == concurrent
+    assert not list(tmp_path.glob(".agentguard-restore-*"))
     assert verify_ledger(database._conn) == []
 
 
@@ -658,6 +771,55 @@ def test_persistence_and_rollback_failure_reports_external_effect(
         "SELECT COUNT(*) FROM evidence_ledger_events WHERE event_type = 'EXTERNAL_EFFECT_UNKNOWN'"
     ).fetchone() == (1,)
     assert _session_status(database, session_id) == "FAILED"
+    assert verify_ledger(database._conn) == []
+
+
+def test_retry_after_crash_post_write_records_uncertain_external_effect(
+    authority,
+    tmp_path,
+):
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    approved = b"safe = true\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+
+    # Simulate a process exit after atomic replacement but before the open
+    # SQLite transaction could commit OBSERVED_CHANGE / SESSION_COMPLETED.
+    target.write_bytes(approved)
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=approved,
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_EXTERNAL_EFFECT_UNKNOWN"
+    assert result.changed is True
+    assert result.rolled_back is False
+    assert result.before_digest == hashlib.sha256(before).hexdigest()
+    assert result.after_digest == hashlib.sha256(approved).hexdigest()
+    assert target.read_bytes() == approved
+    assert _session_status(database, session_id) == "FAILED"
+    event = database._conn.execute(
+        """SELECT result, payload_safe_json FROM evidence_ledger_events
+           WHERE supervision_session_id = ? AND event_type = 'EXTERNAL_EFFECT_UNKNOWN'""",
+        (session_id,),
+    ).fetchone()
+    assert event is not None
+    assert event[0] == "APPROVED_CONTENT_PRESENT_WITHOUT_CHANGE_EVIDENCE"
+    payload = json.loads(event[1])
+    assert payload["expected_before_digest"] == hashlib.sha256(before).hexdigest()
+    assert payload["observed_digest"] == hashlib.sha256(approved).hexdigest()
+    assert payload["approved_after_digest"] == hashlib.sha256(approved).hexdigest()
+    assert database._conn.execute(
+        """SELECT COUNT(*) FROM evidence_ledger_events
+           WHERE supervision_session_id = ? AND event_type = 'SESSION_COMPLETED'""",
+        (session_id,),
+    ).fetchone() == (0,)
     assert verify_ledger(database._conn) == []
 
 

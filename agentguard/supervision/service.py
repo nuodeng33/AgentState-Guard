@@ -97,8 +97,72 @@ class _ActionAuthority:
     status: str
 
 
+def _handle_relative_paths_supported() -> bool:
+    """Return whether the current OS can enforce the handle-relative path."""
+    # CPython exposes ``os.replace`` with the rename dir-fd implementation but
+    # lists ``os.rename`` (not ``os.replace``) in ``os.supports_dir_fd``.
+    required = (os.open, os.stat, os.rename, os.unlink)
+    return all(function in os.supports_dir_fd for function in required)
+
+
+def _identity(file_stat: os.stat_result) -> tuple[int, int]:
+    return file_stat.st_dev, file_stat.st_ino
+
+
+def _is_reparse_point(file_stat: os.stat_result) -> bool:
+    flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    attributes = getattr(file_stat, "st_file_attributes", 0)
+    return bool(flag and attributes & flag)
+
+
+def _portable_target_stat(target: Path) -> tuple[os.stat_result, os.stat_result]:
+    """Reject symlink/reparse traversal where dir_fd is unavailable."""
+    parent_stat = os.stat(target.parent, follow_symlinks=False)
+    target_stat = os.stat(target, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(parent_stat.st_mode)
+        or _is_reparse_point(parent_stat)
+        or not stat.S_ISREG(target_stat.st_mode)
+        or _is_reparse_point(target_stat)
+    ):
+        raise OSError("CONTROLLED_CHANGE_TARGET_CHANGED")
+    return parent_stat, target_stat
+
+
+def _read_controlled_target_portable(target: Path) -> tuple[bytes, os.stat_result]:
+    """Read and identity-check a target on platforms without dir_fd."""
+    parent_stat, target_stat = _portable_target_stat(target)
+    descriptor = os.open(
+        target,
+        os.O_RDONLY | getattr(os, "O_BINARY", 0),
+    )
+    try:
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        content = b"".join(chunks)
+        opened_stat = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    current_parent, current_target = _portable_target_stat(target)
+    if (
+        _identity(parent_stat) != _identity(current_parent)
+        or _identity(target_stat) != _identity(opened_stat)
+        or _identity(opened_stat) != _identity(current_target)
+        or not stat.S_ISREG(opened_stat.st_mode)
+        or opened_stat.st_size != len(content)
+    ):
+        raise OSError("CONTROLLED_CHANGE_TARGET_CHANGED")
+    return content, opened_stat
+
+
 def _read_controlled_target(target: Path) -> tuple[bytes, os.stat_result]:
     """Read a regular target through a non-symlinked parent directory handle."""
+    if not _handle_relative_paths_supported():
+        return _read_controlled_target_portable(target)
     parent_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(
         os,
         "O_NOFOLLOW",
@@ -165,6 +229,111 @@ def _replace_at(parent_fd: int, name: str, content: bytes, mode: int) -> None:
             pass
 
 
+def _write_portable_temp(target: Path, content: bytes, mode: int) -> Path:
+    temp = target.parent / f".agentguard-restore-{target.name}-{uuid4().hex}"
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            temp,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_BINARY", 0),
+            0o600,
+        )
+        remaining = memoryview(content)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("CONTROLLED_CHANGE_WRITE_INCOMPLETE")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        fchmod = getattr(os, "fchmod", None)
+        chmod_by_path = fchmod is None
+        if fchmod is not None:
+            try:
+                fchmod(descriptor, stat.S_IMODE(mode))
+            except NotImplementedError:
+                chmod_by_path = True
+        os.close(descriptor)
+        descriptor = -1
+        if chmod_by_path:
+            os.chmod(temp, stat.S_IMODE(mode))
+        return temp
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.unlink(temp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _portable_atomic_restore(
+    target: Path,
+    content: bytes,
+    file_entry: dict,
+) -> dict[str, object]:
+    """Use full paths with repeated identity checks when dir_fd is unavailable."""
+    temp: Path | None = None
+    try:
+        parent_stat, _target_stat = _portable_target_stat(target)
+        current, opened_stat = _read_controlled_target_portable(target)
+        current_digest = hashlib.sha256(current).hexdigest()
+        expected_before = file_entry.get("_expected_before_sha256")
+        expected_identity = file_entry.get("_expected_before_identity")
+        if (
+            not isinstance(expected_before, str)
+            or current_digest != expected_before
+            or expected_identity != _identity(opened_stat)
+        ):
+            return {
+                "status": "authority_stale",
+                "message": "Controlled target changed",
+            }
+        mode_value = file_entry.get("mode_oct", "0o644")
+        try:
+            mode = (
+                int(mode_value, 8)
+                if str(mode_value).startswith("0")
+                else int(mode_value)
+            )
+        except (TypeError, ValueError):
+            mode = 0o644
+        temp = _write_portable_temp(target, content, mode)
+        latest, latest_stat = _read_controlled_target_portable(target)
+        latest_parent, _latest_target = _portable_target_stat(target)
+        if (
+            hashlib.sha256(latest).hexdigest() != expected_before
+            or _identity(latest_stat) != expected_identity
+            or _identity(latest_parent) != _identity(parent_stat)
+        ):
+            return {
+                "status": "authority_stale",
+                "message": "Controlled target changed",
+            }
+        os.replace(temp, target)
+        temp = None
+        written, _written_stat = _read_controlled_target_portable(target)
+        actual = hashlib.sha256(written).hexdigest()
+        expected = file_entry.get("sha256")
+        current_parent, _current_target = _portable_target_stat(target)
+        if not isinstance(expected, str) or actual != expected:
+            return {"status": "hash_mismatch", "message": "Controlled hash mismatch"}
+        if _identity(current_parent) != _identity(parent_stat):
+            return {"status": "error", "message": "Controlled parent changed"}
+        return {"status": "success", "message": "Controlled file replaced"}
+    except (NotImplementedError, OSError):
+        return {"status": "error", "message": "Controlled replace failed"}
+    finally:
+        if temp is not None:
+            try:
+                os.unlink(temp)
+            except FileNotFoundError:
+                pass
+
+
 def _digest_at(parent_fd: int, name: str) -> tuple[str, os.stat_result]:
     descriptor = os.open(
         name,
@@ -188,6 +357,8 @@ def _digest_at(parent_fd: int, name: str) -> tuple[str, os.stat_result]:
 
 def _atomic_restore(target: Path, content: bytes, file_entry: dict) -> dict[str, object]:
     """Atomically replace one controlled file without following its parent."""
+    if not _handle_relative_paths_supported():
+        return _portable_atomic_restore(target, content, file_entry)
     parent_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(
         os,
         "O_NOFOLLOW",
@@ -915,6 +1086,33 @@ class SupervisionService:
                 context=context,
             )
             if before_digest != entry["sha256"]:
+                if before_digest == after_digest:
+                    target_ref_digest = hashlib.sha256(
+                        str(requested).encode("utf-8")
+                    ).hexdigest()
+                    effect_ref = self._append_change(
+                        connection,
+                        session_id=session_id,
+                        checkpoint_id=checkpoint_id,
+                        change_id=f"change-{uuid4()}",
+                        event_type=EventType.EXTERNAL_EFFECT_UNKNOWN,
+                        result="APPROVED_CONTENT_PRESENT_WITHOUT_CHANGE_EVIDENCE",
+                        context=context,
+                        payload={
+                            "expected_before_digest": entry["sha256"],
+                            "observed_digest": before_digest,
+                            "approved_after_digest": after_digest,
+                            "rolled_back": False,
+                            "target_ref_digest": target_ref_digest,
+                        },
+                    )
+                    return fail(
+                        "CONTROLLED_CHANGE_EXTERNAL_EFFECT_UNKNOWN",
+                        before_digest=str(entry["sha256"]),
+                        after_digest=before_digest,
+                        changed=True,
+                        evidence_refs=(effect_ref,),
+                    )
                 return fail(
                     "CONTROLLED_CHANGE_AUTHORITY_STALE",
                     before_digest=before_digest,
