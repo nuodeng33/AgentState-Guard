@@ -6,6 +6,7 @@ from pathlib import Path
 
 from agentguard.discovery.capabilities import CapabilityStatus
 from agentguard.discovery.domains import SelfRuntimeAdapter
+from agentguard.evidence.ledger import verify_ledger
 from agentguard.recovery.contracts import (
     RecoveryOperation,
     RecoveryOperationResult,
@@ -235,6 +236,68 @@ def test_r3_adapter_failure_cleans_managed_target(tmp_path, monkeypatch):
         assert service.run_drill(prepared["drill_id"]) == {"status": "FAILED", "reason_code": "DRILL_PARTIAL_WRITE_FAILED"}
         assert list((database.db_path.parent / ".agentguard-r3-drills").iterdir()) == []
         assert "RECOVERY_DRILL_VERIFIED" not in _drill_events(database, checkpoint.checkpoint_id)
+    finally:
+        database.close()
+
+
+def test_r3_malformed_adapter_result_cleans_managed_target(tmp_path, monkeypatch):
+    _target, database, _snapshots, service, checkpoint = _service(tmp_path)
+    try:
+        prepared = _r2_then_approved_drill(service, checkpoint.checkpoint_id)
+        adapter = service._adapters["self-runtime"]
+
+        def malformed_drill(request):
+            assert request.drill_root is not None
+            (request.drill_root / "partial").write_text("partial")
+            return RecoveryOperationResult(
+                operation=request.operation,
+                status=CapabilityStatus.AVAILABLE,
+                reason_code="DRILL_VERIFIED",
+                execution_domain_id="wrong-domain",
+                checkpoint_id=request.checkpoint_id,
+                manifest_digest=checkpoint.manifest_digest,
+            )
+
+        monkeypatch.setattr(adapter, "drill_restore", malformed_drill)
+        result = service.run_drill(prepared["drill_id"])
+
+        assert result == {
+            "status": "FAILED",
+            "reason_code": "RECOVERY_ADAPTER_RESULT_INVALID",
+        }
+        assert list((database.db_path.parent / ".agentguard-r3-drills").iterdir()) == []
+        assert "RECOVERY_DRILL_VERIFIED" not in _drill_events(
+            database, checkpoint.checkpoint_id
+        )
+    finally:
+        database.close()
+
+
+def test_r3_drill_rejects_corrupt_ledger_before_consuming_authority(tmp_path):
+    _target, database, _snapshots, service, checkpoint = _service(tmp_path)
+    try:
+        prepared = _r2_then_approved_drill(service, checkpoint.checkpoint_id)
+        database._conn.execute("DROP TRIGGER evidence_ledger_events_no_update")
+        database._conn.execute(
+            "UPDATE evidence_ledger_events SET result = 'forged' WHERE sequence = 1"
+        )
+        database._conn.commit()
+        assert verify_ledger(database._conn)
+
+        result = service.run_drill(prepared["drill_id"])
+
+        assert result == {"status": "FAILED", "reason_code": "RECOVERY_LEDGER_INVALID"}
+        assert database._conn.execute(
+            "SELECT status FROM recovery_drills WHERE drill_id = ?",
+            (prepared["drill_id"],),
+        ).fetchone() == ("APPROVED",)
+        assert database._conn.execute(
+            "SELECT consumed_at FROM recovery_authorizations WHERE subject_id = ?",
+            (prepared["drill_id"],),
+        ).fetchone() == (None,)
+        assert "RECOVERY_DRILL_VERIFIED" not in _drill_events(
+            database, checkpoint.checkpoint_id
+        )
     finally:
         database.close()
 

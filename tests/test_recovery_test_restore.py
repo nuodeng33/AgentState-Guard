@@ -172,8 +172,34 @@ def test_test_restore_ledger_failure_does_not_return_success_or_leave_root(tmp_p
         assert result.status is CapabilityStatus.ERROR
         assert result.reason_code == "RECOVERY_PERSISTENCE_FAILED"
         assert "secret" not in str(result)
+        assert not staging_root.exists()
         assert not list(tmp_path.glob("agentguard-test-restore-root-*"))
         assert not database._conn.in_transaction
+    finally:
+        database.close()
+
+
+def test_test_restore_never_verifies_against_a_corrupt_ledger(tmp_path):
+    _target, database, _snapshots, service, created = _setup(tmp_path)
+    try:
+        database._conn.execute("DROP TRIGGER evidence_ledger_events_no_update")
+        database._conn.execute(
+            "UPDATE evidence_ledger_events SET result = 'forged' WHERE sequence = 1"
+        )
+        database._conn.commit()
+        assert verify_ledger(database._conn)
+
+        result = service.test_restore(
+            RecoveryRequest(
+                operation=RecoveryOperation.TEST_RESTORE,
+                execution_domain_id="local-domain",
+                checkpoint_id=created.checkpoint_id,
+            )
+        )
+
+        assert result.status is CapabilityStatus.ERROR
+        assert result.reason_code == "RECOVERY_LEDGER_INVALID"
+        assert "sandbox_path" not in result.details
     finally:
         database.close()
 

@@ -66,6 +66,12 @@ jobs:
         # where Scripts directory may not be in PATH after pip install
         shell: pwsh
         run: |
+          $provenance = @(
+            '"""Build-generated exact product provenance."""'
+            ''
+            "PRODUCT_SHA = `"${{ github.sha }}`""
+          )
+          Set-Content agentguard/core/_build_provenance.py $provenance -Encoding utf8
           python -m PyInstaller `
             --onefile `
             --name agentguard-sidecar `

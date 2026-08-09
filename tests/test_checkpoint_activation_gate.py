@@ -422,6 +422,55 @@ def test_symlink_escape_fails_without_touching_link_target(authority, tmp_path):
     assert verify_ledger(database._conn) == []
 
 
+def test_parent_symlink_swap_cannot_redirect_controlled_write(
+    authority,
+    tmp_path,
+    monkeypatch,
+):
+    database, snapshots = authority
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    target = config_dir / "agentguard.toml"
+    before = b"safe = false\n"
+    target.write_bytes(before)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_target = outside / target.name
+    outside_before = b"outside = true\n"
+    outside_target.write_bytes(outside_before)
+    sessions, session_id, checkpoint_id = _active_session(
+        database,
+        snapshots,
+        target,
+    )
+    original = supervision_module._atomic_restore
+    original_dir = tmp_path / "original-config"
+    swapped = False
+
+    def swap_parent_then_write(path, content, entry):
+        nonlocal swapped
+        if not swapped:
+            swapped = True
+            config_dir.rename(original_dir)
+            config_dir.symlink_to(outside, target_is_directory=True)
+        return original(path, content, entry)
+
+    monkeypatch.setattr(supervision_module, "_atomic_restore", swap_parent_then_write)
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=b"safe = true\n",
+    )
+
+    assert result.status == "FAILED"
+    assert result.changed is False
+    assert outside_target.read_bytes() == outside_before
+    assert (original_dir / target.name).read_bytes() == before
+    assert _session_status(database, session_id) == "FAILED"
+    assert verify_ledger(database._conn) == []
+
+
 def test_atomic_write_failure_never_records_observed_change(
     authority,
     tmp_path,
@@ -525,6 +574,53 @@ def test_persistence_commit_failure_rolls_back_filesystem_change(authority, tmp_
     assert database._conn.execute(
         "SELECT COUNT(*) FROM evidence_ledger_events WHERE event_type = 'OBSERVED_CHANGE'"
     ).fetchone()[0] == 0
+    assert verify_ledger(database._conn) == []
+
+
+def test_persistence_and_rollback_failure_reports_external_effect(
+    authority,
+    tmp_path,
+    monkeypatch,
+):
+    class CommitFailConnection(sqlite3.Connection):
+        fail_next_commit = False
+
+        def commit(self):
+            if self.fail_next_commit:
+                self.fail_next_commit = False
+                raise sqlite3.OperationalError("injected commit failure")
+            return super().commit()
+
+    database, snapshots = authority
+    target = tmp_path / "config.toml"
+    before = b"safe = false\n"
+    after = b"safe = true\n"
+    target.write_bytes(before)
+    sessions, session_id, checkpoint_id = _active_session(database, snapshots, target)
+    database._conn.close()
+    database._conn = sqlite3.connect(
+        str(database.db_path),
+        factory=CommitFailConnection,
+    )
+    database._conn.fail_next_commit = True
+    monkeypatch.setattr(supervision_module, "_rollback_file", lambda *_args: False)
+
+    result = sessions.apply_config_change(
+        session_id,
+        checkpoint_id,
+        requested_target=target,
+        content=after,
+    )
+
+    assert result.status == "FAILED"
+    assert result.reason_code == "CONTROLLED_CHANGE_PERSISTENCE_FAILED"
+    assert result.changed is True
+    assert result.rolled_back is False
+    assert target.read_bytes() == after
+    assert database._conn.execute(
+        "SELECT COUNT(*) FROM evidence_ledger_events WHERE event_type = 'EXTERNAL_EFFECT_UNKNOWN'"
+    ).fetchone() == (1,)
+    assert _session_status(database, session_id) == "FAILED"
     assert verify_ledger(database._conn) == []
 
 

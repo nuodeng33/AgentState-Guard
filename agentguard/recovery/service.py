@@ -16,7 +16,7 @@ from uuid import uuid4
 from agentguard.core.versions import exact_product_sha, is_exact_git_sha
 from agentguard.discovery.capabilities import CapabilityStatus
 from agentguard.evidence.canonical import canonical_json
-from agentguard.evidence.ledger import EvidenceLedger
+from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
@@ -227,6 +227,12 @@ class RecoveryService:
         return outcome
 
     def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        if self._database._conn is None or verify_ledger(self._database._conn):
+            return self._result(
+                request,
+                CapabilityStatus.ERROR,
+                "RECOVERY_LEDGER_INVALID",
+            )
         checkpoint = self._checkpoint(request)
         if checkpoint is None:
             outcome = self._result(request, CapabilityStatus.NOT_PRESENT, "RECOVERY_CHECKPOINT_NOT_FOUND")
@@ -254,6 +260,7 @@ class RecoveryService:
             self._record_failure(outcome)
             return outcome
         staging_root = Path(tempfile.mkdtemp(prefix="agentguard-test-restore-root-"))
+        persisted = False
         try:
             started = self._result(
                 request,
@@ -279,13 +286,16 @@ class RecoveryService:
                     self._append_event(connection, EventType.VALIDATOR_PASSED, outcome, str(checkpoint["id"]), digest, outcome.details.get("verified_targets", 0), ())
                 else:
                     self._append_event(connection, EventType.RESTORE_FAILED, outcome, str(checkpoint["id"]), digest, 0, ())
+                if verify_ledger(connection):
+                    raise RuntimeError("RECOVERY_LEDGER_INVALID")
+            persisted = True
             return outcome
         except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
             failure = self._result(request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED")
             self._record_failure(failure)
             return failure
         finally:
-            if "outcome" not in locals() or not outcome.ok:
+            if not persisted or "outcome" not in locals() or not outcome.ok:
                 shutil.rmtree(staging_root, ignore_errors=True)
 
     def prepare_drill(
@@ -410,6 +420,11 @@ class RecoveryService:
     def run_drill(self, drill_id: str) -> dict[str, object]:
         try:
             with self._database.transaction() as connection:
+                if verify_ledger(connection):
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "RECOVERY_LEDGER_INVALID",
+                    }
                 row = connection.execute(
                     """SELECT d.checkpoint_id, d.execution_domain_id, d.manifest_digest,
                               d.target_refs_digest, d.binding_digest, d.status,
@@ -522,6 +537,8 @@ class RecoveryService:
                     EventType.RECOVERY_DRILL_COMPLETED if result.ok else EventType.RESTORE_FAILED,
                     drill_id, final_status, context, row[4], details, row[6],
                 )
+                if verify_ledger(connection):
+                    raise RuntimeError("RECOVERY_LEDGER_INVALID")
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
         if not result.ok:
@@ -579,7 +596,15 @@ class RecoveryService:
             )
             outcome = adapter.drill_restore(request)
             if not self._outcome_matches(request, outcome) or outcome.manifest_digest != digest:
-                return self._result(request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID")
+                invalid = self._result(
+                    request,
+                    CapabilityStatus.ERROR,
+                    "RECOVERY_ADAPTER_RESULT_INVALID",
+                )
+                return replace(
+                    invalid,
+                    details={"managed_target_root": str(drill_root.resolve())},
+                )
             return replace(
                 outcome,
                 details={**outcome.details, "managed_target_root": str(drill_root.resolve())},

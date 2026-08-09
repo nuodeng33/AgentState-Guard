@@ -33,6 +33,7 @@ from agentguard.discovery.agents import (
 from agentguard.discovery.domains import SelfRuntimeAdapter
 from agentguard.evidence.canonical import canonical_json
 from agentguard.evidence.discovery_adapter import record_discovery_snapshot
+from agentguard.evidence.ledger import verify_ledger
 from agentguard.policy.models import Decision, PolicyInput
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
 from agentguard.recovery.policy import RestorePolicy
@@ -163,6 +164,8 @@ def apply_controlled_change(
     connection = database._conn
     if connection is None:
         raise ControlledChangeError("CONTROLLED_CHANGE_AUTHORITY_UNAVAILABLE", 503)
+    if verify_ledger(connection):
+        raise ControlledChangeError("CONTROLLED_CHANGE_LEDGER_INVALID", 503)
     row = connection.execute(
         """SELECT status, declared_intent_digest FROM supervision_sessions
            WHERE supervision_session_id = ?""",

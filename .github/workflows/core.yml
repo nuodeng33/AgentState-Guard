@@ -38,6 +38,15 @@ jobs:
       - working-directory: web
         run: npm ci && npx vite build
       - run: pip install build && python -m build
-      - run: pip install dist/*.whl && agentguard --help
+      - name: Verify wheel outside checkout
+        run: |
+          python -m venv "$RUNNER_TEMP/agentguard-wheel"
+          "$RUNNER_TEMP/agentguard-wheel/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP"
+          actual=$("$RUNNER_TEMP/agentguard-wheel/bin/python" -c \
+            'from agentguard.core.versions import exact_product_sha; print(exact_product_sha())')
+          test "$actual" = "$GITHUB_SHA"
+          "$RUNNER_TEMP/agentguard-wheel/bin/pip" check
+          "$RUNNER_TEMP/agentguard-wheel/bin/agentguard" --help
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
         with: { name: wheel, path: dist/*.whl }

@@ -5,6 +5,11 @@ from pathlib import Path
 
 from .runner import run_command
 
+try:
+    from ._build_provenance import PRODUCT_SHA as _EMBEDDED_PRODUCT_SHA
+except ImportError:  # pragma: no cover - source trees include the placeholder.
+    _EMBEDDED_PRODUCT_SHA = None
+
 _EXACT_GIT_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -20,7 +25,11 @@ def exact_product_sha(cwd: Path | None = None) -> str | None:
         result = run_command(["git", "rev-parse", "HEAD"], timeout=5, cwd=repository)
     except (FileNotFoundError, PermissionError):
         return None
-    return result.stdout if result.success and is_exact_git_sha(result.stdout) else None
+    if result.success and is_exact_git_sha(result.stdout):
+        return result.stdout
+    if cwd is None and is_exact_git_sha(_EMBEDDED_PRODUCT_SHA):
+        return _EMBEDDED_PRODUCT_SHA
+    return None
 
 
 def _get_version(cmd: list, flag: str = "--version", label: str = "") -> str | None:

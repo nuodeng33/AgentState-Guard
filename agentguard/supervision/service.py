@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import sqlite3
 import stat
 import tomllib
@@ -13,7 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from agentguard.commands.restore import _atomic_restore
 from agentguard.core.versions import exact_product_sha, is_exact_git_sha
 from agentguard.evidence.canonical import canonical_json
 from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
@@ -97,13 +97,142 @@ class _ActionAuthority:
     status: str
 
 
+def _read_controlled_target(target: Path) -> tuple[bytes, os.stat_result]:
+    """Read a regular target through a non-symlinked parent directory handle."""
+    parent_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(
+        os,
+        "O_NOFOLLOW",
+        0,
+    )
+    parent_fd = os.open(target.parent, parent_flags)
+    try:
+        descriptor = os.open(
+            target.name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent_fd,
+        )
+        try:
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            content = b"".join(chunks)
+            file_stat = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        os.close(parent_fd)
+    if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size != len(content):
+        raise OSError("CONTROLLED_CHANGE_TARGET_CHANGED")
+    return content, file_stat
+
+
+def _replace_at(parent_fd: int, name: str, content: bytes, mode: int) -> None:
+    temp_name = f".agentguard-restore-{name}-{uuid4().hex}"
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            temp_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+            dir_fd=parent_fd,
+        )
+        remaining = memoryview(content)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("CONTROLLED_CHANGE_WRITE_INCOMPLETE")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        os.fchmod(descriptor, stat.S_IMODE(mode))
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(
+            temp_name,
+            name,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+        os.fsync(parent_fd)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.unlink(temp_name, dir_fd=parent_fd)
+        except FileNotFoundError:
+            pass
+
+
+def _atomic_restore(target: Path, content: bytes, file_entry: dict) -> dict[str, object]:
+    """Atomically replace one controlled file without following its parent."""
+    parent_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(
+        os,
+        "O_NOFOLLOW",
+        0,
+    )
+    try:
+        parent_fd = os.open(target.parent, parent_flags)
+    except OSError:
+        return {"status": "error", "message": "Controlled parent unavailable"}
+    try:
+        parent_stat = os.fstat(parent_fd)
+        current_stat = os.stat(target.name, dir_fd=parent_fd, follow_symlinks=False)
+        if not stat.S_ISREG(current_stat.st_mode):
+            return {"status": "error", "message": "Controlled target unavailable"}
+        mode_value = file_entry.get("mode_oct", "0o644")
+        try:
+            mode = int(mode_value, 8) if str(mode_value).startswith("0") else int(mode_value)
+        except (TypeError, ValueError):
+            mode = 0o644
+        _replace_at(parent_fd, target.name, content, mode)
+        descriptor = os.open(
+            target.name,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=parent_fd,
+        )
+        try:
+            actual = hashlib.sha256()
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                actual.update(chunk)
+        finally:
+            os.close(descriptor)
+        expected = file_entry.get("sha256")
+        if not isinstance(expected, str) or actual.hexdigest() != expected:
+            return {"status": "hash_mismatch", "message": "Controlled hash mismatch"}
+        try:
+            current_parent = os.stat(target.parent, follow_symlinks=False)
+        except OSError:
+            current_parent = None
+        if (
+            current_parent is None
+            or not stat.S_ISDIR(current_parent.st_mode)
+            or (current_parent.st_dev, current_parent.st_ino)
+            != (parent_stat.st_dev, parent_stat.st_ino)
+        ):
+            rollback_content = file_entry.get("_rollback_content")
+            rollback_mode = file_entry.get("_rollback_mode", current_stat.st_mode)
+            if isinstance(rollback_content, bytes):
+                _replace_at(parent_fd, target.name, rollback_content, int(rollback_mode))
+            return {"status": "error", "message": "Controlled parent changed"}
+        return {"status": "success", "message": "Controlled file replaced"}
+    except OSError:
+        return {"status": "error", "message": "Controlled replace failed"}
+    finally:
+        os.close(parent_fd)
+
+
 def _authoritative_diff(
     target: Path,
     *,
     before_digest: str,
     expected_after_digest: str,
 ) -> dict[str, object]:
-    content, _file_stat = RestorePolicy._read_once(target)
+    content, _file_stat = _read_controlled_target(target)
     after_digest = hashlib.sha256(content).hexdigest()
     if after_digest != expected_after_digest or after_digest == before_digest:
         raise ValueError("CONTROLLED_CHANGE_DIFF_INVALID")
@@ -124,7 +253,7 @@ def _offline_verify(
     result = "FAIL"
     verified_digest: str | None = None
     try:
-        content, _file_stat = RestorePolicy._read_once(target)
+        content, _file_stat = _read_controlled_target(target)
         verified_digest = hashlib.sha256(content).hexdigest()
         if validator == "toml-parse" and verified_digest == expected_digest:
             tomllib.loads(content.decode("utf-8"))
@@ -155,7 +284,7 @@ def _rollback_file(
         },
     )
     try:
-        restored, _file_stat = RestorePolicy._read_once(target)
+        restored, _file_stat = _read_controlled_target(target)
     except OSError:
         return False
     return (
@@ -607,10 +736,23 @@ class SupervisionService:
                 and before_stat is not None
                 else False
             )
+            current_digest = None
+            if isinstance(target, Path):
+                try:
+                    current, _current_stat = _read_controlled_target(target)
+                    current_digest = hashlib.sha256(current).hexdigest()
+                except OSError:
+                    pass
+            changed = (
+                isinstance(rollback.get("before_digest"), str)
+                and current_digest is not None
+                and current_digest != rollback["before_digest"]
+            )
             result = ControlledChangeResult(
                 session_id,
                 "FAILED",
                 "CONTROLLED_CHANGE_PERSISTENCE_FAILED",
+                changed=changed,
                 before_digest=rollback.get("before_digest"),
                 after_digest=rollback.get("after_digest"),
                 rolled_back=rolled_back,
@@ -625,6 +767,31 @@ class SupervisionService:
                         )
                     else:
                         context = rollback.get("context")
+                        evidence_refs: tuple[str, ...] = ()
+                        if (
+                            changed
+                            and isinstance(context, dict)
+                            and isinstance(target, Path)
+                        ):
+                            effect_ref = self._append_change(
+                                connection,
+                                session_id=session_id,
+                                checkpoint_id=checkpoint_id,
+                                change_id=f"change-{uuid4()}",
+                                event_type=EventType.EXTERNAL_EFFECT_UNKNOWN,
+                                result="PERSISTENCE_FAILED_ROLLBACK_UNKNOWN",
+                                context=context,
+                                payload={
+                                    "before_digest": rollback.get("before_digest"),
+                                    "expected_after_digest": rollback.get("after_digest"),
+                                    "observed_digest": current_digest,
+                                    "rolled_back": False,
+                                    "target_ref_digest": hashlib.sha256(
+                                        str(target).encode("utf-8")
+                                    ).hexdigest(),
+                                },
+                            )
+                            evidence_refs = (effect_ref,)
                         result = self._fail_controlled_change(
                             connection,
                             session_id=session_id,
@@ -633,7 +800,9 @@ class SupervisionService:
                             context=context if isinstance(context, dict) else None,
                             before_digest=rollback.get("before_digest"),
                             after_digest=rollback.get("after_digest"),
+                            changed=changed,
                             rolled_back=rolled_back,
+                            evidence_refs=evidence_refs,
                         )
             except (OSError, RuntimeError, sqlite3.DatabaseError, ValueError):
                 pass
@@ -706,7 +875,7 @@ class SupervisionService:
             if not isinstance(content, bytes):
                 return fail("CONTROLLED_CHANGE_CONTENT_INVALID")
             try:
-                before, before_stat = RestorePolicy._read_once(requested)
+                before, before_stat = _read_controlled_target(requested)
             except (OSError, ValueError):
                 return fail("CONTROLLED_CHANGE_AUTHORITY_STALE")
             before_digest = hashlib.sha256(before).hexdigest()
@@ -738,11 +907,13 @@ class SupervisionService:
                 {
                     "mode_oct": oct(stat.S_IMODE(before_stat.st_mode)),
                     "sha256": after_digest,
+                    "_rollback_content": before,
+                    "_rollback_mode": before_stat.st_mode,
                 },
             )
             if write_result.get("status") != "success":
                 try:
-                    current, _current_stat = RestorePolicy._read_once(requested)
+                    current, _current_stat = _read_controlled_target(requested)
                     current_digest = hashlib.sha256(current).hexdigest()
                 except OSError:
                     current_digest = None
@@ -973,6 +1144,7 @@ class SupervisionService:
         before_digest: str | None = None,
         after_digest: str | None = None,
         verification: str = "NOT_RUN",
+        changed: bool = False,
         rolled_back: bool = False,
         evidence_refs: tuple[str, ...] = (),
         payload_extra: dict[str, object] | None = None,
@@ -1005,7 +1177,7 @@ class SupervisionService:
             session_id,
             "FAILED",
             reason_code,
-            False,
+            changed,
             before_digest,
             after_digest,
             verification,

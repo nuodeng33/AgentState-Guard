@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import sqlite3
 import threading
 import time
 import urllib.error
@@ -411,3 +412,41 @@ def test_cli_serve_propagates_the_server_owned_base_directory(tmp_path, monkeypa
 
     assert cli.main(["--directory", str(tmp_path), "serve"]) == 0
     assert captured["config"]["base_dir"] == str(tmp_path.resolve())
+
+
+def test_corrupt_ledger_cannot_create_checkpoint_before_activation(tmp_path):
+    content = "safe = true\n"
+    with _running_change_api(tmp_path) as (base_url, token, db_path, target):
+        prepared = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": content},
+        )[1]
+        session_id = prepared["supervision_session_id"]
+        action_ref = _action_ref(base_url, token, session_id)
+        assert _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )[0] == 200
+        with sqlite3.connect(db_path) as connection:
+            connection.execute("DROP TRIGGER evidence_ledger_events_no_update")
+            connection.execute(
+                "UPDATE evidence_ledger_events SET result = 'forged' WHERE sequence = 1"
+            )
+            assert connection.execute("SELECT COUNT(*) FROM checkpoints").fetchone() == (0,)
+
+        status, result = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": content},
+        )
+
+    assert status == 503
+    assert result["reason_code"] == "CONTROLLED_CHANGE_LEDGER_INVALID"
+    assert target.read_text(encoding="utf-8") == "safe = false\n"
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM checkpoints").fetchone() == (0,)
