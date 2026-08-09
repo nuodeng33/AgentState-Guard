@@ -69,6 +69,32 @@ def _post(base_url: str, path: str, token: str | None, payload: object):
         return exc.code, json.loads(exc.read())
 
 
+def _preflight(
+    base_url: str,
+    path: str,
+    origin: str,
+    *,
+    method: str,
+    headers: str = "",
+):
+    request_headers = {
+        "Origin": origin,
+        "Access-Control-Request-Method": method,
+    }
+    if headers:
+        request_headers["Access-Control-Request-Headers"] = headers
+    request = urllib.request.Request(
+        f"{base_url}{path}",
+        method="OPTIONS",
+        headers=request_headers,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, {key.casefold(): value for key, value in response.headers.items()}
+    except urllib.error.HTTPError as exc:
+        return exc.code, {key.casefold(): value for key, value in exc.headers.items()}
+
+
 def _action_ref(base_url: str, token: str, session_id: str) -> str:
     status, body = _get(base_url, "/api/v1/supervision", token)
     assert status == 200
@@ -347,6 +373,85 @@ def test_untrusted_web_origin_cannot_read_session_bootstrap_token(tmp_path):
         with urllib.request.urlopen(request, timeout=5) as response:
             assert response.status == 200
             assert response.headers.get("Access-Control-Allow-Origin") is None
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+)
+def test_allowed_browser_origins_can_preflight_protected_actions(tmp_path, origin):
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path)
+    with _running_api(tmp_path, db_path) as (base_url, _token, _root):
+        status, headers = _preflight(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            origin,
+            method="POST",
+            headers="content-type,x-session-token",
+        )
+
+    assert status == 200
+    assert headers["access-control-allow-origin"] == origin
+    assert set(headers["access-control-allow-methods"].split(", ")) == {"GET", "POST"}
+    allowed_headers = headers["access-control-allow-headers"].casefold()
+    assert "content-type" in allowed_headers
+    assert "x-session-token" in allowed_headers
+    assert "access-control-allow-credentials" not in headers
+    assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+def test_untrusted_browser_origin_cannot_preflight_protected_actions(tmp_path):
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path)
+    with _running_api(tmp_path, db_path) as (base_url, _token, _root):
+        status, headers = _preflight(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            "https://attacker.invalid",
+            method="POST",
+            headers="content-type,x-session-token",
+        )
+
+    assert status == 400
+    assert "access-control-allow-origin" not in headers
+    assert "access-control-allow-credentials" not in headers
+    assert _event_count(db_path, session_id, "USER_APPROVED") == 0
+
+
+@pytest.mark.parametrize(
+    ("method", "headers"),
+    [
+        ("DELETE", "x-session-token"),
+        ("POST", "content-type,x-session-token,x-attacker"),
+    ],
+)
+def test_allowed_origin_preflight_rejects_unlisted_methods_and_headers(
+    tmp_path,
+    method,
+    headers,
+):
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path)
+    with _running_api(tmp_path, db_path) as (base_url, _token, _root):
+        status, response_headers = _preflight(
+            base_url,
+            f"/api/v1/supervision/{session_id}/reject",
+            "tauri://localhost",
+            method=method,
+            headers=headers,
+        )
+
+    assert status == 400
+    assert response_headers["access-control-allow-origin"] == "tauri://localhost"
+    assert "access-control-allow-credentials" not in response_headers
+    assert _event_count(db_path, session_id, "USER_REJECTED") == 0
 
 
 def test_unknown_session_returns_stable_404(tmp_path):

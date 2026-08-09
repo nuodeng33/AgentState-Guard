@@ -107,8 +107,14 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
-        # Allow static files and public API endpoints
-        if (not request.url.path.startswith("/api/")) or request.url.path in ("/api/health", "/api/session"):
+        # CORS preflight carries no authority token. Let the strict CORS
+        # middleware accept or reject the requested origin/method/headers;
+        # the subsequent real API request remains token-protected below.
+        if (
+            request.method == "OPTIONS"
+            or (not request.url.path.startswith("/api/"))
+            or request.url.path in ("/api/health", "/api/session")
+        ):
             response = await call_next(request)
             return response
         token = request.headers.get("X-Session-Token", "")
