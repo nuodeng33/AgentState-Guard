@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from agentguard.evidence.ledger import EvidenceLedger
+from agentguard.evidence.canonical import canonical_json
+from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.policy.engine import evaluate
-from agentguard.policy.models import Decision, PolicyDecision, PolicyInput
+from agentguard.policy.models import (
+    POLICY_VERSION,
+    Decision,
+    PolicyDecision,
+    PolicyInput,
+)
 from agentguard.recovery.coverage import RecoveryCoverageFacts, RecoveryCoverageService
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
@@ -23,6 +32,43 @@ class SupervisionSession:
     def __init__(self, session_id: str, status: str) -> None:
         self.supervision_session_id = session_id
         self.status = status
+
+
+class SupervisionActionError(RuntimeError):
+    """Stable fail-closed action failure without raw persistence details."""
+
+    def __init__(self, reason_code: str) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+
+
+@dataclass(frozen=True)
+class SupervisionActionResult:
+    """Stable result for one consumed UI supervision action."""
+
+    action: str
+    supervision_session_id: str
+    status: str
+    reason_code: str
+    evidence_refs: tuple[str, ...]
+    consumed: bool = True
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": "r4-p8-action-1",
+            "action": self.action,
+            "supervision_session_id": self.supervision_session_id,
+            "status": self.status,
+            "reason_code": self.reason_code,
+            "consumed": self.consumed,
+            "evidence_refs": list(self.evidence_refs),
+        }
+
+
+@dataclass(frozen=True)
+class _ActionAuthority:
+    action_ref: str
+    status: str
 
 
 class SupervisionService:
@@ -208,6 +254,22 @@ class SupervisionService:
         )
         now = datetime.now(UTC)
         intent_digest = hashlib.sha256(declared_intent.encode("utf-8")).hexdigest()
+        policy_authority = {
+            "declared_intent_digest": intent_digest,
+            "decision": decision.decision.value,
+            "severity": decision.severity,
+            "matched_rule_ids": list(decision.matched_rule_ids),
+            "summary_code": decision.summary_code,
+            "evidence_refs": list(decision.evidence_refs),
+            "uncertainties": list(decision.uncertainties),
+            "required_checks": list(decision.required_checks),
+            "requires_checkpoint": decision.requires_checkpoint,
+            "requires_manual_approval": decision.requires_manual_approval,
+            "policy_version": decision.policy_version,
+        }
+        policy_binding_digest = hashlib.sha256(
+            canonical_json(policy_authority).encode("utf-8")
+        ).hexdigest()
         connection.execute(
             """INSERT INTO supervision_sessions (
                    supervision_session_id, status, declared_intent_digest, decision,
@@ -232,16 +294,79 @@ class SupervisionService:
             decision.decision.value,
             now,
             evidence_refs=(recovery_facts.evidence_refs if recovery_facts else ()),
-            payload_extra=(
-                {"recovery_facts": recovery_facts.safe_summary()}
-                if recovery_facts
-                else None
-            ),
+            payload_extra={
+                "policy_authority": policy_authority,
+                "policy_binding_digest": policy_binding_digest,
+                **(
+                    {"recovery_facts": recovery_facts.safe_summary()}
+                    if recovery_facts
+                    else {}
+                ),
+            },
         )
         return SupervisionSession(session_id, status)
 
+    def action_ref(self, session_id: str) -> str | None:
+        """Return the current opaque action binding for a server-owned REVIEW session."""
+        try:
+            with self._database.transaction() as connection:
+                authority = self._action_authority(connection, session_id)
+        except SupervisionActionError:
+            return None
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return None
+        return authority.action_ref
+
+    def projected_action_ref(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+    ) -> str | None:
+        """Project a binding after the caller has verified the shared Ledger."""
+        try:
+            return self._action_authority(
+                connection,
+                session_id,
+                ledger_verified=True,
+            ).action_ref
+        except SupervisionActionError:
+            return None
+
+    def approve_once(
+        self,
+        session_id: str,
+        action_ref: str,
+    ) -> SupervisionActionResult:
+        return self._perform_action(
+            session_id,
+            action_ref,
+            action="APPROVE_ONCE",
+            target="APPROVED",
+            event_type=EventType.USER_APPROVED,
+            reason_code="SUPERVISION_APPROVED_ONCE",
+        )
+
+    def reject_once(
+        self,
+        session_id: str,
+        action_ref: str,
+    ) -> SupervisionActionResult:
+        return self._perform_action(
+            session_id,
+            action_ref,
+            action="REJECT",
+            target="REJECTED",
+            event_type=EventType.USER_REJECTED,
+            reason_code="SUPERVISION_REJECTED",
+        )
+
     def approve(self, session_id: str) -> SupervisionSession:
-        return self._transition(session_id, "AWAITING_APPROVAL", "APPROVED", EventType.USER_APPROVED)
+        """Preserve the trusted local CLI behavior using a fresh server binding."""
+        action_ref = self.action_ref(session_id)
+        if action_ref is None:
+            return self._read(session_id)
+        result = self.approve_once(session_id, action_ref)
+        return SupervisionSession(session_id, result.status)
 
     def activate(self, session_id: str, checkpoint_id: str | None = None) -> SupervisionSession:
         now = datetime.now(UTC)
@@ -277,7 +402,167 @@ class SupervisionService:
         return self._transition(session_id, "ACTIVE", "FAILED", EventType.SESSION_FAILED)
 
     def reject(self, session_id: str) -> SupervisionSession:
-        return self._transition(session_id, "AWAITING_APPROVAL", "REJECTED", EventType.USER_REJECTED)
+        """Preserve the trusted local CLI behavior using a fresh server binding."""
+        action_ref = self.action_ref(session_id)
+        if action_ref is None:
+            return self._read(session_id)
+        result = self.reject_once(session_id, action_ref)
+        return SupervisionSession(session_id, result.status)
+
+    def _perform_action(
+        self,
+        session_id: str,
+        action_ref: str,
+        *,
+        action: str,
+        target: str,
+        event_type: EventType,
+        reason_code: str,
+    ) -> SupervisionActionResult:
+        try:
+            with self._database.transaction() as connection:
+                authority = self._action_authority(connection, session_id)
+                if not hmac.compare_digest(authority.action_ref, action_ref):
+                    raise SupervisionActionError("SUPERVISION_ACTION_STALE")
+                now = datetime.now(UTC)
+                updated = connection.execute(
+                    """UPDATE supervision_sessions SET status = ?, updated_at = ?
+                       WHERE supervision_session_id = ?
+                         AND status = 'AWAITING_APPROVAL'
+                         AND decision = 'REVIEW'
+                         AND requires_manual_approval = 1""",
+                    (target, now.isoformat(), session_id),
+                ).rowcount
+                if updated != 1:
+                    raise SupervisionActionError("SUPERVISION_ACTION_REPLAYED")
+                event_id = self._append(
+                    connection,
+                    session_id,
+                    event_type,
+                    target,
+                    now,
+                    payload_extra={
+                        "action_binding_digest": authority.action_ref,
+                        "action": action,
+                        "consumed": True,
+                    },
+                )
+        except SupervisionActionError:
+            raise
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            raise SupervisionActionError("SUPERVISION_AUTHORITY_UNAVAILABLE") from None
+        return SupervisionActionResult(
+            action=action,
+            supervision_session_id=session_id,
+            status=target,
+            reason_code=reason_code,
+            evidence_refs=(event_id,),
+        )
+
+    def _action_authority(
+        self,
+        connection: sqlite3.Connection,
+        session_id: str,
+        *,
+        ledger_verified: bool = False,
+    ) -> _ActionAuthority:
+        if not ledger_verified and verify_ledger(connection):
+            raise SupervisionActionError("SUPERVISION_LEDGER_INVALID")
+        row = connection.execute(
+            """SELECT status, declared_intent_digest, decision,
+                      requires_checkpoint, requires_manual_approval
+               FROM supervision_sessions WHERE supervision_session_id = ?""",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            raise SupervisionActionError("SUPERVISION_SESSION_NOT_FOUND")
+        status, intent_digest, decision, requires_checkpoint, requires_manual = row
+        events = connection.execute(
+            """SELECT sequence, event_id, event_type, source, result,
+                      payload_safe_json, payload_digest, curr_hash
+               FROM evidence_ledger_events
+               WHERE supervision_session_id = ? ORDER BY sequence""",
+            (session_id,),
+        ).fetchall()
+        action_events = [
+            event for event in events
+            if event[2] in {EventType.USER_APPROVED.value, EventType.USER_REJECTED.value}
+        ]
+        if decision != Decision.REVIEW.value or not bool(requires_manual):
+            raise SupervisionActionError("SUPERVISION_POLICY_NOT_APPROVABLE")
+        if action_events or status in {"APPROVED", "REJECTED", "COMPLETED", "FAILED"}:
+            raise SupervisionActionError("SUPERVISION_ACTION_REPLAYED")
+        if status != "AWAITING_APPROVAL":
+            raise SupervisionActionError("SUPERVISION_ACTION_INVALID_STATE")
+        recovery_bound = connection.execute(
+            """SELECT 1 FROM recovery_drill_bindings
+               WHERE supervision_session_id = ?
+               UNION ALL
+               SELECT 1 FROM trusted_baseline_candidate_bindings
+               WHERE supervision_session_id = ? LIMIT 1""",
+            (session_id, session_id),
+        ).fetchone()
+        if recovery_bound is not None:
+            raise SupervisionActionError("SUPERVISION_RECOVERY_AUTHORIZATION_REQUIRED")
+        created = [event for event in events if event[2] == EventType.SESSION_CREATED.value]
+        policy = [event for event in events if event[2] == EventType.POLICY_EVALUATED.value]
+        if len(created) != 1 or len(policy) != 1 or created[0][0] >= policy[0][0]:
+            raise SupervisionActionError("SUPERVISION_POLICY_EVIDENCE_INVALID")
+        created_payload = self._json_payload(created[0][5])
+        policy_payload = self._json_payload(policy[0][5])
+        policy_authority = policy_payload.get("policy_authority")
+        policy_digest = policy_payload.get("policy_binding_digest")
+        if (
+            created[0][3] != "supervision-service"
+            or created[0][4] != "AWAITING_APPROVAL"
+            or created_payload.get("status") != "AWAITING_APPROVAL"
+            or policy[0][3] != "supervision-service"
+            or policy[0][4] != decision
+            or policy_payload.get("status") != decision
+            or not isinstance(policy_authority, dict)
+            or not isinstance(policy_digest, str)
+            or hashlib.sha256(
+                canonical_json(policy_authority).encode("utf-8")
+            ).hexdigest() != policy_digest
+            or policy_authority.get("declared_intent_digest") != intent_digest
+            or policy_authority.get("decision") != decision
+            or policy_authority.get("requires_checkpoint") != bool(requires_checkpoint)
+            or policy_authority.get("requires_manual_approval") is not True
+            or policy_authority.get("policy_version") != POLICY_VERSION
+        ):
+            raise SupervisionActionError("SUPERVISION_POLICY_EVIDENCE_INVALID")
+        binding = {
+            "schema_version": "r4-p8-action-binding-1",
+            "supervision_session_id": session_id,
+            "status": status,
+            "declared_intent_digest": intent_digest,
+            "decision": decision,
+            "requires_checkpoint": bool(requires_checkpoint),
+            "requires_manual_approval": bool(requires_manual),
+            "session_created_event_id": created[0][1],
+            "session_created_payload_digest": created[0][6],
+            "session_created_curr_hash": created[0][7],
+            "policy_event_id": policy[0][1],
+            "policy_payload_digest": policy[0][6],
+            "policy_curr_hash": policy[0][7],
+            "policy_binding_digest": policy_digest,
+        }
+        return _ActionAuthority(
+            action_ref=hashlib.sha256(
+                canonical_json(binding).encode("utf-8")
+            ).hexdigest(),
+            status=status,
+        )
+
+    @staticmethod
+    def _json_payload(raw: str) -> dict:
+        try:
+            payload = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            raise SupervisionActionError("SUPERVISION_POLICY_EVIDENCE_INVALID") from None
+        if not isinstance(payload, dict):
+            raise SupervisionActionError("SUPERVISION_POLICY_EVIDENCE_INVALID")
+        return payload
 
     def _transition(
         self,
@@ -318,15 +603,16 @@ class SupervisionService:
         *,
         evidence_refs: tuple[str, ...] = (),
         payload_extra: dict | None = None,
-    ) -> None:
+    ) -> str:
         payload_safe = {"status": result}
         if payload_extra:
             payload_safe.update(payload_extra)
+        event_id = f"session-event-{uuid4()}"
         self._ledger.append(
             connection,
             EvidenceEvent(
                 schema_version=1,
-                event_id=f"session-event-{uuid4()}",
+                event_id=event_id,
                 recorded_at=now,
                 observed_at=None,
                 event_family=EventFamily.SUPERVISION,
@@ -342,3 +628,4 @@ class SupervisionService:
                 payload_safe=payload_safe,
             ),
         )
+        return event_id

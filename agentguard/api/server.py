@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from fastapi import Request
+from pydantic import BaseModel, ConfigDict, Field
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
+_SUPERVISION_SESSION_ID = re.compile(r"session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+class SupervisionActionRequest(BaseModel):
+    """Only an opaque server-issued stale binding may cross the UI boundary."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    action_ref: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 def create_app(state_db_path: Path | None = None, config: dict | None = None):
@@ -19,6 +30,7 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
     Uses lazy imports so core modules don't depend on FastAPI.
     """
     from fastapi import FastAPI, HTTPException
+    from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
 
@@ -30,6 +42,43 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
     from ..transactions.engine import TransactionEngine
 
     app = FastAPI(title="AgentState Guard API", version="0.9.0-dev")
+
+    def _action_failure(
+        action: str,
+        session_id: str,
+        reason_code: str,
+    ) -> dict[str, object]:
+        return {
+            "schema_version": "r4-p8-action-1",
+            "action": action,
+            "supervision_session_id": session_id,
+            "status": "UNCHANGED",
+            "reason_code": reason_code,
+            "consumed": False,
+            "evidence_refs": [],
+        }
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        path = request.url.path
+        if path.startswith("/api/v1/supervision/") and request.method == "POST":
+            parts = path.rstrip("/").split("/")
+            raw_session_id = parts[-2] if len(parts) >= 2 else ""
+            session_id = (
+                raw_session_id
+                if _SUPERVISION_SESSION_ID.fullmatch(raw_session_id)
+                else "INVALID"
+            )
+            action = "APPROVE_ONCE" if path.endswith("/approve-once") else "REJECT"
+            return JSONResponse(
+                _action_failure(
+                    action,
+                    session_id,
+                    "SUPERVISION_ACTION_REQUEST_INVALID",
+                ),
+                status_code=422,
+            )
+        return JSONResponse({"detail": exc.errors()}, status_code=422)
 
     app.add_middleware(
         CORSMiddleware,
@@ -148,6 +197,7 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
 
     # ---- R4 P8 authoritative read projections ----
 
+    from ..supervision.service import SupervisionActionError, SupervisionService
     from .r4_projection import R4ReadProjectionService
 
     def _r4_projection(view: str) -> dict[str, Any]:
@@ -178,6 +228,81 @@ def create_app(state_db_path: Path | None = None, config: dict | None = None):
     @app.get("/api/v1/recovery")
     async def api_r4_recovery():
         return _r4_projection("recovery")
+
+    def _supervision_action(
+        session_id: str,
+        body: SupervisionActionRequest,
+        *,
+        action: str,
+    ):
+        if not _SUPERVISION_SESSION_ID.fullmatch(session_id):
+            return JSONResponse(
+                _action_failure(
+                    action,
+                    "INVALID",
+                    "SUPERVISION_ACTION_REQUEST_INVALID",
+                ),
+                status_code=422,
+            )
+        try:
+            current_db = _get_db()
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return JSONResponse(
+                _action_failure(
+                    action,
+                    session_id,
+                    "SUPERVISION_AUTHORITY_UNAVAILABLE",
+                ),
+                status_code=503,
+            )
+        try:
+            service = SupervisionService(current_db)
+            result = (
+                service.approve_once(session_id, body.action_ref)
+                if action == "APPROVE_ONCE"
+                else service.reject_once(session_id, body.action_ref)
+            )
+            return result.to_dict()
+        except SupervisionActionError as exc:
+            if exc.reason_code == "SUPERVISION_SESSION_NOT_FOUND":
+                status_code = 404
+            elif exc.reason_code in {
+                "SUPERVISION_AUTHORITY_UNAVAILABLE",
+                "SUPERVISION_LEDGER_INVALID",
+                "SUPERVISION_POLICY_EVIDENCE_INVALID",
+            }:
+                status_code = 503
+            else:
+                status_code = 409
+            return JSONResponse(
+                _action_failure(action, session_id, exc.reason_code),
+                status_code=status_code,
+            )
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return JSONResponse(
+                _action_failure(
+                    action,
+                    session_id,
+                    "SUPERVISION_AUTHORITY_UNAVAILABLE",
+                ),
+                status_code=503,
+            )
+        finally:
+            current_db.close()
+
+    @app.post("/api/v1/supervision/{session_id}/approve-once")
+    async def api_r4_supervision_approve_once(
+        session_id: str,
+        body: SupervisionActionRequest,
+    ):
+        return _supervision_action(session_id, body, action="APPROVE_ONCE")
+
+    @app.post("/api/v1/supervision/{session_id}/reject")
+    async def api_r4_supervision_reject(
+        session_id: str,
+        body: SupervisionActionRequest,
+    ):
+        return _supervision_action(session_id, body, action="REJECT")
 
     @app.get("/api/handoff")
     async def api_handoff():

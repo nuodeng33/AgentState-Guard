@@ -12,6 +12,7 @@ from agentguard.recovery.coverage import RecoveryCoverageService
 from agentguard.recovery.manifest import validate_snapshot_v3
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
+from agentguard.supervision.service import SupervisionService
 
 _SAFE_ATOM = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 _RECOVERY_FIELDS = {
@@ -158,6 +159,7 @@ class R4ReadProjectionService:
                FROM supervision_sessions ORDER BY created_at, supervision_session_id"""
         ).fetchall()
         items: list[dict[str, Any]] = []
+        supervision = SupervisionService(self._database)
         for session_id, status, decision, requires_checkpoint, requires_manual in sessions:
             events = connection.execute(
                 """SELECT event_id, event_type, result, payload_safe_json
@@ -192,6 +194,7 @@ class R4ReadProjectionService:
                 "requires_checkpoint": bool(requires_checkpoint),
                 "ai_assessment": ai_assessment,
                 "recovery_facts": recovery_facts,
+                "action_ref": supervision.projected_action_ref(connection, session_id),
                 "evidence_refs": sorted(set(refs)),
             })
         return _base(

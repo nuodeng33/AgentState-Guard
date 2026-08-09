@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+POLICY_VERSION = "P4-LOCAL-1"
+
 
 class Decision(str, Enum):
     ALLOW = "ALLOW"
@@ -43,4 +45,4 @@ class PolicyDecision:
     required_checks: tuple[str, ...]
     requires_checkpoint: bool
     requires_manual_approval: bool
-    policy_version: str = "P4-LOCAL-1"
+    policy_version: str = POLICY_VERSION
