@@ -224,7 +224,7 @@ def _supervision_result(session, decision: Decision | None = None, *, code: str 
 def _dispatch(args: argparse.Namespace) -> Any:
     base_dir = Path(args.directory or "/workspace/projects/agentstate-guard").resolve()
     config = Config(base_dir)
-    cfg = config._data
+    cfg = {**config._data, "base_dir": str(config.base_dir)}
 
     db = StateDB(config.state_db())
     snapshots = SnapshotStore(config.snapshot_dir())

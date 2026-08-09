@@ -802,7 +802,10 @@ def test_corrupt_checkpoint_manifest_never_activates(authority, tmp_path):
     assert _activation_count(database) == 0
 
 
-def test_ledger_change_after_checkpoint_authority_never_activates(authority, tmp_path):
+def test_unrelated_ledger_change_does_not_replace_bound_checkpoint_authority(
+    authority,
+    tmp_path,
+):
     database, snapshots = authority
     target = tmp_path / "config.toml"
     target.write_text("safe=true")
@@ -830,8 +833,8 @@ def test_ledger_change_after_checkpoint_authority_never_activates(authority, tmp
             ),
         )
 
-    assert sessions.activate(session_id, created.checkpoint_id).status == "APPROVED"
-    assert _activation_count(database) == 0
+    assert sessions.activate(session_id, created.checkpoint_id).status == "ACTIVE"
+    assert _activation_count(database) == 1
 
 
 def test_missing_or_cross_domain_workspace_authority_never_activates(authority, tmp_path):

@@ -176,37 +176,43 @@ def apply_controlled_change(
     ).hexdigest()
     if not hmac.compare_digest(str(expected_intent_digest), actual_intent_digest):
         raise ControlledChangeError("CONTROLLED_CHANGE_INTENT_MISMATCH")
-    if status != "APPROVED":
+    if status not in {"APPROVED", "ACTIVE"}:
         raise ControlledChangeError("CONTROLLED_CHANGE_APPROVAL_REQUIRED")
     domain_id = _session_domain(connection, session_id)
-    policy = RestorePolicy(
-        approved_paths={domain_id: (target,)},
-        validators={domain_id: "toml-parse"},
-    )
-    recovery = RecoveryService(
-        database=database,
-        snapshots=snapshots,
-        adapters={domain_id: SelfRuntimeAdapter(recovery_policy=policy)},
-    )
-    checkpoint = recovery.snapshot(
-        RecoveryRequest(
-            operation=RecoveryOperation.SNAPSHOT,
-            execution_domain_id=domain_id,
-            target_path=target,
-            supervision_session_id=session_id,
-            user_approved=True,
+    checkpoint_id = _existing_checkpoint(connection, session_id)
+    if checkpoint_id is None and status == "ACTIVE":
+        raise ControlledChangeError("CONTROLLED_CHANGE_CHECKPOINT_STALE")
+    if checkpoint_id is None:
+        policy = RestorePolicy(
+            approved_paths={domain_id: (target,)},
+            validators={domain_id: "toml-parse"},
         )
-    )
-    if not checkpoint.ok or checkpoint.checkpoint_id is None:
-        raise ControlledChangeError(checkpoint.reason_code)
+        recovery = RecoveryService(
+            database=database,
+            snapshots=snapshots,
+            adapters={domain_id: SelfRuntimeAdapter(recovery_policy=policy)},
+        )
+        checkpoint = recovery.snapshot(
+            RecoveryRequest(
+                operation=RecoveryOperation.SNAPSHOT,
+                execution_domain_id=domain_id,
+                target_path=target,
+                supervision_session_id=session_id,
+                user_approved=True,
+            )
+        )
+        if not checkpoint.ok or checkpoint.checkpoint_id is None:
+            raise ControlledChangeError(checkpoint.reason_code)
+        checkpoint_id = checkpoint.checkpoint_id
 
     sessions = SupervisionService(database, snapshots=snapshots)
-    activated = sessions.activate(session_id, checkpoint.checkpoint_id)
-    if activated.status != "ACTIVE":
-        raise ControlledChangeError("CONTROLLED_CHANGE_ACTIVATION_DENIED")
+    if status == "APPROVED":
+        activated = sessions.activate(session_id, checkpoint_id)
+        if activated.status != "ACTIVE":
+            raise ControlledChangeError("CONTROLLED_CHANGE_ACTIVATION_DENIED")
     result = sessions.apply_config_change(
         session_id,
-        checkpoint.checkpoint_id,
+        checkpoint_id,
         requested_target=target,
         content=content,
     )
@@ -220,7 +226,7 @@ def apply_controlled_change(
         "rolled_back": result.rolled_back,
         "before_digest": result.before_digest,
         "after_digest": result.after_digest,
-        "checkpoint_id": checkpoint.checkpoint_id,
+        "checkpoint_id": checkpoint_id,
         "evidence_refs": list(result.evidence_refs),
     }
 
@@ -270,6 +276,30 @@ def _session_domain(connection: sqlite3.Connection, session_id: str) -> str:
     if not isinstance(domain_id, str) or not domain_id:
         raise ControlledChangeError("CONTROLLED_CHANGE_AUTHORITY_UNAVAILABLE", 503)
     return domain_id
+
+
+def _existing_checkpoint(
+    connection: sqlite3.Connection,
+    session_id: str,
+) -> str | None:
+    rows = connection.execute(
+        """SELECT event_type, checkpoint_id FROM evidence_ledger_events
+           WHERE supervision_session_id = ?
+             AND event_type IN ('CHECKPOINT_CREATED', 'MANIFEST_VERIFIED')
+           ORDER BY sequence""",
+        (session_id,),
+    ).fetchall()
+    if not rows:
+        return None
+    if (
+        len(rows) != 2
+        or rows[0][0] != "CHECKPOINT_CREATED"
+        or rows[1][0] != "MANIFEST_VERIFIED"
+        or not isinstance(rows[0][1], str)
+        or rows[0][1] != rows[1][1]
+    ):
+        raise ControlledChangeError("CONTROLLED_CHANGE_CHECKPOINT_STALE")
+    return rows[0][1]
 
 
 def _production_snapshot(base_dir: Path) -> tuple[DiscoverySnapshot, str]:

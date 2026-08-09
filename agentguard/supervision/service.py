@@ -887,7 +887,6 @@ class SupervisionService:
             connection,
             session_id=session_id,
             checkpoint_id=checkpoint_id,
-            require_manifest_tail=False,
         )
         if context is None:
             return None
@@ -1059,7 +1058,6 @@ class SupervisionService:
         *,
         session_id: str,
         checkpoint_id: str | None,
-        require_manifest_tail: bool = True,
     ) -> dict[str, object] | None:
         if (
             self._snapshots is None
@@ -1120,7 +1118,6 @@ class SupervisionService:
         if (
             workspace["status"] != "BOUND"
             or workspace["workspace_id"] != context["workspace_id"]
-            or workspace["binding_ref"] != context["workspace_binding_ref"]
             or context["product_sha"] != self._product_sha
             or context["approved_scope_digest"] != context["target_refs_digest"]
         ):
@@ -1198,29 +1195,20 @@ class SupervisionService:
                 or payload.get("target_ref_digests") != expected_target_digests
             ):
                 return None
-        tail = connection.execute(
-            """SELECT sequence, event_id, curr_hash FROM evidence_ledger_events
-               ORDER BY sequence DESC LIMIT 1"""
-        ).fetchone()
         if (
-            not policy_event[0] < approval_event[0]
-            or created[0] != approval_event[0] + 1
+            not policy_event[0] < approval_event[0] < created[0] < manifested[0]
             or manifested[0] != created[0] + 1
-            or (
-                require_manifest_tail
-                and tail != (manifested[0], manifested[1], manifested[8])
-            )
         ):
             return None
         return {
             "execution_domain_id": domain,
             "workspace_id": context["workspace_id"],
-            "workspace_binding_ref": context["workspace_binding_ref"],
+            "workspace_binding_ref": workspace["binding_ref"],
             "approved_scope_digest": context["approved_scope_digest"],
             "manifest_digest": manifest_digest,
             "product_sha": self._product_sha,
             "evidence_refs": [
-                context["workspace_binding_ref"],
+                workspace["binding_ref"],
                 policy_event[1],
                 approval_event[1],
                 created[1],

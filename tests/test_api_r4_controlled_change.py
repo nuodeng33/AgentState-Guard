@@ -13,10 +13,13 @@ from pathlib import Path
 
 import uvicorn
 
+from agentguard import cli
 from agentguard.ai.supervisor import AIAssessment
+from agentguard.api.r4_controlled_change import ControlledChangeError
 from agentguard.api.server import create_app
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.storage.db import StateDB
+from agentguard.supervision.service import SupervisionService, SupervisionSession
 from tests.test_api_r4_actions import _action_ref
 from tests.test_api_r4_contract import _get
 
@@ -246,3 +249,165 @@ def test_approved_content_cannot_drift_and_caller_cannot_supply_target(tmp_path)
     assert target_error["reason_code"] == "CONTROLLED_CHANGE_REQUEST_INVALID"
     assert target.read_text(encoding="utf-8") == "safe = false\n"
     assert "CHECKPOINT_CREATED" not in _events(db_path, session_id)
+
+
+def test_second_prepare_cannot_stale_an_outstanding_approved_change(tmp_path):
+    content = "safe = true\n"
+    with _running_change_api(tmp_path) as (base_url, token, _db_path, target):
+        first_status, first = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": content},
+        )
+        assert first_status == 200
+        session_id = first["supervision_session_id"]
+        action_ref = _action_ref(base_url, token, session_id)
+        assert _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )[0] == 200
+
+        second_status, second = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": "safe = 'second'\n"},
+        )
+        applied_status, applied = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": content},
+        )
+
+    assert second_status == 200
+    assert second["reason_code"] == "CONTROLLED_CHANGE_PREPARED"
+    assert applied_status == 200
+    assert applied["status"] == "COMPLETED"
+    assert target.read_text(encoding="utf-8") == content
+
+
+def test_apply_retry_reuses_the_first_bound_checkpoint(tmp_path, monkeypatch):
+    content = "safe = true\n"
+    original_activate = SupervisionService.activate
+    calls = 0
+
+    def interrupt_once(self, session_id, checkpoint_id=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return SupervisionSession(session_id, "APPROVED")
+        return original_activate(self, session_id, checkpoint_id)
+
+    monkeypatch.setattr(SupervisionService, "activate", interrupt_once)
+    with _running_change_api(tmp_path) as (base_url, token, db_path, target):
+        prepared = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": content},
+        )[1]
+        session_id = prepared["supervision_session_id"]
+        action_ref = _action_ref(base_url, token, session_id)
+        assert _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )[0] == 200
+
+        first_status, first = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": content},
+        )
+        retry_status, retry = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": content},
+        )
+
+    assert first_status == 409
+    assert first["reason_code"] == "CONTROLLED_CHANGE_ACTIVATION_DENIED"
+    assert retry_status == 200
+    assert retry["status"] == "COMPLETED"
+    assert target.read_text(encoding="utf-8") == content
+    database = StateDB(db_path)
+    database.connect()
+    try:
+        assert database._conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone() == (1,)
+    finally:
+        database.close()
+
+
+def test_apply_retry_resumes_an_authoritatively_activated_session(tmp_path, monkeypatch):
+    content = "safe = true\n"
+    original_activate = SupervisionService.activate
+    calls = 0
+
+    def activate_then_interrupt(self, session_id, checkpoint_id=None):
+        nonlocal calls
+        activated = original_activate(self, session_id, checkpoint_id)
+        calls += 1
+        if calls == 1:
+            raise ControlledChangeError("SIMULATED_POST_ACTIVATION_INTERRUPTION", 503)
+        return activated
+
+    monkeypatch.setattr(SupervisionService, "activate", activate_then_interrupt)
+    with _running_change_api(tmp_path) as (base_url, token, db_path, target):
+        prepared = _post(
+            base_url,
+            "/api/v1/supervision/changes",
+            token,
+            {"content": content},
+        )[1]
+        session_id = prepared["supervision_session_id"]
+        action_ref = _action_ref(base_url, token, session_id)
+        assert _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/approve-once",
+            token,
+            {"action_ref": action_ref},
+        )[0] == 200
+
+        interrupted_status, interrupted = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": content},
+        )
+        retry_status, retry = _post(
+            base_url,
+            f"/api/v1/supervision/{session_id}/apply",
+            token,
+            {"content": content},
+        )
+
+    assert interrupted_status == 503
+    assert interrupted["reason_code"] == "SIMULATED_POST_ACTIVATION_INTERRUPTION"
+    assert retry_status == 200
+    assert retry["status"] == "COMPLETED"
+    assert target.read_text(encoding="utf-8") == content
+    database = StateDB(db_path)
+    database.connect()
+    try:
+        assert database._conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone() == (1,)
+    finally:
+        database.close()
+
+
+def test_cli_serve_propagates_the_server_owned_base_directory(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run_server(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("agentguard.api.server.run_server", fake_run_server)
+
+    assert cli.main(["--directory", str(tmp_path), "serve"]) == 0
+    assert captured["config"]["base_dir"] == str(tmp_path.resolve())
