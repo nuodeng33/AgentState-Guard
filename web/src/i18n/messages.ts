@@ -124,7 +124,31 @@ export type MessageKey =
   | 'feedback.invalid'
   | 'feedback.unavailable'
   | 'feedback.unconfirmed'
-  | 'feedback.unknown';
+  | 'feedback.unknown'
+  | 'devices.section.mobile'
+  | 'devices.unpaired.title'
+  | 'devices.unpaired.detail'
+  | 'devices.addDevice'
+  | 'devices.unavailable'
+  | 'devices.firstHint'
+  | 'devices.pairing.title'
+  | 'devices.qr.placeholder'
+  | 'devices.qr.awaiting'
+  | 'devices.identity'
+  | 'devices.expires'
+  | 'devices.waiting'
+  | 'devices.sas.prompt'
+  | 'devices.sas.confirm'
+  | 'devices.sas.reject'
+  | 'devices.confirming'
+  | 'devices.paired.title'
+  | 'devices.paired.detail'
+  | 'devices.expired'
+  | 'devices.rejected.title'
+  | 'devices.error.title'
+  | 'devices.cancel'
+  | 'devices.done'
+  | 'devices.startOver';
 
 export type Messages = Record<MessageKey, string>;
 
@@ -259,6 +283,32 @@ const enUS: Messages = {
     'The action was not confirmed. The latest authoritative state has been reloaded.',
   'feedback.unknown':
     'The action result is unknown. The latest authoritative state has been reloaded.',
+  'devices.section.mobile': 'Mobile Devices',
+  'devices.unpaired.title': 'No mobile device connected',
+  'devices.unpaired.detail': 'Pair a phone to link it with this desktop.',
+  'devices.addDevice': 'Add mobile device',
+  'devices.unavailable':
+    'Device linking is not wired into this build yet. The pairing interface is ready for the Device Link adapter.',
+  'devices.firstHint':
+    'On first connection, both devices show the same 6-digit security code.',
+  'devices.pairing.title': 'Pair a mobile device',
+  'devices.qr.placeholder': 'The pairing QR code will appear here.',
+  'devices.qr.awaiting': 'QR payload pending…',
+  'devices.identity': 'Desktop identity',
+  'devices.expires': 'Pairing offer expires in {seconds}s',
+  'devices.waiting': 'Waiting for the mobile device…',
+  'devices.sas.prompt': 'Confirm both devices show the same security code.',
+  'devices.sas.confirm': 'Codes match',
+  'devices.sas.reject': 'Codes do not match — cancel',
+  'devices.confirming': 'Confirming…',
+  'devices.paired.title': 'Device paired',
+  'devices.paired.detail': 'The mobile device is now linked with this desktop.',
+  'devices.expired': 'The pairing offer expired.',
+  'devices.rejected.title': 'Pairing rejected',
+  'devices.error.title': 'Pairing failed',
+  'devices.cancel': 'Cancel',
+  'devices.done': 'Done',
+  'devices.startOver': 'Start over',
 };
 
 const zhCN: Messages = {
@@ -379,6 +429,30 @@ const zhCN: Messages = {
   'feedback.unavailable': '权威状态暂时不可用，已重新加载可读取的最新状态。',
   'feedback.unconfirmed': '操作未被确认，已重新加载最新权威状态。',
   'feedback.unknown': '操作结果未知，已重新加载最新权威状态。',
+  'devices.section.mobile': '移动设备',
+  'devices.unpaired.title': '尚未连接手机',
+  'devices.unpaired.detail': '配对手机后，即可与此桌面端连接。',
+  'devices.addDevice': '添加移动设备',
+  'devices.unavailable': '此构建尚未接入设备连接；配对界面已就绪，等待 Device Link 适配器接入。',
+  'devices.firstHint': '首次连接时，两台设备将显示相同的 6 位安全码。',
+  'devices.pairing.title': '配对移动设备',
+  'devices.qr.placeholder': '配对二维码将显示在此处。',
+  'devices.qr.awaiting': '正在生成二维码…',
+  'devices.identity': '桌面端标识',
+  'devices.expires': '配对请求将在 {seconds} 秒后过期',
+  'devices.waiting': '等待移动设备连接…',
+  'devices.sas.prompt': '请确认两台设备显示相同的安全码。',
+  'devices.sas.confirm': '确认一致',
+  'devices.sas.reject': '不一致，取消',
+  'devices.confirming': '正在确认…',
+  'devices.paired.title': '设备已配对',
+  'devices.paired.detail': '移动设备已与此桌面端完成配对。',
+  'devices.expired': '配对请求已过期。',
+  'devices.rejected.title': '配对已拒绝',
+  'devices.error.title': '配对失败',
+  'devices.cancel': '取消',
+  'devices.done': '完成',
+  'devices.startOver': '重新开始',
 };
 
 export const MESSAGES: Record<Locale, Messages> = {

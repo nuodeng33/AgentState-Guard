@@ -6,6 +6,7 @@ import type { MessageKey } from './i18n/messages';
 import AgentsPage from './pages/AgentsPage';
 import AiMonitorPage from './pages/AiMonitorPage';
 import ChangesPage from './pages/ChangesPage';
+import DevicesPage from './pages/DevicesPage';
 import HomePage from './pages/HomePage';
 import RecoveryPage from './pages/RecoveryPage';
 import RuntimePage from './pages/RuntimePage';
@@ -43,7 +44,7 @@ export default function App() {
       {page === 'supervision' && <SupervisionPage />}
       {page === 'changes' && <ChangesPage />}
       {page === 'recovery' && <RecoveryPage />}
-      {page === 'devices' && <ChangesPage />}
+      {page === 'devices' && <DevicesPage />}
       {page === 'aiMonitor' && <AiMonitorPage />}
       {page === 'settings' && <SettingsPage />}
     </AppShell>
