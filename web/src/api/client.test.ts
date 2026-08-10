@@ -6,8 +6,12 @@ import {
   createApiClient,
   SessionUnavailableError,
 } from './client';
+import { resolveApiUrl } from './url';
 
 type FetchCall = { path: string; token: string | null };
+
+const packagedApiUrl = (path: string) =>
+  resolveApiUrl(path, false, { protocol: 'http:', hostname: 'tauri.localhost' });
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -80,6 +84,69 @@ describe('api client session bootstrap', () => {
 
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it('routes packaged session bootstrap and an authoritative view to loopback Core', async () => {
+    const { calls, fetchImpl } = mockFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () => jsonResponse(RUNTIME_EMPTY),
+    ]);
+    const client = createApiClient(fetchImpl, packagedApiUrl);
+
+    await client.get('/api/v1/runtime');
+
+    expect(calls).toEqual([
+      { path: 'http://127.0.0.1:8787/api/session', token: null },
+      { path: 'http://127.0.0.1:8787/api/v1/runtime', token: 'token-a' },
+    ]);
+  });
+
+  it('retries only connection failures while the packaged sidecar is starting', async () => {
+    const { calls, fetchImpl } = mockFetch([
+      () => {
+        throw new TypeError('connection refused');
+      },
+      () => {
+        throw new TypeError('connection refused');
+      },
+      () => jsonResponse({ token: 'token-a' }),
+      () => jsonResponse(RUNTIME_EMPTY),
+    ]);
+    const wait = vi.fn(async () => {});
+    const client = createApiClient(fetchImpl, (path) => path, {
+      maxAttempts: 3,
+      wait,
+    });
+
+    const view = await client.get<typeof RUNTIME_EMPTY>('/api/v1/runtime');
+
+    expect(view.status).toBe('EMPTY');
+    expect(calls.map((call) => call.path)).toEqual([
+      '/api/session',
+      '/api/session',
+      '/api/session',
+      '/api/v1/runtime',
+    ]);
+    expect(wait).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry an HTTP failure from the session endpoint', async () => {
+    const { calls, fetchImpl } = mockFetch([
+      () => jsonResponse({ error: 'unavailable' }, 503),
+      () => jsonResponse({ token: 'must-not-be-used' }),
+    ]);
+    const wait = vi.fn(async () => {});
+    const client = createApiClient(fetchImpl, (path) => path, {
+      maxAttempts: 3,
+      wait,
+    });
+
+    await expect(client.bootstrap()).rejects.toMatchObject({
+      name: 'ApiRequestError',
+      status: 503,
+    });
+    expect(calls).toEqual([{ path: '/api/session', token: null }]);
+    expect(wait).not.toHaveBeenCalled();
   });
 });
 
@@ -203,6 +270,34 @@ describe('api client mutation POST', () => {
     expect(post.contentType).toBe('application/json');
     expect(post.body).toEqual({ action_ref: ref });
     expect(Object.keys(post.body as object)).toEqual(['action_ref']);
+  });
+
+  it('routes a packaged mutation to loopback Core without changing its authority payload', async () => {
+    const { calls, fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () => jsonResponse(ACTION_OK),
+    ]);
+    const client = createApiClient(fetchImpl, packagedApiUrl);
+    const ref = 'a'.repeat(64);
+
+    await client.post('/api/v1/supervision/ssn-1/approve-once', { action_ref: ref });
+
+    expect(calls).toEqual([
+      {
+        path: 'http://127.0.0.1:8787/api/session',
+        method: 'GET',
+        token: null,
+        body: null,
+        contentType: null,
+      },
+      {
+        path: 'http://127.0.0.1:8787/api/v1/supervision/ssn-1/approve-once',
+        method: 'POST',
+        token: 'token-a',
+        body: { action_ref: ref },
+        contentType: 'application/json',
+      },
+    ]);
   });
 
   it('re-bootstraps at most once on 401, then retries the mutation once', async () => {

@@ -24,6 +24,7 @@ jobs:
       - working-directory: web
         run: |
           npm ci
+          npm test
           npx tsc --noEmit
           npx vite build
   wheel:

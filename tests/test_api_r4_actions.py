@@ -375,6 +375,50 @@ def test_untrusted_web_origin_cannot_read_session_bootstrap_token(tmp_path):
             assert response.headers.get("Access-Control-Allow-Origin") is None
 
 
+def test_packaged_tauri_origin_can_bootstrap_and_read_authoritative_view(tmp_path):
+    origin = "http://tauri.localhost"
+    with _running_api(tmp_path) as (base_url, _token, _root):
+        preflight_status, preflight_headers = _preflight(
+            base_url,
+            "/api/v1/runtime",
+            origin,
+            method="GET",
+            headers="accept,x-session-token",
+        )
+        assert preflight_status == 200
+        assert preflight_headers["access-control-allow-origin"] == origin
+        allowed_headers = preflight_headers["access-control-allow-headers"].casefold()
+        assert "accept" in allowed_headers
+        assert "x-session-token" in allowed_headers
+
+        session_request = urllib.request.Request(
+            f"{base_url}/api/session",
+            headers={"Origin": origin},
+        )
+        with urllib.request.urlopen(session_request, timeout=5) as response:
+            assert response.status == 200
+            assert response.headers["Access-Control-Allow-Origin"] == origin
+            assert response.headers.get("Access-Control-Allow-Credentials") is None
+            token = json.loads(response.read())["token"]
+
+        view_request = urllib.request.Request(
+            f"{base_url}/api/v1/runtime",
+            headers={
+                "Accept": "application/json",
+                "Origin": origin,
+                "X-Session-Token": token,
+            },
+        )
+        with urllib.request.urlopen(view_request, timeout=5) as response:
+            assert response.status == 200
+            assert response.headers["Access-Control-Allow-Origin"] == origin
+            assert response.headers.get("Access-Control-Allow-Credentials") is None
+            body = json.loads(response.read())
+
+    assert body["schema_version"] == "r4-p8-1"
+    assert body["view"] == "runtime"
+
+
 @pytest.mark.parametrize(
     "origin",
     [

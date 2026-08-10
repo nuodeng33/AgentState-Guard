@@ -8,9 +8,13 @@
  *   logged.
  * - On 401 the client re-bootstraps the session exactly once per request;
  *   a second 401 surfaces SESSION_UNAVAILABLE. There is no retry loop.
+ * - A packaged cold start retries only connection failures while the bundled
+ *   sidecar becomes ready. HTTP/auth failures are never startup-retried.
  * - Errors thrown by this client carry generic, display-safe messages only;
  *   raw server/exception text is never propagated to the UI.
  */
+
+import { resolveApiUrl, type ApiUrlResolver } from './url';
 
 /** Thrown when a session cannot be established even after one re-bootstrap. */
 export class SessionUnavailableError extends Error {
@@ -65,7 +69,23 @@ interface SessionResponse {
   token?: unknown;
 }
 
-export function createApiClient(fetchImpl?: typeof fetch): ApiClient {
+interface SessionBootstrapRetryPolicy {
+  maxAttempts: number;
+  wait(): Promise<void>;
+}
+
+const DEFAULT_SESSION_BOOTSTRAP_RETRY: SessionBootstrapRetryPolicy = {
+  // One immediate attempt plus at most 60 bounded one-second waits in a
+  // packaged build. Development fails immediately through the Vite proxy.
+  maxAttempts: import.meta.env.DEV ? 1 : 61,
+  wait: () => new Promise((resolve) => setTimeout(resolve, 1_000)),
+};
+
+export function createApiClient(
+  fetchImpl?: typeof fetch,
+  urlResolver: ApiUrlResolver = resolveApiUrl,
+  bootstrapRetry: SessionBootstrapRetryPolicy = DEFAULT_SESSION_BOOTSTRAP_RETRY,
+): ApiClient {
   // In-memory only. Never persisted, never logged.
   let token: string | null = null;
   let bootstrapInFlight: Promise<string> | null = null;
@@ -77,10 +97,21 @@ export function createApiClient(fetchImpl?: typeof fetch): ApiClient {
   function bootstrapSession(): Promise<string> {
     if (!bootstrapInFlight) {
       bootstrapInFlight = (async () => {
-        let response: Response;
-        try {
-          response = await callFetch('/api/session', { headers: { Accept: 'application/json' } });
-        } catch {
+        let response: Response | null = null;
+        for (let attempt = 1; attempt <= bootstrapRetry.maxAttempts; attempt += 1) {
+          try {
+            response = await callFetch(urlResolver('/api/session'), {
+              headers: { Accept: 'application/json' },
+            });
+            break;
+          } catch {
+            if (attempt === bootstrapRetry.maxAttempts) {
+              throw new ApiRequestError('API unreachable');
+            }
+            await bootstrapRetry.wait();
+          }
+        }
+        if (!response) {
           throw new ApiRequestError('API unreachable');
         }
         if (!response.ok) {
@@ -105,7 +136,7 @@ export function createApiClient(fetchImpl?: typeof fetch): ApiClient {
 
   async function request(path: string, sessionToken: string): Promise<Response> {
     try {
-      return await callFetch(path, {
+      return await callFetch(urlResolver(path), {
         headers: { Accept: 'application/json', 'X-Session-Token': sessionToken },
       });
     } catch {
@@ -133,7 +164,7 @@ export function createApiClient(fetchImpl?: typeof fetch): ApiClient {
 
   async function send(path: string, sessionToken: string, body: unknown): Promise<Response> {
     try {
-      return await callFetch(path, {
+      return await callFetch(urlResolver(path), {
         method: 'POST',
         headers: {
           Accept: 'application/json',

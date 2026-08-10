@@ -1,12 +1,12 @@
 # Desktop Windows — Sidecar build, Tauri build, runtime smoke, MSI lifecycle
 #
 # Jobs (sequential by dependency):
-#   1. frontend-build  — npm build Vue frontend
+#   1. frontend-build  — test and build React frontend
 #   2. sidecar-build   — PyInstaller -> agentguard-sidecar.exe
 #   3. sidecar-smoke   — standalone sidecar: health, API, shutdown, no-orphan
 #   4. tauri-build     — cargo tauri build (needs frontend + sidecar artifacts)
-#   5. runtime-smoke   — run AgentState Guard.exe, verify sidecar lifecycle
-#   6. msi-smoke       — msiexec install, run installed EXE, uninstall
+#   5. runtime-smoke   — launch bundled sidecar directly (no WebView coverage)
+#   6. msi-smoke       — install, run packaged main/WebView smoke, uninstall
 #
 # Concurrency note: Windows runners on the free plan are limited.
 # Avoid pushing multiple commits in quick succession.
@@ -14,7 +14,7 @@
 name: Desktop Windows
 on:
   push:
-    branches: [main, feat/**]
+    branches: [main, feat/**, fix/**]
   pull_request:
 permissions:
   contents: read
@@ -36,6 +36,7 @@ jobs:
       - working-directory: web
         run: |
           npm ci
+          npm test
           npx tsc --noEmit
           npx vite build
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
@@ -286,7 +287,7 @@ jobs:
             desktop/src-tauri/target/debug/*.exe
             desktop/src-tauri/target/debug/bundle/msi/*.msi
 
-  # ── 5. Desktop Runtime Smoke ───────────────────────────────────
+  # ── 5. Bundled Sidecar Runtime Smoke (No WebView Coverage) ─────
   runtime-smoke:
     runs-on: windows-latest
     needs: [tauri-build]
@@ -299,7 +300,7 @@ jobs:
           name: desktop-tauri-build
           path: ${{ runner.temp }}\tauri-build
 
-      - name: Runtime smoke
+      - name: Bundled sidecar runtime smoke
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -419,6 +420,111 @@ jobs:
           Write-Host "Installed sidecar: $($sidecar.FullName)"
           "INSTALLED_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
           "INSTALLED_SIDECAR=$($sidecar.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Packaged main app WebView to Core smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stdoutLog = "$env:RUNNER_TEMP\packaged-main-stdout.log"
+          $stderrLog = "$env:RUNNER_TEMP\packaged-main-stderr.log"
+          $mainPid = $null
+          $listenerPid = $null
+
+          $existing = Get-NetTCPConnection -State Listen -LocalPort $env:SIDECAR_PORT -ErrorAction SilentlyContinue
+          if ($existing) {
+            $existing | Format-Table -AutoSize | Out-String | Write-Host
+            throw "Port $env:SIDECAR_PORT was already occupied before main-app smoke"
+          }
+
+          try {
+            Write-Host "Starting installed Tauri main executable: $env:INSTALLED_EXE"
+            # This step intentionally does not call Core endpoints itself. The
+            # access-log assertions below can therefore only be satisfied by
+            # frontend bootstrap running inside the main application's WebView.
+            $main = Start-Process -FilePath $env:INSTALLED_EXE `
+              -PassThru `
+              -RedirectStandardOutput $stdoutLog `
+              -RedirectStandardError $stderrLog
+            $mainPid = $main.Id
+            Write-Host "TAURI_MAIN_PID=$mainPid"
+
+            $listener = $null
+            for ($i = 0; $i -lt 90; $i++) {
+              if ($main.HasExited) {
+                throw "Tauri main process exited before Core became ready (exit=$($main.ExitCode))"
+              }
+              $listener = Get-NetTCPConnection -State Listen -LocalPort $env:SIDECAR_PORT -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($listener) { break }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $listener) { throw "PACKAGED_MAIN_SIDECAR_READINESS_TIMEOUT" }
+            if ($listener.LocalAddress -ne "127.0.0.1") {
+              throw "SECURITY: expected 127.0.0.1, got $($listener.LocalAddress)"
+            }
+            $listenerPid = $listener.OwningProcess
+            Write-Host "CORE_LISTENER_PID=$($listener.OwningProcess)"
+
+            $sessionSeen = $false
+            $runtimeSeen = $false
+            for ($i = 0; $i -lt 90; $i++) {
+              $logParts = @()
+              if (Test-Path $stdoutLog) { $logParts += Get-Content $stdoutLog -Raw }
+              if (Test-Path $stderrLog) { $logParts += Get-Content $stderrLog -Raw }
+              $logText = $logParts -join "`n"
+              $sessionSeen = $logText -match 'GET /api/session HTTP/1\.[01]" 200'
+              $runtimeSeen = $logText -match 'GET /api/v1/runtime HTTP/1\.[01]" 200'
+              if ($sessionSeen -and $runtimeSeen) { break }
+              if ($main.HasExited) {
+                throw "Tauri main process exited before WebView bootstrap completed (exit=$($main.ExitCode))"
+              }
+              Start-Sleep -Seconds 1
+            }
+
+            if (-not $sessionSeen) { throw "WEBVIEW_SESSION_BOOTSTRAP_NOT_OBSERVED" }
+            if (-not $runtimeSeen) { throw "WEBVIEW_AUTHORITATIVE_VIEW_NOT_OBSERVED" }
+            Write-Host "PACKAGED_MAIN_WEBVIEW_CORE_SMOKE_VERIFIED"
+            Write-Host "Observed WebView GET /api/session -> 200"
+            Write-Host "Observed WebView GET /api/v1/runtime -> 200"
+          } catch {
+            Write-Host "ERROR: $($_.Exception.Message)"
+            if (Test-Path $stdoutLog) { Get-Content $stdoutLog -Tail 200 | Write-Host }
+            if (Test-Path $stderrLog) { Get-Content $stderrLog -Tail 200 | Write-Host }
+            throw
+          } finally {
+            if ($mainPid) {
+              taskkill /F /T /PID $mainPid 2>$null | Out-Null
+            }
+            $remaining = $null
+            for ($i = 0; $i -lt 30; $i++) {
+              $remaining = Get-NetTCPConnection -State Listen -LocalPort $env:SIDECAR_PORT -ErrorAction SilentlyContinue
+              if (-not $remaining) { break }
+              Start-Sleep -Seconds 1
+            }
+            if ($remaining) {
+              $remaining | Format-Table -AutoSize | Out-String | Write-Host
+              throw "PACKAGED_MAIN_PROCESS_LEAK"
+            }
+            $orphan = Get-Process -Name "agentguard-sidecar" -ErrorAction SilentlyContinue
+            if ($orphan) {
+              $orphan | Format-Table -AutoSize | Out-String | Write-Host
+              throw "PACKAGED_MAIN_SIDECAR_ORPHAN"
+            }
+            if ($listenerPid -and (Get-Process -Id $listenerPid -ErrorAction SilentlyContinue)) {
+              throw "PACKAGED_MAIN_LISTENER_PROCESS_ORPHAN"
+            }
+            Write-Host "Packaged main process tree stopped cleanly"
+          }
+
+      - name: Upload packaged main smoke logs
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: packaged-main-smoke-logs
+          path: |
+            ${{ runner.temp }}/packaged-main-stdout.log
+            ${{ runner.temp }}/packaged-main-stderr.log
+            ${{ runner.temp }}/msi-install.log
+          if-no-files-found: warn
 
       - name: Uninstall MSI
         if: always()
