@@ -6,19 +6,22 @@ import {
   SessionUnavailableError,
   type ApiClient,
 } from '../api/client';
+import { useT } from '../i18n/I18nProvider';
 
 type ReadinessPhase =
   | { kind: 'checking' }
   | { kind: 'ready' }
-  | { kind: 'degraded'; detail: string }
+  | { kind: 'degraded'; reason: 'http-503' | 'failed' }
   | { kind: 'session-unavailable' };
 
 /**
  * Bounded readiness banner driven by GET /api/readiness only.
  * The legacy wide /api/status endpoint is never used for readiness.
+ * SESSION_UNAVAILABLE is a stable machine token and is never translated.
  */
 export function StatusBanner({ client = apiClient }: { client?: ApiClient }) {
   const [phase, setPhase] = useState<ReadinessPhase>({ kind: 'checking' });
+  const t = useT();
 
   useEffect(() => {
     let cancelled = false;
@@ -32,9 +35,9 @@ export function StatusBanner({ client = apiClient }: { client?: ApiClient }) {
         if (err instanceof SessionUnavailableError) {
           setPhase({ kind: 'session-unavailable' });
         } else if (err instanceof ApiRequestError && err.status === 503) {
-          setPhase({ kind: 'degraded', detail: 'Backend reports degraded readiness (HTTP 503)' });
+          setPhase({ kind: 'degraded', reason: 'http-503' });
         } else {
-          setPhase({ kind: 'degraded', detail: 'Readiness check failed' });
+          setPhase({ kind: 'degraded', reason: 'failed' });
         }
       });
     return () => {
@@ -48,13 +51,15 @@ export function StatusBanner({ client = apiClient }: { client?: ApiClient }) {
   if (phase.kind === 'session-unavailable') {
     return (
       <div className="status-banner status-banner-bad" role="alert">
-        SESSION_UNAVAILABLE — cannot establish a session with the local backend.
+        SESSION_UNAVAILABLE — {t('banner.sessionUnavailable')}
       </div>
     );
   }
+  const detail =
+    phase.reason === 'http-503' ? t('banner.readinessDegraded') : t('banner.readinessFailed');
   return (
     <div className="status-banner status-banner-bad" role="alert">
-      {phase.detail}. Authoritative views may be unavailable or degraded.
+      {detail}. {t('banner.degradedSuffix')}
     </div>
   );
 }
