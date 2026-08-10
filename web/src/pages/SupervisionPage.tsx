@@ -12,13 +12,16 @@ import {
   viewStatusTone,
   type BadgeTone,
 } from '../components/StateBadge';
+import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
 import { ViewGate } from '../components/ViewGate';
+import { useT } from '../i18n/I18nProvider';
 import { isActionable, SupervisionActions } from './SupervisionActions';
 
 export default function SupervisionPage({ client = apiClient }: { client?: ApiClient }) {
   const state = useR4View<SupervisionView>('supervision', client);
+  const t = useT();
   return (
-    <ViewGate state={state} label="Supervision">
+    <ViewGate state={state} label={t('nav.supervision')}>
       {(data) => (
         <SupervisionViewBody
           data={data}
@@ -46,10 +49,6 @@ function sessionStatusTone(status: string): BadgeTone {
   }
 }
 
-function yesNo(value: boolean): string {
-  return value ? 'Yes' : 'No';
-}
-
 export function SupervisionViewBody({
   data,
   client,
@@ -61,6 +60,9 @@ export function SupervisionViewBody({
   onChanged?: () => void;
   busy?: boolean;
 }) {
+  const t = useT();
+  const label = t('nav.supervision');
+  const yesNo = (value: boolean) => (value ? t('common.yes') : t('common.no'));
   return (
     <div>
       <div className="view-head">
@@ -72,29 +74,15 @@ export function SupervisionViewBody({
 
       {data.status === 'EMPTY' && (
         <EmptyState
-          title="No supervision sessions"
-          detail="The backend holds no supervision session records."
+          title={t('supervision.empty.title')}
+          detail={t('supervision.empty.detail')}
           reasonCode={data.reason_code}
         />
       )}
       {data.status === 'DEGRADED' && (
-        <div className="panel panel-bad" role="alert">
-          <p className="panel-title">Supervision view degraded</p>
-          <p>
-            The backend could not project authoritative supervision state (
-            <code>{data.reason_code}</code>). Nothing below is projected authority.
-          </p>
-        </div>
+        <DegradedPanel label={label} reasonCode={data.reason_code} />
       )}
-      {data.status === 'UNKNOWN' && (
-        <div className="panel panel-warn" role="alert">
-          <p className="panel-title">Supervision state unknown</p>
-          <p>
-            The backend reports this view as UNKNOWN (<code>{data.reason_code}</code>). Do not
-            treat it as healthy.
-          </p>
-        </div>
-      )}
+      {data.status === 'UNKNOWN' && <UnknownPanel label={label} reasonCode={data.reason_code} />}
 
       {data.items.map((item) => (
         <SupervisionCard
@@ -103,16 +91,13 @@ export function SupervisionViewBody({
           client={client}
           onChanged={onChanged}
           busy={busy}
+          yesNo={yesNo}
         />
       ))}
 
       <EvidenceRefs refs={data.evidence_refs} />
 
-      <p className="readonly-note">
-        Actions are limited to one-time Approve Once / Reject on sessions awaiting manual
-        approval, bound to the latest authoritative read. Everything else stays read-only:
-        no activation, no checkpoint creation, no policy change.
-      </p>
+      <p className="readonly-note">{t('supervision.note')}</p>
     </div>
   );
 }
@@ -122,12 +107,15 @@ function SupervisionCard({
   client,
   onChanged,
   busy = false,
+  yesNo,
 }: {
   item: SupervisionItem;
   client?: ApiClient;
   onChanged?: () => void;
   busy?: boolean;
+  yesNo: (value: boolean) => string;
 }) {
+  const t = useT();
   return (
     <section className="card">
       <div className="card-head">
@@ -135,25 +123,25 @@ function SupervisionCard({
         <span className="card-badges">
           <StateBadge label={item.status} tone={sessionStatusTone(item.status)} />
           <StateBadge
-            label={item.policy_decision ?? 'NO DECISION'}
+            label={item.policy_decision ?? t('supervision.noDecision')}
             tone={policyTone(item.policy_decision)}
           />
         </span>
       </div>
       <KeyValueGrid>
-        <KeyValue k="Requires manual approval" v={yesNo(item.requires_manual_approval)} />
-        <KeyValue k="Manual approval granted" v={yesNo(item.manual_approval)} />
-        <KeyValue k="Requires checkpoint" v={yesNo(item.requires_checkpoint)} />
+        <KeyValue k={t('kv.requiresManualApproval')} v={yesNo(item.requires_manual_approval)} />
+        <KeyValue k={t('kv.manualApprovalGranted')} v={yesNo(item.manual_approval)} />
+        <KeyValue k={t('kv.requiresCheckpoint')} v={yesNo(item.requires_checkpoint)} />
         <KeyValue
-          k="AI assessment"
+          k={t('kv.aiAssessment')}
           v={
             item.ai_assessment ? (
               <span>
-                decision <code>{orDash(item.ai_assessment.decision)}</code>, severity{' '}
-                <code>{orDash(item.ai_assessment.severity)}</code>
+                {t('supervision.aiDecision')} <code>{orDash(item.ai_assessment.decision)}</code>,{' '}
+                {t('supervision.aiSeverity')} <code>{orDash(item.ai_assessment.severity)}</code>
               </span>
             ) : (
-              <span className="muted">No AI assessment</span>
+              <span className="muted">{t('supervision.aiAssessmentNone')}</span>
             )
           }
         />
@@ -167,19 +155,26 @@ function SupervisionCard({
           busy={busy}
         />
       )}
-      {item.recovery_facts && <RecoveryFacts facts={item.recovery_facts} />}
+      {item.recovery_facts && <RecoveryFacts facts={item.recovery_facts} yesNo={yesNo} />}
       <EvidenceRefs refs={item.evidence_refs} />
     </section>
   );
 }
 
-function RecoveryFacts({ facts }: { facts: NonNullable<SupervisionItem['recovery_facts']> }) {
+function RecoveryFacts({
+  facts,
+  yesNo,
+}: {
+  facts: NonNullable<SupervisionItem['recovery_facts']>;
+  yesNo: (value: boolean) => string;
+}) {
+  const t = useT();
   return (
     <details className="evidence">
-      <summary className="evidence-toggle">Authoritative recovery facts</summary>
+      <summary className="evidence-toggle">{t('supervision.recoveryFacts')}</summary>
       <KeyValueGrid>
         <KeyValue
-          k="Recovery level"
+          k={t('kv.recoveryLevel')}
           v={
             facts.recovery_level ? (
               <StateBadge label={facts.recovery_level} tone={recoveryLevelTone(facts.recovery_level)} />
@@ -188,12 +183,12 @@ function RecoveryFacts({ facts }: { facts: NonNullable<SupervisionItem['recovery
             )
           }
         />
-        <KeyValue k="R1 verified" v={yesNo(facts.r1_verified === true)} />
-        <KeyValue k="R2 verified" v={yesNo(facts.r2_verified === true)} />
-        <KeyValue k="R3 verified" v={yesNo(facts.r3_verified === true)} />
-        <KeyValue k="Test restore" v={orDash(facts.test_restore_status)} />
+        <KeyValue k={t('kv.r1Verified')} v={yesNo(facts.r1_verified === true)} />
+        <KeyValue k={t('kv.r2Verified')} v={yesNo(facts.r2_verified === true)} />
+        <KeyValue k={t('kv.r3Verified')} v={yesNo(facts.r3_verified === true)} />
+        <KeyValue k={t('kv.testRestore')} v={orDash(facts.test_restore_status)} />
         <KeyValue
-          k="Trusted baseline"
+          k={t('kv.trustedBaseline')}
           v={
             facts.trusted_baseline_status ? (
               <StateBadge

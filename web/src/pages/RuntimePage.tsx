@@ -5,18 +5,23 @@ import { EmptyState } from '../components/EmptyState';
 import { EvidenceRefs } from '../components/EvidenceRefs';
 import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { availabilityTone, StateBadge, viewStatusTone } from '../components/StateBadge';
+import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
 import { ViewGate } from '../components/ViewGate';
+import { useT } from '../i18n/I18nProvider';
 
 export default function RuntimePage({ client = apiClient }: { client?: ApiClient }) {
   const state = useR4View<RuntimeView>('runtime', client);
+  const t = useT();
   return (
-    <ViewGate state={state} label="Runtime">
+    <ViewGate state={state} label={t('nav.runtime')}>
       {(data) => <RuntimeViewBody data={data} />}
     </ViewGate>
   );
 }
 
 export function RuntimeViewBody({ data }: { data: RuntimeView }) {
+  const t = useT();
+  const label = t('nav.runtime');
   return (
     <div>
       <div className="view-head">
@@ -28,29 +33,15 @@ export function RuntimeViewBody({ data }: { data: RuntimeView }) {
 
       {data.status === 'EMPTY' && (
         <EmptyState
-          title="No runtime records"
-          detail="The backend holds no verified runtime facts for this view."
+          title={t('runtime.empty.title')}
+          detail={t('runtime.empty.detail')}
           reasonCode={data.reason_code}
         />
       )}
       {data.status === 'DEGRADED' && (
-        <div className="panel panel-bad" role="alert">
-          <p className="panel-title">Runtime view degraded</p>
-          <p>
-            The backend could not project authoritative runtime state (
-            <code>{data.reason_code}</code>). Nothing below is projected authority.
-          </p>
-        </div>
+        <DegradedPanel label={label} reasonCode={data.reason_code} />
       )}
-      {data.status === 'UNKNOWN' && (
-        <div className="panel panel-warn" role="alert">
-          <p className="panel-title">Runtime state unknown</p>
-          <p>
-            The backend reports this view as UNKNOWN (<code>{data.reason_code}</code>). Do not
-            treat it as healthy.
-          </p>
-        </div>
-      )}
+      {data.status === 'UNKNOWN' && <UnknownPanel label={label} reasonCode={data.reason_code} />}
 
       {data.items.map((item) => (
         <RuntimeCard key={`${item.execution_domain_id}:${item.runtime_type}:${item.evidence_refs[0]}`} item={item} />
@@ -62,19 +53,20 @@ export function RuntimeViewBody({ data }: { data: RuntimeView }) {
 }
 
 function RuntimeCard({ item }: { item: RuntimeItem }) {
+  const t = useT();
   return (
     <section className="card">
       <div className="card-head">
-        <span className="card-title">{item.runtime_type ?? 'Unknown runtime'}</span>
+        <span className="card-title">{item.runtime_type ?? t('runtime.unknownType')}</span>
         <span className="card-badges">
           <StateBadge label={item.availability} tone={availabilityTone(item.availability)} />
-          {item.uncertainty && <StateBadge label="uncertain" tone="warn" />}
+          {item.uncertainty && <StateBadge label={t('runtime.uncertain')} tone="warn" />}
         </span>
       </div>
       <KeyValueGrid>
-        <KeyValue k="Execution domain" v={orDash(item.execution_domain_id)} />
+        <KeyValue k={t('kv.executionDomain')} v={orDash(item.execution_domain_id)} />
         <KeyValue
-          k="Capabilities"
+          k={t('kv.capabilities')}
           v={
             item.capabilities.length > 0 ? (
               <span className="chips">
@@ -85,7 +77,7 @@ function RuntimeCard({ item }: { item: RuntimeItem }) {
                 ))}
               </span>
             ) : (
-              <span className="muted">None reported</span>
+              <span className="muted">{t('runtime.noCapabilities')}</span>
             )
           }
         />
