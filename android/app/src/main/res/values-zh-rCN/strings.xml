@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- zh-CN translations; key set must match values/strings.xml exactly. -->
+<resources>
+    <string name="app_name">AgentState Guard</string>
+
+    <string name="nav_home">首页</string>
+    <string name="nav_environment">环境</string>
+    <string name="nav_changes">变更</string>
+    <string name="nav_supervision">监管</string>
+    <string name="nav_more">更多</string>
+
+    <string name="more_checkpoints">检查点</string>
+    <string name="more_recovery">恢复</string>
+    <string name="more_ai_monitor">AI 监管</string>
+    <string name="more_devices">设备</string>
+    <string name="more_settings">设置</string>
+
+    <string name="home_tagline">保护你的 AI 开发环境</string>
+    <string name="home_not_connected">尚未连接电脑</string>
+    <string name="action_scan_qr">扫描二维码连接</string>
+    <string name="action_find_lan">查找局域网中的电脑</string>
+    <string name="action_manual_address">手动输入地址</string>
+    <string name="pairing_first_hint">首次连接将在两台设备上显示相同的 6 位安全码。</string>
+
+    <string name="pairing_scan_title">扫码连接</string>
+    <string name="pairing_scan_shell">摄像头扫码能力将在后续阶段由 Device Link 层接入。</string>
+    <string name="pairing_lan_title">查找电脑</string>
+    <string name="pairing_lan_shell">局域网发现能力将在后续阶段由 Device Link 层接入。</string>
+    <string name="pairing_manual_title">输入地址</string>
+    <string name="pairing_manual_hint">请输入电脑屏幕上显示的桌面端地址。</string>
+    <string name="pairing_manual_connect">连接</string>
+    <string name="pairing_waiting">正在等待电脑响应…</string>
+
+    <string name="sas_title">连接电脑</string>
+    <string name="sas_prompt">请确认两台设备显示相同安全码：</string>
+    <string name="sas_confirm">确认一致</string>
+    <string name="sas_reject">不一致，取消</string>
+    <string name="sas_desktop">桌面端</string>
+    <string name="sas_expires">%1$d 秒后过期</string>
+    <string name="sas_phase">连接阶段</string>
+
+    <string name="state_loading">加载中…</string>
+    <string name="state_no_data">尚未获取数据</string>
+    <string name="state_waiting_desktop">等待电脑状态</string>
+    <string name="state_connected_computer">已连接电脑</string>
+
+    <string name="home_overall">整体状态</string>
+    <string name="home_runtime">运行环境</string>
+    <string name="home_agents">智能体</string>
+    <string name="home_pending_supervision">待处理监管</string>
+    <string name="home_changes">变更</string>
+    <string name="home_checkpoints">检查点</string>
+    <string name="home_ai_supervisor">AI 监管</string>
+    <string name="home_recovery_status">恢复状态</string>
+
+    <string name="empty_checkpoints">暂无检查点</string>
+    <string name="empty_changes">未检测到变更</string>
+    <string name="empty_supervision">暂无监管会话</string>
+    <string name="empty_environment">暂无环境数据</string>
+    <string name="ai_not_configured">AI 监管未配置</string>
+    <string name="ai_not_configured_detail">请在桌面端配置 AI 提供方以启用分析。</string>
+
+    <string name="settings_language">语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_en">English</string>
+    <string name="language_zh">简体中文</string>
+    <string name="language_note">更改立即生效。</string>
+
+    <string name="action_cancel">取消</string>
+    <string name="action_done">完成</string>
+    <string name="action_start_over">重新开始</string>
+    <string name="action_back">返回</string>
+</resources>

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default (en-US) user-visible strings. Machine tokens — UNKNOWN, REVIEW,
+  BLOCK, UNREACHABLE, ALLOW, reason codes, session/checkpoint/evidence IDs,
+  SHAs, protocol values — never appear here; they render verbatim from data.
+-->
+<resources>
+    <string name="app_name">AgentState Guard</string>
+
+    <!-- bottom navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_environment">Environment</string>
+    <string name="nav_changes">Changes</string>
+    <string name="nav_supervision">Supervision</string>
+    <string name="nav_more">More</string>
+
+    <!-- More menu -->
+    <string name="more_checkpoints">Checkpoints</string>
+    <string name="more_recovery">Recovery</string>
+    <string name="more_ai_monitor">AI Monitor</string>
+    <string name="more_devices">Devices</string>
+    <string name="more_settings">Settings</string>
+
+    <!-- unpaired home -->
+    <string name="home_tagline">Protect your AI development environment</string>
+    <string name="home_not_connected">Not connected to a computer</string>
+    <string name="action_scan_qr">Scan QR code to connect</string>
+    <string name="action_find_lan">Find computers on the local network</string>
+    <string name="action_manual_address">Enter address manually</string>
+    <string name="pairing_first_hint">On first connection, both devices will show the same 6-digit security code.</string>
+
+    <!-- pairing shells -->
+    <string name="pairing_scan_title">Scan to connect</string>
+    <string name="pairing_scan_shell">The camera scanner is connected by the Device Link layer in a later stage.</string>
+    <string name="pairing_lan_title">Find computers</string>
+    <string name="pairing_lan_shell">Searching the local network is connected by the Device Link layer in a later stage.</string>
+    <string name="pairing_manual_title">Enter address</string>
+    <string name="pairing_manual_hint">Desktop address shown on the computer screen.</string>
+    <string name="pairing_manual_connect">Connect</string>
+    <string name="pairing_waiting">Waiting for the computer…</string>
+
+    <!-- SAS -->
+    <string name="sas_title">Connect to computer</string>
+    <string name="sas_prompt">Confirm both devices show the same security code:</string>
+    <string name="sas_confirm">Codes match</string>
+    <string name="sas_reject">Codes do not match — cancel</string>
+    <string name="sas_desktop">Desktop</string>
+    <string name="sas_expires">Expires in %1$d s</string>
+    <string name="sas_phase">Connection phase</string>
+
+    <!-- data states -->
+    <string name="state_loading">Loading…</string>
+    <string name="state_no_data">No data yet</string>
+    <string name="state_waiting_desktop">Waiting for computer state</string>
+    <string name="state_connected_computer">Connected computer</string>
+
+    <!-- home summary -->
+    <string name="home_overall">Overall status</string>
+    <string name="home_runtime">Runtime</string>
+    <string name="home_agents">Agents</string>
+    <string name="home_pending_supervision">Pending supervision</string>
+    <string name="home_changes">Changes</string>
+    <string name="home_checkpoints">Checkpoints</string>
+    <string name="home_ai_supervisor">AI Supervisor</string>
+    <string name="home_recovery_status">Recovery status</string>
+
+    <!-- honest empties -->
+    <string name="empty_checkpoints">No checkpoints</string>
+    <string name="empty_changes">No changes detected</string>
+    <string name="empty_supervision">No supervision sessions</string>
+    <string name="empty_environment">No environment data</string>
+    <string name="ai_not_configured">AI Monitor is not configured</string>
+    <string name="ai_not_configured_detail">Configure an AI provider on the desktop to enable analysis.</string>
+
+    <!-- settings -->
+    <string name="settings_language">Language</string>
+    <string name="language_system">System Default</string>
+    <string name="language_en">English</string>
+    <string name="language_zh">简体中文</string>
+    <string name="language_note">Changes take effect immediately.</string>
+
+    <!-- common -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_done">Done</string>
+    <string name="action_start_over">Start over</string>
+    <string name="action_back">Back</string>
+</resources>
