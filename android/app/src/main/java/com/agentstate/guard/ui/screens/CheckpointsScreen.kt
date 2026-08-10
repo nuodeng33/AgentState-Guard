@@ -1,39 +1,55 @@
 package com.agentstate.guard.ui.screens
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.agentstate.guard.R
+import com.agentstate.guard.ui.components.DataStateHost
+import com.agentstate.guard.ui.state.CheckpointsUiState
+import com.agentstate.guard.ui.theme.Spacing
+import com.agentstate.guard.ui.theme.Surface as SurfaceColor
+import com.agentstate.guard.ui.theme.TextSecondary
 
-data class Checkpoint(val id: Int, val label: String, val time: String, val files: Int, val restorable: Int)
-
+/** Checkpoints: adapter-supplied list plus an honest empty state. */
 @Composable
-fun CheckpointsScreen(items: List<Checkpoint> = emptyList()) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+fun CheckpointsScreen(state: CheckpointsUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(Spacing.l),
+        verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
-        item { Text("Checkpoints", style = MaterialTheme.typography.headlineSmall) }
-        if (items.isEmpty()) {
-            item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text("No checkpoints", modifier = Modifier.padding(16.dp))
-                }
-            }
-        }
-        items(items) { cp ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("#${cp.id} ${cp.label}", style = MaterialTheme.typography.titleSmall)
-                    Text(cp.time, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("${cp.files} files", style = MaterialTheme.typography.bodySmall)
-                        Text("${cp.restorable} restorable", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary)
+        Text(
+            stringResource(R.string.more_checkpoints),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        DataStateHost(
+            phase = state.phase,
+            loadingText = stringResource(R.string.state_loading),
+            emptyText = stringResource(R.string.empty_checkpoints),
+        ) {
+            state.items.forEach { checkpoint ->
+                Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(Spacing.l),
+                    ) {
+                        Text("#${checkpoint.id} ${checkpoint.label}", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            checkpoint.createdAt,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
                     }
                 }
             }
