@@ -49,25 +49,18 @@ class UiRuntimeEvidenceInstrumentedTest {
         val activity = launchFreshActivity()
         try {
             waitForText("Not connected to a computer")
+            assertTextAbsent("DESKTOP-DEMO")
             listOf("Home", "Environment", "Changes", "Supervision", "More").forEach(::waitForText)
 
             clickText("Environment")
             waitForText("No environment data")
+            listOf("Claude Code", "Node.js", "Python", "Docker", "Tailscale").forEach(::assertTextAbsent)
             clickText("Changes")
             waitForText("No changes detected")
             clickText("Supervision")
             waitForText("No supervision sessions")
             clickText("More")
             listOf("Checkpoints", "Recovery", "AI Monitor", "Devices", "Settings").forEach(::waitForText)
-
-            listOf(
-                "DESKTOP-DEMO",
-                "Claude Code",
-                "Node.js",
-                "Python",
-                "Docker",
-                "Tailscale",
-            ).forEach(::assertTextAbsent)
         } finally {
             finishActivity(activity)
         }
