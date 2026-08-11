@@ -14,6 +14,18 @@ import com.agentstate.guard.ui.state.SupervisionUiState
 class DeviceLinkUnsupportedException : Exception("DEVICE_LINK_UNSUPPORTED")
 
 /**
+ * Maps a pairing failure to a small, stable, whitelisted machine reason code.
+ *
+ * Raw exception text is never UI-safe: it can carry implementation detail,
+ * provider wording, paths, URLs, or other sensitive context. Unknown or
+ * unclassified failures collapse to the generic PAIRING_FAILED code.
+ */
+fun pairingFailureReasonCode(error: Throwable): String = when (error) {
+    is DeviceLinkUnsupportedException -> "DEVICE_LINK_UNSUPPORTED"
+    else -> "PAIRING_FAILED"
+}
+
+/**
  * Boundary between the Android UI and the future Device Link integration.
  *
  * The UI only ever talks to this interface. Implementations return UI-safe

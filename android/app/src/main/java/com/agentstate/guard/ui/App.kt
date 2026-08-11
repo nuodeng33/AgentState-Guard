@@ -34,6 +34,7 @@ import com.agentstate.guard.ui.link.DeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.NoopDeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.PairingPhase
 import com.agentstate.guard.ui.link.PairingUiState
+import com.agentstate.guard.ui.link.pairingFailureReasonCode
 import com.agentstate.guard.ui.screens.AiMonitorScreen
 import com.agentstate.guard.ui.screens.ChangesScreen
 import com.agentstate.guard.ui.screens.CheckpointsScreen
@@ -137,7 +138,10 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
             pairing = try {
                 linkAdapter.pollPairing(current.pairingId)
             } catch (unsupported: Exception) {
-                PairingUiState(PairingPhase.ERROR, reasonCode = unsupported.message)
+                PairingUiState(
+                    PairingPhase.ERROR,
+                    reasonCode = pairingFailureReasonCode(unsupported),
+                )
             }
         }
     }
@@ -245,7 +249,10 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                                 pairing = try {
                                     linkAdapter.confirmSas(id)
                                 } catch (unsupported: Exception) {
-                                    PairingUiState(PairingPhase.ERROR, reasonCode = unsupported.message)
+                                    PairingUiState(
+                                        PairingPhase.ERROR,
+                                        reasonCode = pairingFailureReasonCode(unsupported),
+                                    )
                                 }
                             }
                         },
@@ -255,7 +262,10 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                                 pairing = try {
                                     linkAdapter.rejectSas(id)
                                 } catch (unsupported: Exception) {
-                                    PairingUiState(PairingPhase.ERROR, reasonCode = unsupported.message)
+                                    PairingUiState(
+                                        PairingPhase.ERROR,
+                                        reasonCode = pairingFailureReasonCode(unsupported),
+                                    )
                                 }
                                 navController.popBackStack()
                             }
