@@ -88,6 +88,7 @@ def discovery_events(
                 descriptor_payload = {
                     "agent_id": descriptor.agent_id,
                     "agent_type": descriptor.agent_type,
+                    "lifecycle": descriptor.lifecycle.value,
                     "runtime_id": descriptor.runtime_id,
                     "workspace_ids": list(descriptor.workspace_ids),
                 }

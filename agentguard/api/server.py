@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import secrets
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,10 +33,18 @@ class ControlledChangeRequest(BaseModel):
     content: str = Field(min_length=1, max_length=1_048_576)
 
 
+class DiscoveryRefreshRequest(BaseModel):
+    """Manual refresh accepts no caller-selected discovery authority."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
 def create_app(
     state_db_path: Path | None = None,
     config: dict | None = None,
     assessment_provider=None,
+    discovery_service=None,
+    product_startup_discovery: bool = False,
 ):
     """Create a FastAPI application instance.
 
@@ -49,6 +58,11 @@ def create_app(
     from ..commands.doctor import doctor as _doctor
     from ..commands.status import status as _status_ptr
     from ..core.config import Config
+    from ..discovery.product import (
+        ProductDiscoveryService,
+        unavailable_product_snapshot,
+    )
+    from ..evidence.discovery_adapter import record_discovery_snapshot
     from ..storage.db import StateDB
     from ..storage.snapshots import SnapshotStore
     from ..transactions.engine import TransactionEngine
@@ -73,6 +87,18 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
         path = request.url.path
+        if request.method == "POST" and path == "/api/v1/discovery/refresh":
+            return JSONResponse(
+                {
+                    "schema_version": "product-discovery-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "DISCOVERY_REFRESH_REQUEST_INVALID",
+                    "snapshot_id": None,
+                    "runtime_count": 0,
+                    "agent_count": 0,
+                },
+                status_code=422,
+            )
         if (
             path.startswith("/api/v1/supervision/")
             and request.method == "POST"
@@ -157,15 +183,52 @@ def create_app(
         return response
 
     cfg_o = Config(Path(config.get("base_dir", "/workspace")) if config else PROJECT_ROOT)
+    cfg_o.ensure_product_config()
     cfg = cfg_o._data
     db_path = state_db_path or cfg_o.state_db()
     db = StateDB(db_path)
     snapshots_dir = cfg_o.snapshot_dir()
     _ai_provider = assessment_provider
+    _product_discovery = discovery_service or ProductDiscoveryService()
 
     def _get_db():
         db.connect()
         return db
+
+    def _refresh_product_discovery() -> dict[str, object]:
+        unavailable = False
+        try:
+            snapshot = _product_discovery.discover()
+        except (OSError, RuntimeError, TypeError, ValueError):
+            snapshot = unavailable_product_snapshot()
+            unavailable = True
+        current_db = _get_db()
+        try:
+            record_discovery_snapshot(
+                current_db,
+                snapshot,
+                recorded_at=datetime.now(UTC),
+            )
+        finally:
+            current_db.close()
+        return {
+            "schema_version": "product-discovery-1",
+            "status": snapshot.status.value,
+            "reason_code": (
+                "DISCOVERY_REFRESH_UNAVAILABLE"
+                if unavailable
+                else "DISCOVERY_REFRESHED"
+            ),
+            "snapshot_id": snapshot.snapshot_id,
+            "runtime_count": len(snapshot.runtimes),
+            "agent_count": len(snapshot.agents),
+        }
+
+    if product_startup_discovery:
+        try:
+            _refresh_product_discovery()
+        except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
+            pass
 
     @app.get("/api/health")
     async def health():
@@ -277,6 +340,26 @@ def create_app(
     async def api_r4_recovery():
         return _r4_projection("recovery")
 
+    @app.post("/api/v1/discovery/refresh")
+    async def api_product_discovery_refresh(_body: DiscoveryRefreshRequest):
+        try:
+            result = _refresh_product_discovery()
+            if result["reason_code"] == "DISCOVERY_REFRESH_UNAVAILABLE":
+                return JSONResponse(result, status_code=503)
+            return result
+        except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
+            return JSONResponse(
+                {
+                    "schema_version": "product-discovery-1",
+                    "status": "DEGRADED",
+                    "reason_code": "DISCOVERY_REFRESH_UNAVAILABLE",
+                    "snapshot_id": None,
+                    "runtime_count": 0,
+                    "agent_count": 0,
+                },
+                status_code=503,
+            )
+
     def _supervision_action(
         session_id: str,
         body: SupervisionActionRequest,
@@ -377,6 +460,7 @@ def create_app(
                 base_dir=cfg_o.base_dir,
                 content=body.content.encode("utf-8"),
                 assessment_provider=_ai_provider,
+                discovery_service=_product_discovery,
             )
         except ControlledChangeError as exc:
             return JSONResponse(
@@ -617,7 +701,13 @@ def run_server(host: str = "127.0.0.1", port: int = 8787, allow_remote: bool = F
                config: dict | None = None):
     """Run the API server."""
     import uvicorn
-    app = create_app(config=config)
+    app = create_app(config=config, product_startup_discovery=True)
     if not allow_remote:
         host = "127.0.0.1"
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=False,
+    )

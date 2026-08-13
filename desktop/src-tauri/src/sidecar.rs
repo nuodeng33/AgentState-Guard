@@ -4,6 +4,7 @@
 // and handles clean shutdown on app exit.
 
 use serde::Serialize;
+use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -12,6 +13,8 @@ use tauri::Manager;
 
 const SIDECAR_PORT: u16 = 8787;
 const SIDECAR_HOST: &str = "127.0.0.1";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Serialize, Clone)]
 pub struct SidecarState {
@@ -21,6 +24,30 @@ pub struct SidecarState {
 }
 
 pub struct SidecarProcess(pub Mutex<Option<Child>>);
+
+fn open_sidecar_logs(data_dir: &str) -> Result<(File, File), String> {
+    let log_dir = PathBuf::from(data_dir).join("logs");
+    std::fs::create_dir_all(&log_dir)
+        .map_err(|e| format!("Failed to create sidecar log directory: {}", e))?;
+    let log_path = log_dir.join("sidecar.log");
+    let stdout = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Failed to open sidecar log: {}", e))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|e| format!("Failed to clone sidecar log handle: {}", e))?;
+    Ok((stdout, stderr))
+}
+
+fn configure_no_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+}
 
 /// Resolve the sidecar binary relative to the current executable,
 /// not the working directory. This works whether the app is run
@@ -75,7 +102,9 @@ fn resolve_sidecar() -> Result<PathBuf, String> {
 /// CI smoke test (TcpClient check) — not by blocking inside setup().
 pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
     let sidecar_path = resolve_sidecar()?;
-    let child = Command::new(&sidecar_path)
+    let (stdout, stderr) = open_sidecar_logs(data_dir)?;
+    let mut command = Command::new(&sidecar_path);
+    command
         .arg("--directory")
         .arg(data_dir)
         .arg("serve")
@@ -83,8 +112,10 @@ pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
         .arg(SIDECAR_HOST)
         .arg("--port")
         .arg(SIDECAR_PORT.to_string())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
+    configure_no_window(&mut command);
+    let child = command
         .spawn()
         .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
 
@@ -101,9 +132,10 @@ pub fn terminate(child: &mut Child) -> Result<(), String> {
     #[cfg(windows)]
     {
         // On Windows, use taskkill to ensure the entire process tree is killed
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
-            .output();
+        let mut command = Command::new("taskkill");
+        command.args(["/F", "/T", "/PID", &pid.to_string()]);
+        configure_no_window(&mut command);
+        let _ = command.output();
     }
     #[cfg(not(windows))]
     {

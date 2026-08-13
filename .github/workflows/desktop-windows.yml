@@ -75,6 +75,7 @@ jobs:
           Set-Content agentguard/core/_build_provenance.py $provenance -Encoding utf8
           python -m PyInstaller `
             --onefile `
+            --noconsole `
             --name agentguard-sidecar `
             --hidden-import uvicorn `
             --hidden-import uvicorn.logging `
@@ -260,15 +261,14 @@ jobs:
         working-directory: desktop/src-tauri
         run: |
           cargo install tauri-cli --version "^2"
-          cargo tauri build --debug
+          cargo tauri build
 
       - name: Verify artifacts
         shell: pwsh
         run: |
-          # Debug build binary uses Cargo package name (agentstate-guard.exe),
-          # not the product name. Check both variants.
-          $exe = Get-Item "desktop/src-tauri/target/debug/agentstate-guard.exe" -ErrorAction SilentlyContinue
-          $msi = Get-ChildItem "desktop/src-tauri/target/debug/bundle/msi/*.msi" -ErrorAction SilentlyContinue
+          # Release binary uses the Cargo package name (agentstate-guard.exe).
+          $exe = Get-Item "desktop/src-tauri/target/release/agentstate-guard.exe" -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem "desktop/src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue
           if (-not $exe) { Write-Host "ERROR: agentstate-guard.exe not found"; exit 1 }
           if (-not $msi) { Write-Host "ERROR: MSI not found"; exit 1 }
           Write-Host "EXE: $($exe.Name) $($exe.Length) bytes"
@@ -277,15 +277,15 @@ jobs:
       - name: Stage runtime sidecar
         shell: pwsh
         run: |
-          Copy-Item "desktop/src-tauri/bin/agentguard-sidecar-*.exe" "desktop/src-tauri/target/debug/"
-          Get-ChildItem "desktop/src-tauri/target/debug/agentguard-sidecar-*.exe" | ForEach-Object { Write-Host "Runtime sidecar: $($_.Name)" }
+          Copy-Item "desktop/src-tauri/bin/agentguard-sidecar-*.exe" "desktop/src-tauri/target/release/"
+          Get-ChildItem "desktop/src-tauri/target/release/agentguard-sidecar-*.exe" | ForEach-Object { Write-Host "Runtime sidecar: $($_.Name)" }
 
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         with:
           name: desktop-tauri-build
           path: |
-            desktop/src-tauri/target/debug/*.exe
-            desktop/src-tauri/target/debug/bundle/msi/*.msi
+            desktop/src-tauri/target/release/*.exe
+            desktop/src-tauri/target/release/bundle/msi/*.msi
 
   # ── 5. Bundled Sidecar Runtime Smoke (No WebView Coverage) ─────
   runtime-smoke:
@@ -421,12 +421,14 @@ jobs:
           "INSTALLED_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
           "INSTALLED_SIDECAR=$($sidecar.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Packaged main app WebView to Core smoke
+      - name: Packaged main app to Core smoke
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $stdoutLog = "$env:RUNNER_TEMP\packaged-main-stdout.log"
           $stderrLog = "$env:RUNNER_TEMP\packaged-main-stderr.log"
+          $productData = Join-Path $env:LOCALAPPDATA "AgentState Guard"
+          $sidecarLog = Join-Path $productData "logs\sidecar.log"
           $mainPid = $null
           $listenerPid = $null
 
@@ -438,9 +440,6 @@ jobs:
 
           try {
             Write-Host "Starting installed Tauri main executable: $env:INSTALLED_EXE"
-            # This step intentionally does not call Core endpoints itself. The
-            # access-log assertions below can therefore only be satisfied by
-            # frontend bootstrap running inside the main application's WebView.
             $main = Start-Process -FilePath $env:INSTALLED_EXE `
               -PassThru `
               -RedirectStandardOutput $stdoutLog `
@@ -464,27 +463,30 @@ jobs:
             $listenerPid = $listener.OwningProcess
             Write-Host "CORE_LISTENER_PID=$($listener.OwningProcess)"
 
-            $sessionSeen = $false
-            $runtimeSeen = $false
+            $runtime = $null
             for ($i = 0; $i -lt 90; $i++) {
-              $logParts = @()
-              if (Test-Path $stdoutLog) { $logParts += Get-Content $stdoutLog -Raw }
-              if (Test-Path $stderrLog) { $logParts += Get-Content $stderrLog -Raw }
-              $logText = $logParts -join "`n"
-              $sessionSeen = $logText -match 'GET /api/session HTTP/1\.[01]" 200'
-              $runtimeSeen = $logText -match 'GET /api/v1/runtime HTTP/1\.[01]" 200'
-              if ($sessionSeen -and $runtimeSeen) { break }
+              try {
+                $session = Invoke-RestMethod -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/session" -NoProxy -TimeoutSec 2
+                $headers = @{ "X-Session-Token" = $session.token }
+                $runtime = Invoke-RestMethod -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/v1/runtime" -Headers $headers -NoProxy -TimeoutSec 2
+                if ($runtime.items.Count -ge 1) { break }
+              } catch { }
               if ($main.HasExited) {
-                throw "Tauri main process exited before WebView bootstrap completed (exit=$($main.ExitCode))"
+                throw "Tauri main process exited before Core discovery completed (exit=$($main.ExitCode))"
               }
               Start-Sleep -Seconds 1
             }
 
-            if (-not $sessionSeen) { throw "WEBVIEW_SESSION_BOOTSTRAP_NOT_OBSERVED" }
-            if (-not $runtimeSeen) { throw "WEBVIEW_AUTHORITATIVE_VIEW_NOT_OBSERVED" }
-            Write-Host "PACKAGED_MAIN_WEBVIEW_CORE_SMOKE_VERIFIED"
-            Write-Host "Observed WebView GET /api/session -> 200"
-            Write-Host "Observed WebView GET /api/v1/runtime -> 200"
+            if (-not $runtime -or $runtime.items.Count -lt 1) { throw "PACKAGED_RUNTIME_DISCOVERY_NOT_OBSERVED" }
+            if (-not ($runtime.items | Where-Object { $_.runtime_type -eq "SELF_RUNTIME" })) {
+              throw "PACKAGED_SELF_RUNTIME_NOT_PROJECTED"
+            }
+            $refresh = Invoke-RestMethod -Uri "http://127.0.0.1:$env:SIDECAR_PORT/api/v1/discovery/refresh" -Method Post -Headers $headers -ContentType "application/json" -Body "{}" -NoProxy -TimeoutSec 10
+            if ($refresh.reason_code -ne "DISCOVERY_REFRESHED") { throw "PACKAGED_DISCOVERY_REFRESH_FAILED" }
+            if (-not (Test-Path (Join-Path $productData "config\agentguard.toml"))) { throw "PACKAGED_PRODUCT_CONFIG_MISSING" }
+            if (-not (Test-Path $sidecarLog)) { throw "PACKAGED_SIDECAR_LOG_MISSING" }
+            Write-Host "PACKAGED_MAIN_CORE_SMOKE_VERIFIED"
+            Write-Host "Startup and manual discovery verified"
           } catch {
             Write-Host "ERROR: $($_.Exception.Message)"
             if (Test-Path $stdoutLog) { Get-Content $stdoutLog -Tail 200 | Write-Host }
@@ -512,6 +514,9 @@ jobs:
             if ($listenerPid -and (Get-Process -Id $listenerPid -ErrorAction SilentlyContinue)) {
               throw "PACKAGED_MAIN_LISTENER_PROCESS_ORPHAN"
             }
+            if (Test-Path $sidecarLog) {
+              Copy-Item $sidecarLog "$env:RUNNER_TEMP\packaged-sidecar.log" -Force
+            }
             Write-Host "Packaged main process tree stopped cleanly"
           }
 
@@ -523,6 +528,7 @@ jobs:
           path: |
             ${{ runner.temp }}/packaged-main-stdout.log
             ${{ runner.temp }}/packaged-main-stderr.log
+            ${{ runner.temp }}/packaged-sidecar.log
             ${{ runner.temp }}/msi-install.log
           if-no-files-found: warn
 

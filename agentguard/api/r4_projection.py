@@ -49,6 +49,22 @@ def _base(view: str, status: str, reason_code: str, items: list[dict[str, Any]])
     }
 
 
+def _latest_discovery_snapshot_id(connection: sqlite3.Connection) -> str | None:
+    rows = connection.execute(
+        """SELECT payload_safe_json FROM evidence_ledger_events
+           WHERE event_type IN (
+               'RUNTIME_DETECTED', 'AGENT_DETECTED',
+               'WORKSPACE_LINKED', 'PROBE_UNREACHABLE'
+           ) ORDER BY sequence DESC"""
+    ).fetchall()
+    for (payload_json,) in rows:
+        payload = _json_object(payload_json)
+        snapshot_id = _atom(payload.get("snapshot_id")) if payload else None
+        if snapshot_id is not None:
+            return snapshot_id
+    return None
+
+
 class R4ReadProjectionService:
     """Project only verified ledger and durable service facts into safe DTOs."""
 
@@ -71,9 +87,14 @@ class R4ReadProjectionService:
                WHERE event_type IN ('RUNTIME_DETECTED', 'PROBE_UNREACHABLE')
                ORDER BY sequence"""
         ).fetchall()
+        latest_snapshot_id = _latest_discovery_snapshot_id(connection)
         items: list[dict[str, Any]] = []
         for event_id, event_type, result, event_domain, payload_json in rows:
             payload = _json_object(payload_json)
+            if latest_snapshot_id is not None and (
+                payload is None or payload.get("snapshot_id") != latest_snapshot_id
+            ):
+                continue
             value = payload.get("value") if payload else None
             if not isinstance(value, dict):
                 continue
@@ -94,7 +115,11 @@ class R4ReadProjectionService:
                     "uncertainty": not available or domain is None,
                     "evidence_refs": [event_id],
                 })
-            elif event_type == "PROBE_UNREACHABLE" and payload.get("fact_type") == "probe.unreachable":
+            elif (
+                event_type == "PROBE_UNREACHABLE"
+                and payload.get("fact_type") == "probe.unreachable"
+                and value.get("scope", "runtime") == "runtime"
+            ):
                 items.append({
                     "runtime_type": None,
                     "execution_domain_id": domain,
@@ -105,9 +130,16 @@ class R4ReadProjectionService:
                     "evidence_refs": [event_id],
                 })
         items.sort(key=lambda item: (item["execution_domain_id"] or "", item["runtime_type"] or "", item["evidence_refs"][0]))
+        degraded = any(item["availability"] != "AVAILABLE" for item in items)
         return _base(
-            "runtime", "AVAILABLE" if items else "EMPTY",
-            "R4_RUNTIME_AVAILABLE" if items else "R4_STATE_EMPTY", items,
+            "runtime",
+            "DEGRADED" if degraded else "AVAILABLE" if items else "EMPTY",
+            "R4_RUNTIME_DEGRADED"
+            if degraded
+            else "R4_RUNTIME_AVAILABLE"
+            if items
+            else "R4_STATE_EMPTY",
+            items,
         )
 
     def agents(self) -> dict[str, Any]:
@@ -117,12 +149,28 @@ class R4ReadProjectionService:
         rows = connection.execute(
             """SELECT sequence, event_id, result, observed_at,
                       execution_domain_id, subject_ref, payload_safe_json
-               FROM evidence_ledger_events WHERE event_type = 'AGENT_DETECTED'
+               FROM evidence_ledger_events
+               WHERE event_type IN ('AGENT_DETECTED', 'PROBE_UNREACHABLE')
                ORDER BY sequence"""
         ).fetchall()
+        latest_snapshot_id = _latest_discovery_snapshot_id(connection)
         latest_rows: dict[str, tuple[Any, ...]] = {}
+        failure_refs: list[str] = []
         for row in rows:
             payload = _json_object(row[6])
+            if latest_snapshot_id is not None and (
+                payload is None or payload.get("snapshot_id") != latest_snapshot_id
+            ):
+                continue
+            value = payload.get("value") if payload else None
+            if (
+                payload
+                and payload.get("fact_type") == "probe.unreachable"
+                and isinstance(value, dict)
+                and value.get("scope") == "agents"
+            ):
+                failure_refs.append(row[1])
+                continue
             agent_id = _atom(payload.get("agent_id")) if payload else None
             latest_rows[agent_id or row[1]] = row
         items: list[dict[str, Any]] = []
@@ -146,6 +194,15 @@ class R4ReadProjectionService:
             if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
                 confidence = 0.0
             available = result.casefold() == "available"
+            lifecycle = (
+                _atom(payload.get("lifecycle"))
+                or _atom(value.get("lifecycle"))
+                or ("DETECTED" if available else "UNKNOWN")
+            )
+            if lifecycle not in {
+                "DETECTED", "RUNNING", "OBSERVED", "INTEGRATED", "ENFORCED", "UNKNOWN"
+            }:
+                lifecycle = "UNKNOWN"
             domain = _atom(event_domain)
             if domain is None and payload.get("agent_id") is None:
                 domain = _atom(value.get("execution_domain_id"))
@@ -156,7 +213,7 @@ class R4ReadProjectionService:
             items.append({
                 "detected_identity": identity,
                 "role": _atom(value.get("role")) or "detected",
-                "lifecycle": "DETECTED" if available else "UNKNOWN",
+                "lifecycle": lifecycle if available else "UNKNOWN",
                 "confidence": confidence,
                 "execution_domain_id": domain,
                 "workspace": workspace,
@@ -173,12 +230,23 @@ class R4ReadProjectionService:
             })
         items.sort(key=lambda item: (item["execution_domain_id"] or "", item["detected_identity"], item["evidence_refs"][0]))
         complete = bool(items) and all(not item["uncertainty"] for item in items)
-        return _base(
+        projection = _base(
             "agents",
-            "AVAILABLE" if complete else "DEGRADED" if items else "EMPTY",
-            "R4_AGENTS_AVAILABLE" if complete else "R4_WORKSPACE_BINDING_INCOMPLETE" if items else "R4_STATE_EMPTY",
+            "AVAILABLE" if complete else "DEGRADED" if items or failure_refs else "EMPTY",
+            "R4_AGENTS_AVAILABLE"
+            if complete
+            else "R4_AGENT_DISCOVERY_UNREACHABLE"
+            if failure_refs
+            else "R4_WORKSPACE_BINDING_INCOMPLETE"
+            if items
+            else "R4_STATE_EMPTY",
             items,
         )
+        if failure_refs:
+            projection["evidence_refs"] = sorted(
+                {*projection["evidence_refs"], *failure_refs}
+            )
+        return projection
 
     def supervision(self) -> dict[str, Any]:
         connection = self._verified_connection("supervision")

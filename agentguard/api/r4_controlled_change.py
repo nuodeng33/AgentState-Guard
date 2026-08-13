@@ -5,35 +5,18 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import sqlite3
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from agentguard.ai.supervisor import AISupervisor, AssessmentProvider
-from agentguard.discovery import (
-    AgentDescriptor,
-    AgentLifecycleStatus,
-    CapabilityStatus,
-    DiscoverySnapshot,
-    ExecutionDomainDescriptor,
-    ExecutionDomainKind,
-    RuntimeDescriptor,
-    WorkspaceDescriptor,
-)
-from agentguard.discovery.agents import (
-    ProcessCollector,
-    ProcessState,
-    PsutilProcessBackend,
-    WorkspaceSource,
-    workspace_candidate_from_path,
-)
+from agentguard.discovery import CapabilityStatus, DiscoverySnapshot
 from agentguard.discovery.domains import SelfRuntimeAdapter
+from agentguard.discovery.product import ProductDiscoveryService
 from agentguard.evidence.canonical import canonical_json
 from agentguard.evidence.discovery_adapter import record_discovery_snapshot
 from agentguard.evidence.ledger import verify_ledger
+from agentguard.evidence.product_target import record_product_target_binding
 from agentguard.policy.models import Decision, PolicyInput
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
 from agentguard.recovery.policy import RestorePolicy
@@ -76,16 +59,25 @@ def prepare_controlled_change(
     base_dir: Path,
     content: bytes,
     assessment_provider: AssessmentProvider | None,
+    discovery_service=None,
 ) -> dict[str, object]:
     """Discover authority and create one write-before REVIEW session."""
     target = _server_target(base_dir)
     _validate_content(content)
-    snapshot, domain_id = _production_snapshot(base_dir)
+    snapshot, domain_id = _production_snapshot(discovery_service)
+    recorded_at = datetime.now(UTC)
     try:
         receipts = record_discovery_snapshot(
             database,
             snapshot,
-            recorded_at=datetime.now(UTC),
+            recorded_at=recorded_at,
+        )
+        target_binding = record_product_target_binding(
+            database,
+            snapshot_id=snapshot.snapshot_id,
+            execution_domain_id=domain_id,
+            target_refs=(str(target),),
+            recorded_at=recorded_at,
         )
     except (OSError, RuntimeError, sqlite3.DatabaseError, ValueError):
         raise ControlledChangeError("CONTROLLED_CHANGE_DISCOVERY_UNAVAILABLE", 503) from None
@@ -102,16 +94,21 @@ def prepare_controlled_change(
         privilege_effect=False,
         destructive_effect=False,
         secret_access=False,
-        evidence_refs=tuple(receipt.event_id for receipt in receipts),
+        evidence_refs=(
+            *[receipt.event_id for receipt in receipts],
+            target_binding.event_id,
+        ),
     )
     try:
-        session, decision, _facts = SupervisionService(
+        supervision = SupervisionService(
             database,
             snapshots=snapshots,
-        ).create_authoritative(
+        )
+        session, decision, _facts = supervision.create_authoritative(
             intent,
             policy_input,
             checkpoint_id=None,
+            product_target_binding_ref=target_binding.event_id,
         )
     except (OSError, RuntimeError, sqlite3.DatabaseError, ValueError):
         raise ControlledChangeError("CONTROLLED_CHANGE_AUTHORITY_UNAVAILABLE", 503) from None
@@ -147,6 +144,7 @@ def prepare_controlled_change(
         "requires_manual_approval": decision.requires_manual_approval,
         "requires_checkpoint": decision.requires_checkpoint,
         "ai_advisory": ai_advisory,
+        "action_ref": supervision.action_ref(session.supervision_session_id),
     }
 
 
@@ -305,133 +303,19 @@ def _existing_checkpoint(
     return rows[0][1]
 
 
-def _production_snapshot(base_dir: Path) -> tuple[DiscoverySnapshot, str]:
-    runtime_snapshot = SelfRuntimeAdapter().discover()
-    domain = _current_domain(runtime_snapshot.domains)
-    if domain is None or domain.kind is ExecutionDomainKind.UNKNOWN:
+def _production_snapshot(discovery_service=None) -> tuple[DiscoverySnapshot, str]:
+    try:
+        snapshot = (discovery_service or ProductDiscoveryService()).discover()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        raise ControlledChangeError("CONTROLLED_CHANGE_DISCOVERY_UNAVAILABLE", 503) from None
+    domains = {
+        runtime.domain_id
+        for runtime in snapshot.runtimes
+        if runtime.status is CapabilityStatus.AVAILABLE
+    }
+    if len(domains) != 1:
         raise ControlledChangeError("CONTROLLED_CHANGE_DISCOVERY_UNAVAILABLE", 503)
-    observed_at = runtime_snapshot.observed_at
-    processes = ProcessCollector(
-        backend=PsutilProcessBackend(),
-        execution_domain_id=domain.domain_id,
-        collector="r4-production-process",
-        clock=lambda: observed_at,
-        home_path=str(Path.home()),
-    ).collect()
-    current = [item for item in processes.facts if item.pid == os.getpid()]
-    if (
-        len(current) != 1
-        or current[0].current_state is not ProcessState.RUNNING
-        or current[0].access_status is not CapabilityStatus.AVAILABLE
-    ):
-        raise ControlledChangeError("CONTROLLED_CHANGE_DISCOVERY_UNAVAILABLE", 503)
-    fact = current[0]
-    process_evidence = next(
-        (item for item in processes.evidence if item.evidence_id in fact.evidence_refs),
-        None,
-    )
-    if process_evidence is None:
-        raise ControlledChangeError("CONTROLLED_CHANGE_DISCOVERY_UNAVAILABLE", 503)
-    workspace = workspace_candidate_from_path(
-        path=str(Path(base_dir).resolve()),
-        source=WorkspaceSource.KNOWN_LOGICAL_PATH,
-        execution_domain_id=domain.domain_id,
-        evidence_refs=fact.evidence_refs,
-        home_path=str(Path.home()),
-        git_root_candidate=False,
-    )
-    nonce = uuid4().hex
-    runtime_id = f"agentguard-runtime-{hashlib.sha256((domain.domain_id + fact.process_instance_id).encode()).hexdigest()[:24]}"
-    agent_id = f"agentguard-agent-{hashlib.sha256(fact.process_instance_id.encode()).hexdigest()[:24]}"
-    runtime_evidence_id = f"r4-runtime-{nonce}"
-    agent_evidence_id = f"r4-agent-{nonce}"
-    workspace_evidence_id = f"r4-workspace-{nonce}"
-    runtime_evidence = replace(
-        process_evidence,
-        evidence_id=runtime_evidence_id,
-        fact_type="runtime.metadata",
-        value={"runtime_kind": "SELF_RUNTIME"},
-        summary=None,
-        error=None,
-    )
-    agent_evidence = replace(
-        process_evidence,
-        evidence_id=agent_evidence_id,
-        fact_type="agent.metadata",
-        value={"agent_kind": "AGENTSTATE_GUARD", "role": "AGENT_HOST"},
-        summary=None,
-        error=None,
-    )
-    workspace_evidence = replace(
-        process_evidence,
-        evidence_id=workspace_evidence_id,
-        fact_type="workspace.present",
-        value={"workspace_kind": "PROJECT", "candidate_id": workspace.candidate_id},
-        summary=None,
-        error=None,
-    )
-    snapshot = DiscoverySnapshot(
-        snapshot_id=f"r4-production-{nonce}",
-        observed_at=observed_at,
-        domains=(domain,),
-        runtimes=(
-            RuntimeDescriptor(
-                runtime_id=runtime_id,
-                runtime_type="SELF_RUNTIME",
-                domain_id=domain.domain_id,
-                status=CapabilityStatus.AVAILABLE,
-                evidence_ids=(runtime_evidence_id,),
-                confidence=0.8,
-            ),
-        ),
-        agents=(
-            AgentDescriptor(
-                agent_id=agent_id,
-                agent_type="AGENTSTATE_GUARD",
-                lifecycle=AgentLifecycleStatus.RUNNING,
-                domain_id=domain.domain_id,
-                runtime_id=runtime_id,
-                workspace_ids=(workspace.candidate_id,),
-                evidence_ids=(agent_evidence_id,),
-                confidence=0.8,
-            ),
-        ),
-        workspaces=(
-            WorkspaceDescriptor(
-                workspace_id=workspace.candidate_id,
-                domain_id=domain.domain_id,
-                runtime_ids=(runtime_id,),
-                agent_ids=(agent_id,),
-                evidence_ids=(workspace_evidence_id,),
-                confidence=workspace.confidence,
-            ),
-        ),
-        evidence=(*runtime_snapshot.evidence, runtime_evidence, agent_evidence, workspace_evidence),
-        errors=runtime_snapshot.errors,
-        status=runtime_snapshot.status,
-    )
-    return snapshot, domain.domain_id
-
-
-def _current_domain(
-    domains: tuple[ExecutionDomainDescriptor, ...],
-) -> ExecutionDomainDescriptor | None:
-    candidates: list[tuple[int, ExecutionDomainDescriptor]] = []
-
-    def visit(domain: ExecutionDomainDescriptor, depth: int) -> None:
-        self_visible = domain.capabilities.assessments.get("self_visible")
-        if self_visible is not None and self_visible.status is CapabilityStatus.AVAILABLE:
-            candidates.append((depth, domain))
-        for child in domain.children:
-            visit(child, depth + 1)
-
-    for item in domains:
-        visit(item, 0)
-    if not candidates:
-        return None
-    deepest = max(depth for depth, _item in candidates)
-    matches = [item for depth, item in candidates if depth == deepest]
-    return matches[0] if len(matches) == 1 else None
+    return snapshot, domains.pop()
 
 
 __all__ = [

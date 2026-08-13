@@ -66,9 +66,9 @@ fn main() {
                 let app_handle = window.app_handle();
                 let state = app_handle.state::<SidecarProcess>();
                 let mut guard = state.0.lock().unwrap();
-                if let Some(ref mut child) = *guard {
+                if let Some(mut child) = guard.take() {
                     eprintln!("[tauri] shutting down sidecar...");
-                    let _ = sidecar::terminate(child);
+                    let _ = sidecar::terminate(&mut child);
                 }
             }
         })

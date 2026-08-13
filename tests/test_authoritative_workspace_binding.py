@@ -236,7 +236,7 @@ def test_authoritative_snapshot_is_atomically_ledgered_and_projected(
             {
                 "detected_identity": "CLOUDCLI",
                 "role": "AGENT_HOST",
-                "lifecycle": "DETECTED",
+                    "lifecycle": "RUNNING",
                 "confidence": 0.8,
                 "execution_domain_id": "agent-dev-domain",
                 "workspace": {

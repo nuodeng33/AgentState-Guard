@@ -12,7 +12,7 @@ import tempfile
 import tomllib
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Protocol
 
 from agentguard.recovery.contracts import (
@@ -48,6 +48,34 @@ _SENSITIVE_FIELD_MARKERS = (
 )
 _URL_RE = re.compile(r"(?:https?|wss?)://", re.IGNORECASE)
 _NAMESPACE_RE = re.compile(r"^[a-z]+:\[(\d+)\]$", re.IGNORECASE)
+
+
+def _sandbox_relative_path(logical_path: str, *, reason_code: str) -> Path:
+    """Map an absolute POSIX or drive-qualified Windows path under a sandbox."""
+    windows_path = PureWindowsPath(logical_path)
+    if windows_path.is_absolute():
+        if not re.fullmatch(r"[A-Za-z]:", windows_path.drive):
+            raise ValueError(reason_code)
+        name = windows_path.name
+        parts = (
+            "windows",
+            windows_path.drive[0].casefold(),
+            hashlib.sha256(logical_path.casefold().encode("utf-8")).hexdigest()[:24],
+            name,
+        )
+    else:
+        posix_path = PurePosixPath(logical_path)
+        if not posix_path.is_absolute():
+            raise ValueError(reason_code)
+        name = posix_path.name
+        parts = (
+            "posix",
+            hashlib.sha256(logical_path.encode("utf-8")).hexdigest()[:24],
+            name,
+        )
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(reason_code)
+    return Path(*parts)
 
 
 class _ProbeSource(Protocol):
@@ -437,9 +465,10 @@ class SelfRuntimeAdapter:
         try:
             for entry in entries:
                 logical_path = entry["logical_path"]
-                if "\\" in logical_path or not logical_path.startswith("/"):
-                    raise ValueError("TEST_RESTORE_PATH_INVALID")
-                relative = logical_path.lstrip("/")
+                relative = _sandbox_relative_path(
+                    logical_path,
+                    reason_code="TEST_RESTORE_PATH_INVALID",
+                )
                 destination = (sandbox / relative).resolve()
                 if sandbox not in destination.parents:
                     raise ValueError("TEST_RESTORE_PATH_INVALID")
@@ -448,18 +477,22 @@ class SelfRuntimeAdapter:
                     raise ValueError("TEST_RESTORE_PATH_INVALID")
                 content = artifact["blobs"][entry["blob_sha256"]]
                 temporary = destination.with_name(f".{destination.name}.tmp")
+                expected_mode = stat.S_IMODE(int(entry["mode"], 8))
                 with temporary.open("wb") as output:
                     output.write(content)
                     output.flush()
                     os.fsync(output.fileno())
-                    os.fchmod(output.fileno(), stat.S_IMODE(int(entry["mode"], 8)))
+                    if hasattr(os, "fchmod"):
+                        os.fchmod(output.fileno(), expected_mode)
+                    else:
+                        os.chmod(temporary, expected_mode)
                 os.replace(temporary, destination)
                 actual = destination.read_bytes()
                 current = destination.stat()
                 if (
                     len(actual) != entry["size"]
                     or __import__("hashlib").sha256(actual).hexdigest() != entry["sha256"]
-                    or stat.S_IMODE(current.st_mode) != stat.S_IMODE(int(entry["mode"], 8))
+                    or stat.S_IMODE(current.st_mode) != expected_mode
                 ):
                     raise ValueError("TEST_RESTORE_CONTENT_INVALID")
                 if entry["validator"] != "toml-parse":
@@ -506,14 +539,10 @@ class SelfRuntimeAdapter:
             targets: list[str] = []
             for entry in entries:
                 logical_path = entry["logical_path"]
-                relative = Path(logical_path.lstrip("/"))
-                if (
-                    not logical_path.startswith("/")
-                    or "\\" in logical_path
-                    or ".." in relative.parts
-                    or not relative.parts
-                ):
-                    raise ValueError("DRILL_TARGET_UNSAFE")
+                relative = _sandbox_relative_path(
+                    logical_path,
+                    reason_code="DRILL_TARGET_UNSAFE",
+                )
                 target = root.joinpath(*relative.parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 resolved_parent = target.parent.resolve(strict=True)
@@ -603,7 +632,10 @@ class SelfRuntimeAdapter:
                 output.write(content)
                 output.flush()
                 os.fsync(output.fileno())
-                os.fchmod(output.fileno(), mode)
+                if hasattr(os, "fchmod"):
+                    os.fchmod(output.fileno(), mode)
+                else:
+                    os.chmod(temporary, mode)
             os.replace(temporary, path)
         finally:
             temporary.unlink(missing_ok=True)

@@ -19,6 +19,7 @@ from agentguard.evidence.canonical import canonical_json
 from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
+from agentguard.evidence.product_target import resolve_verified_product_target_binding
 from agentguard.policy.engine import evaluate
 from agentguard.policy.models import (
     POLICY_VERSION,
@@ -643,6 +644,7 @@ class SupervisionService:
         policy_input: PolicyInput,
         *,
         checkpoint_id: str | None,
+        product_target_binding_ref: str | None = None,
     ) -> tuple[SupervisionSession, PolicyDecision, RecoveryCoverageFacts]:
         if self._snapshots is None:
             raise RuntimeError("RECOVERY_FACTS_UNAVAILABLE")
@@ -656,12 +658,29 @@ class SupervisionService:
                 )
                 if workspace["reason_code"] == "WORKSPACE_LEDGER_INVALID":
                     raise SupervisionActionError("WORKSPACE_AUTHORITY_UNAVAILABLE")
+                binding = workspace
+                if product_target_binding_ref is not None:
+                    product_binding = resolve_verified_product_target_binding(
+                        connection,
+                        binding_ref=product_target_binding_ref,
+                        execution_domain_id=policy_input.execution_domain_id,
+                        expected_target_refs_digest=self._refs_digest(
+                            policy_input.target_refs
+                        ),
+                    )
+                    if product_binding["status"] != "BOUND":
+                        raise SupervisionActionError("PRODUCT_TARGET_AUTHORITY_UNAVAILABLE")
+                    binding = {
+                        "status": "BOUND",
+                        "workspace_id": product_binding["subject_id"],
+                        "binding_ref": product_binding["binding_ref"],
+                    }
                 authoritative_input = (
                     replace(
                         policy_input,
-                        evidence_refs=(workspace["binding_ref"],),
+                        evidence_refs=(binding["binding_ref"],),
                     )
-                    if workspace["status"] == "BOUND"
+                    if binding["status"] == "BOUND"
                     else policy_input
                 )
                 facts = RecoveryCoverageService(
@@ -682,8 +701,8 @@ class SupervisionService:
                     authority_context=(
                         {
                             "execution_domain_id": authoritative_input.execution_domain_id,
-                            "workspace_id": workspace["workspace_id"],
-                            "workspace_binding_ref": workspace["binding_ref"],
+                            "workspace_id": binding["workspace_id"],
+                            "workspace_binding_ref": binding["binding_ref"],
                             "approved_scope_digest": self._refs_digest(
                                 authoritative_input.declared_scope
                             ),
@@ -692,7 +711,7 @@ class SupervisionService:
                             ),
                             "product_sha": self._product_sha,
                         }
-                        if workspace["status"] == "BOUND"
+                        if binding["status"] == "BOUND"
                         else None
                     ),
                     checkpoint_binding_required=(
@@ -1515,13 +1534,32 @@ class SupervisionService:
         if not isinstance(context, dict) or set(context) != required_context:
             return None
         domain = context["execution_domain_id"]
-        workspace = resolve_verified_workspace_binding(
+        binding_ref = context["workspace_binding_ref"]
+        product_binding = resolve_verified_product_target_binding(
             connection,
-            execution_domain_id=domain if isinstance(domain, str) else None,
+            binding_ref=binding_ref if isinstance(binding_ref, str) else "INVALID",
+            execution_domain_id=domain if isinstance(domain, str) else "INVALID",
+            expected_target_refs_digest=(
+                context["target_refs_digest"]
+                if isinstance(context["target_refs_digest"], str)
+                else "INVALID"
+            ),
         )
+        if product_binding["status"] == "BOUND":
+            binding = {
+                "status": "BOUND",
+                "workspace_id": product_binding["subject_id"],
+                "binding_ref": product_binding["binding_ref"],
+            }
+        else:
+            binding = resolve_verified_workspace_binding(
+                connection,
+                execution_domain_id=domain if isinstance(domain, str) else None,
+            )
         if (
-            workspace["status"] != "BOUND"
-            or workspace["workspace_id"] != context["workspace_id"]
+            binding["status"] != "BOUND"
+            or binding["workspace_id"] != context["workspace_id"]
+            or binding["binding_ref"] != context["workspace_binding_ref"]
             or context["product_sha"] != self._product_sha
             or context["approved_scope_digest"] != context["target_refs_digest"]
         ):
@@ -1607,12 +1645,12 @@ class SupervisionService:
         return {
             "execution_domain_id": domain,
             "workspace_id": context["workspace_id"],
-            "workspace_binding_ref": workspace["binding_ref"],
+            "workspace_binding_ref": binding["binding_ref"],
             "approved_scope_digest": context["approved_scope_digest"],
             "manifest_digest": manifest_digest,
             "product_sha": self._product_sha,
             "evidence_refs": [
-                workspace["binding_ref"],
+                binding["binding_ref"],
                 policy_event[1],
                 approval_event[1],
                 created[1],

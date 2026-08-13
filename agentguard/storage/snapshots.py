@@ -36,7 +36,7 @@ class SnapshotStore:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
             raise
-        return str(path.relative_to(self.snapshot_dir.parent))
+        return path.relative_to(self.snapshot_dir.parent).as_posix()
 
     def load(self, relative_path: str) -> dict[str, Any] | None:
         """Load a snapshot by its relative path."""
