@@ -14,7 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent.parent
-_SUPERVISION_SESSION_ID = re.compile(r"session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_SUPERVISION_SESSION_ID = re.compile(
+    r"session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+)
 
 
 class SupervisionActionRequest(BaseModel):
@@ -39,18 +41,51 @@ class DiscoveryRefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class AnalyzeCurrentEnvironmentRequest(BaseModel):
+    """AI analysis accepts intent only; Core constructs every authority fact."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class ProductRecoveryEmptyRequest(BaseModel):
+    """Checkpoint and test-restore targets are entirely server-owned."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class ProductRestoreRequest(BaseModel):
+    """A real restore requires one explicit confirmation and no caller target."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    confirm: bool
+
+
+class DeviceLinkEmptyRequest(BaseModel):
+    """Device Link lifecycle actions have no caller-selected network scope."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class DeviceLinkConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    confirm: bool
+
+
 def create_app(
     state_db_path: Path | None = None,
     config: dict | None = None,
     assessment_provider=None,
     discovery_service=None,
     product_startup_discovery: bool = False,
+    device_link_controller=None,
 ):
     """Create a FastAPI application instance.
 
     Uses lazy imports so core modules don't depend on FastAPI.
     """
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI
     from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
@@ -94,8 +129,55 @@ def create_app(
                     "status": "UNCHANGED",
                     "reason_code": "DISCOVERY_REFRESH_REQUEST_INVALID",
                     "snapshot_id": None,
+                    "observed_at": None,
+                    "affected_views": [],
                     "runtime_count": 0,
                     "agent_count": 0,
+                    "evidence_refs": [],
+                },
+                status_code=422,
+            )
+        if request.method == "POST" and path == "/api/ai/analyze":
+            return JSONResponse(
+                {
+                    "schema_version": "product-ai-advisory-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "AI_ANALYZE_REQUEST_INVALID",
+                    "severity": "UNKNOWN",
+                    "summary": None,
+                    "uncertainties": [],
+                    "recommended_checks": [],
+                    "evidence_refs": [],
+                    "provider": None,
+                    "model": None,
+                    "analyzed_at": None,
+                },
+                status_code=422,
+            )
+        if request.method == "POST" and (
+            path == "/api/v1/recovery/checkpoints"
+            or path.startswith("/api/v1/recovery/")
+        ):
+            checkpoint_id = None
+            parts = path.rstrip("/").split("/")
+            if len(parts) >= 2 and parts[-1] in {"test", "restore"}:
+                checkpoint_id = parts[-2]
+            return JSONResponse(
+                {
+                    "schema_version": "product-recovery-action-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "RECOVERY_REQUEST_INVALID",
+                    "checkpoint_id": checkpoint_id,
+                    "evidence_refs": [],
+                },
+                status_code=422,
+            )
+        if request.method == "POST" and path.startswith("/api/v1/device-link"):
+            return JSONResponse(
+                {
+                    "schema_version": "device-link-lifecycle-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "DEVICE_LINK_REQUEST_INVALID",
                 },
                 status_code=422,
             )
@@ -123,10 +205,7 @@ def create_app(
         if (
             request.method == "POST"
             and path.startswith("/api/v1/supervision/")
-            and (
-                path == "/api/v1/supervision/changes"
-                or path.endswith("/apply")
-            )
+            and (path == "/api/v1/supervision/changes" or path.endswith("/apply"))
         ):
             from .r4_controlled_change import controlled_change_failure
 
@@ -182,13 +261,21 @@ def create_app(
         response.headers["Content-Security-Policy"] = "default-src 'self'"
         return response
 
-    cfg_o = Config(Path(config.get("base_dir", "/workspace")) if config else PROJECT_ROOT)
-    cfg_o.ensure_product_config()
+    cfg_o = Config(
+        Path(config.get("base_dir", "/workspace")) if config else PROJECT_ROOT
+    )
+    product_config_target = cfg_o.ensure_product_config()
     cfg = cfg_o._data
     db_path = state_db_path or cfg_o.state_db()
     db = StateDB(db_path)
     snapshots_dir = cfg_o.snapshot_dir()
     _ai_provider = assessment_provider
+    _latest_ai_advisory: dict[str, object] = {
+        "schema_version": "product-ai-advisory-1",
+        "status": "UNAVAILABLE",
+        "reason_code": "AI_ADVISORY_NOT_RUN",
+        "evidence_refs": [],
+    }
     _product_discovery = discovery_service or ProductDiscoveryService()
 
     def _get_db():
@@ -204,7 +291,7 @@ def create_app(
             unavailable = True
         current_db = _get_db()
         try:
-            record_discovery_snapshot(
+            receipts = record_discovery_snapshot(
                 current_db,
                 snapshot,
                 recorded_at=datetime.now(UTC),
@@ -220,8 +307,11 @@ def create_app(
                 else "DISCOVERY_REFRESHED"
             ),
             "snapshot_id": snapshot.snapshot_id,
+            "observed_at": snapshot.observed_at.isoformat(),
+            "affected_views": ["runtime", "agents", "supervision"],
             "runtime_count": len(snapshot.runtimes),
             "agent_count": len(snapshot.agents),
+            "evidence_refs": [receipt.event_id for receipt in receipts],
         }
 
     if product_startup_discovery:
@@ -297,13 +387,17 @@ def create_app(
         db = _get_db()
         try:
             integrity = db._conn.execute("PRAGMA integrity_check").fetchone()
-            return {"status": "ok", "db_integrity": integrity[0] if integrity else "unknown"}
+            return {
+                "status": "ok",
+                "db_integrity": integrity[0] if integrity else "unknown",
+            }
         finally:
             db.close()
 
     @app.get("/api/versions")
     async def api_versions():
         from ..core.versions import all_versions
+
         return {"versions": all_versions()}
 
     # ---- R4 P8 authoritative read projections ----
@@ -317,7 +411,9 @@ def create_app(
         except (OSError, sqlite3.DatabaseError, RuntimeError):
             return R4ReadProjectionService.unavailable(view)
         try:
-            projector = R4ReadProjectionService(current_db, SnapshotStore(snapshots_dir))
+            projector = R4ReadProjectionService(
+                current_db, SnapshotStore(snapshots_dir)
+            )
             return getattr(projector, view)()
         except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
             return R4ReadProjectionService.unavailable(view)
@@ -340,6 +436,130 @@ def create_app(
     async def api_r4_recovery():
         return _r4_projection("recovery")
 
+    @app.post("/api/v1/recovery/checkpoints")
+    async def api_recovery_checkpoint(_request: ProductRecoveryEmptyRequest):
+        from ..recovery.contracts import RecoveryOperation
+        from .product_recovery import (
+            ProductRecoveryError,
+            recovery_failure,
+            run_product_recovery,
+        )
+
+        current_db = _get_db()
+        try:
+            return run_product_recovery(
+                current_db,
+                SnapshotStore(snapshots_dir),
+                target=product_config_target,
+                operation=RecoveryOperation.SNAPSHOT,
+                discovery_service=_product_discovery,
+            )
+        except ProductRecoveryError as error:
+            return JSONResponse(
+                recovery_failure(error.reason_code), status_code=error.status_code
+            )
+        finally:
+            current_db.close()
+
+    @app.post("/api/v1/recovery/{checkpoint_id}/test")
+    async def api_recovery_test(
+        checkpoint_id: str,
+        _request: ProductRecoveryEmptyRequest,
+    ):
+        from ..recovery.contracts import RecoveryOperation
+        from .product_recovery import (
+            ProductRecoveryError,
+            recovery_failure,
+            run_product_recovery,
+        )
+
+        current_db = _get_db()
+        try:
+            return run_product_recovery(
+                current_db,
+                SnapshotStore(snapshots_dir),
+                target=product_config_target,
+                operation=RecoveryOperation.TEST_RESTORE,
+                checkpoint_id=checkpoint_id,
+                discovery_service=_product_discovery,
+            )
+        except ProductRecoveryError as error:
+            return JSONResponse(
+                recovery_failure(error.reason_code, checkpoint_id),
+                status_code=error.status_code,
+            )
+        finally:
+            current_db.close()
+
+    @app.post("/api/v1/recovery/{checkpoint_id}/restore")
+    async def api_recovery_restore(
+        checkpoint_id: str,
+        request: ProductRestoreRequest,
+    ):
+        from ..recovery.contracts import RecoveryOperation
+        from .product_recovery import (
+            ProductRecoveryError,
+            recovery_failure,
+            run_product_recovery,
+        )
+
+        current_db = _get_db()
+        try:
+            return run_product_recovery(
+                current_db,
+                SnapshotStore(snapshots_dir),
+                target=product_config_target,
+                operation=RecoveryOperation.RESTORE,
+                checkpoint_id=checkpoint_id,
+                confirmed=request.confirm,
+                discovery_service=_product_discovery,
+            )
+        except ProductRecoveryError as error:
+            return JSONResponse(
+                recovery_failure(error.reason_code, checkpoint_id),
+                status_code=error.status_code,
+            )
+        finally:
+            current_db.close()
+
+    @app.get("/api/v1/changes")
+    async def api_r4_changes():
+        return _r4_projection("changes")
+
+    @app.get("/api/v1/evidence/{event_id}")
+    async def api_r4_evidence(event_id: str):
+        try:
+            current_db = _get_db()
+        except (OSError, sqlite3.DatabaseError, RuntimeError):
+            return JSONResponse(
+                {
+                    "schema_version": "r4-product-evidence-1",
+                    "status": "DEGRADED",
+                    "reason_code": "R4_DATABASE_UNREACHABLE",
+                    "event_id": event_id,
+                },
+                status_code=503,
+            )
+        try:
+            result = R4ReadProjectionService(
+                current_db,
+                SnapshotStore(snapshots_dir),
+            ).evidence(event_id)
+            status_code = 404 if result["status"] == "NOT_FOUND" else 200
+            return JSONResponse(result, status_code=status_code)
+        except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
+            return JSONResponse(
+                {
+                    "schema_version": "r4-product-evidence-1",
+                    "status": "DEGRADED",
+                    "reason_code": "EVIDENCE_DETAIL_UNAVAILABLE",
+                    "event_id": event_id,
+                },
+                status_code=503,
+            )
+        finally:
+            current_db.close()
+
     @app.post("/api/v1/discovery/refresh")
     async def api_product_discovery_refresh(_body: DiscoveryRefreshRequest):
         try:
@@ -354,8 +574,11 @@ def create_app(
                     "status": "DEGRADED",
                     "reason_code": "DISCOVERY_REFRESH_UNAVAILABLE",
                     "snapshot_id": None,
+                    "observed_at": None,
+                    "affected_views": [],
                     "runtime_count": 0,
                     "agent_count": 0,
+                    "evidence_refs": [],
                 },
                 status_code=503,
             )
@@ -511,6 +734,7 @@ def create_app(
         db = _get_db()
         try:
             from ..commands.handoff import cmd_handoff
+
             result = cmd_handoff(Path("/tmp/agentguard-handoff"), db)
             return result
         finally:
@@ -554,126 +778,270 @@ def create_app(
         return {"models": [m.to_dict() for m in models]}
 
     @app.post("/api/ai/analyze")
-    async def _ai_analyze(body: dict):
-        """Run AI environment analysis. Uses sanitized context only."""
-        api_key = body.get("api_key", "")
-        base_url = body.get("base_url", "")
-        model = body.get("model", "deepseek-chat")
-        context = body.get("context", {})
-        if not base_url:
-            return {"status": "error", "summary": "AI provider not configured"}
-        cfg = ProviderConfig(base_url=base_url, api_key=api_key, model=model)
-        provider = OpenAICompatibleProvider(cfg, timeout=30)
-        result = provider.analyze(context)
-        return result.to_dict()
+    async def _ai_analyze(_body: AnalyzeCurrentEnvironmentRequest):
+        """Analyze only current, verified, server-projected environment state."""
+        from ..core.sanitizer import sanitize_text
 
-    # ---- Device Link Gateway (mounted at /device/v1/) ----
+        nonlocal _latest_ai_advisory
 
-    from fastapi import APIRouter
+        unavailable = {
+            "schema_version": "product-ai-advisory-1",
+            "status": "UNAVAILABLE",
+            "reason_code": "AI_PROVIDER_UNAVAILABLE",
+            "severity": "UNKNOWN",
+            "summary": "AI provider is unavailable.",
+            "uncertainties": ["AI_ASSESSMENT_UNAVAILABLE"],
+            "recommended_checks": ["Configure and test an AI provider"],
+            "evidence_refs": [],
+            "provider": None,
+            "model": None,
+            "analyzed_at": None,
+        }
+        if _ai_provider is None or not callable(getattr(_ai_provider, "analyze", None)):
+            return JSONResponse(unavailable, status_code=503)
+        try:
+            current_db = _get_db()
+            projector = R4ReadProjectionService(
+                current_db,
+                SnapshotStore(snapshots_dir),
+            )
+            context = {
+                "runtime": projector.runtime(),
+                "agents": projector.agents(),
+                "supervision": projector.supervision(),
+                "recovery": projector.recovery(),
+                "changes": projector.changes(),
+            }
+        except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
+            return JSONResponse(
+                {**unavailable, "reason_code": "AI_AUTHORITY_UNAVAILABLE"},
+                status_code=503,
+            )
+        finally:
+            db.close()
+        try:
+            result = _ai_provider.analyze(context)
+        except Exception:  # noqa: BLE001 - external provider boundary fails closed.
+            return JSONResponse(unavailable, status_code=503)
+        status = str(getattr(result, "status", "error")).casefold()
+        if status not in {"ok", "warn", "attention"}:
+            return JSONResponse(unavailable, status_code=503)
+        severity = {
+            "low": "LOW",
+            "medium": "MEDIUM",
+            "high": "HIGH",
+            "critical": "CRITICAL",
+        }.get(str(getattr(result, "severity", "")).casefold(), "UNKNOWN")
 
-    from ..device_link.crypto import (
-        generate_ecdsa_p256_keypair,
-        public_key_to_der,
-        random_session_id,
-    )
-    from ..device_link.gateway import DeviceLinkGateway
+        def bounded_strings(value: object) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            return [
+                sanitize_text(item)[:500]
+                for item in value[:5]
+                if isinstance(item, str) and item
+            ]
 
-    # Generate in-memory ECDSA P-256 keys for the desktop identity
-    _dev_priv_pem, _dev_pub_pem = generate_ecdsa_p256_keypair()
-    _dev_pub_der = public_key_to_der(_dev_pub_pem)
-    _desktop_uuid = random_session_id()
+        refs = sorted(
+            {
+                ref
+                for projection in context.values()
+                for ref in projection.get("evidence_refs", [])
+                if isinstance(ref, str) and ref
+            }
+        )
+        provider_name = str(
+            getattr(result, "provider", "")
+            or getattr(_ai_provider, "provider_name", "unknown")
+        )[:128]
+        model = str(
+            getattr(result, "model", "") or getattr(_ai_provider, "model", "unknown")
+        )[:128]
+        advisory = {
+            "schema_version": "product-ai-advisory-1",
+            "status": "AVAILABLE",
+            "reason_code": "AI_ADVISORY_AVAILABLE",
+            "severity": severity,
+            "summary": sanitize_text(str(getattr(result, "summary", "")))[:500],
+            "uncertainties": bounded_strings(getattr(result, "possible_causes", [])),
+            "recommended_checks": bounded_strings(
+                getattr(result, "recommended_checks", [])
+            ),
+            "evidence_refs": refs,
+            "provider": provider_name,
+            "model": model,
+            "analyzed_at": str(getattr(result, "analyzed_at", ""))[:64],
+        }
+        _latest_ai_advisory = advisory
+        return advisory
 
-    _gateway = DeviceLinkGateway(
-        desktop_uuid=_desktop_uuid,
-        desktop_device_pubkey_der=_dev_pub_der,
-        desktop_device_privkey_pem=_dev_priv_pem,
-    )
+    # ---- Device Link control plane (Core-only; data plane is independent 8788) ----
 
-    _device_router = APIRouter(prefix="/device/v1")
+    if device_link_controller is None:
+        from ..device_link.product import (
+            UnavailableDeviceLinkController,
+            build_device_link_product,
+        )
 
-    def _device_auth_token(request: Request) -> str | None:
-        authorization = request.headers.get("Authorization", "")
-        scheme, _, token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not token or " " in token:
-            return None
-        return _gateway.validate_token(token)
+        try:
+            device_link_controller = build_device_link_product(
+                state_db_path=db_path,
+                snapshots_dir=snapshots_dir,
+                state_dir=cfg_o.state_dir(),
+                advisory_getter=lambda: dict(_latest_ai_advisory),
+            )
+        except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
+            device_link_controller = UnavailableDeviceLinkController()
+    app.state.device_link_controller = device_link_controller
 
-    def _device_result(result: dict):
+    @app.on_event("shutdown")
+    async def shutdown_device_link():
+        device_link_controller.disable()
+
+    def _device_link_error(error):
+        return JSONResponse(
+            {
+                "schema_version": "device-link-lifecycle-1",
+                "status": "UNCHANGED",
+                "reason_code": error.code,
+            },
+            status_code=error.status,
+        )
+
+    @app.get("/api/v1/devices")
+    async def api_devices():
+        return device_link_controller.product_status()
+
+    @app.post("/api/v1/device-link/enable")
+    async def api_device_link_enable(_body: DeviceLinkEmptyRequest):
+        from ..device_link.errors import DeviceLinkError
+
+        try:
+            return device_link_controller.enable()
+        except DeviceLinkError as error:
+            return _device_link_error(error)
+
+    @app.post("/api/v1/device-link/disable")
+    async def api_device_link_disable(_body: DeviceLinkEmptyRequest):
+        return device_link_controller.disable()
+
+    @app.post("/api/v1/device-link/network/refresh")
+    async def api_device_link_network_refresh(_body: DeviceLinkEmptyRequest):
+        from ..device_link.errors import DeviceLinkError
+
+        try:
+            return device_link_controller.refresh_network()
+        except DeviceLinkError as error:
+            return _device_link_error(error)
+
+    @app.post("/api/v1/device-link/pairings")
+    async def api_device_link_pairing(_body: DeviceLinkEmptyRequest):
+        from ..device_link.errors import DeviceLinkError
+
+        try:
+            return device_link_controller.create_pairing_invitation()
+        except DeviceLinkError as error:
+            return _device_link_error(error)
+
+    @app.get("/api/v1/device-link/pairings/{session_id}")
+    async def api_device_link_pairing_status(session_id: str):
+        if device_link_controller.gateway is None:
+            return JSONResponse(
+                {
+                    "schema_version": "device-link-pairing-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "DEVICE_LINK_AUTHORITY_UNAVAILABLE",
+                },
+                status_code=503,
+            )
+        result = device_link_controller.gateway.pair_poll(session_id)
         if "error" in result:
-            raise HTTPException(status_code=result.get("code", 400), detail=result["error"])
+            return JSONResponse(
+                {
+                    "schema_version": "device-link-pairing-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "PAIR_SESSION_NOT_FOUND",
+                },
+                status_code=result.get("code", 404),
+            )
         return result
 
-    @_device_router.post("/pair/start")
-    async def _device_pair_start():
-        return _device_result(_gateway.pair_start())
+    @app.post("/api/v1/device-link/pairings/{session_id}/confirm")
+    async def api_device_link_pairing_confirm(
+        session_id: str, body: DeviceLinkConfirmRequest
+    ):
+        from ..device_link.errors import DeviceLinkError
 
-    @_device_router.post("/pair/{sid}/connect")
-    async def _device_pair_connect(sid: str, body: dict):
-        return _device_result(_gateway.pair_first_connection(
-            sid, body.get("android_uuid", ""), body.get("nonce", ""),
-        ))
+        if device_link_controller.gateway is None:
+            return _device_link_error(
+                DeviceLinkError(
+                    503, "DEVICE_LINK_AUTHORITY_UNAVAILABLE", "Device Link unavailable"
+                )
+            )
+        try:
+            return device_link_controller.gateway.pair_desktop_confirm(
+                session_id, body.confirm
+            )
+        except DeviceLinkError as error:
+            return _device_link_error(error)
 
-    @_device_router.post("/pair/{sid}/sas")
-    async def _device_pair_sas(sid: str, body: dict):
-        return _device_result(_gateway.pair_start_sas(
-            sid, body.get("android_pubkey_der_hex", ""),
-        ))
+    @app.post("/api/v1/device-link/pairings/{session_id}/cancel")
+    async def api_device_link_pairing_cancel(
+        session_id: str, _body: DeviceLinkEmptyRequest
+    ):
+        from ..device_link.errors import DeviceLinkError
 
-    @_device_router.post("/pair/{sid}/confirm")
-    async def _device_pair_confirm(sid: str, body: dict):
-        return _device_result(_gateway.pair_confirm(
-            sid, body.get("confirm", False),
-        ))
+        if device_link_controller.gateway is None:
+            return _device_link_error(
+                DeviceLinkError(
+                    503, "DEVICE_LINK_AUTHORITY_UNAVAILABLE", "Device Link unavailable"
+                )
+            )
+        try:
+            return device_link_controller.gateway.cancel_pairing(session_id)
+        except DeviceLinkError as error:
+            return _device_link_error(error)
 
-    @_device_router.post("/pair/{sid}/complete")
-    async def _device_pair_complete(sid: str, body: dict):
-        return _device_result(_gateway.pair_complete(
-            sid, body.get("android_uuid", ""),
-            body.get("android_pubkey_der_hex", ""),
-            body.get("display_name", ""),
-        ))
-
-    @_device_router.post("/auth/challenge")
-    async def _device_auth_challenge(body: dict):
-        return _device_result(_gateway.auth_challenge(
-            body.get("device_uuid", ""),
-        ))
-
-    @_device_router.post("/auth/response")
-    async def _device_auth_response(body: dict):
-        return _device_result(_gateway.auth_response(
-            body.get("device_uuid", ""),
-            body.get("challenge_response", ""),
-            body.get("nonce", ""),
-        ))
-
-    @_device_router.get("/status")
-    async def _device_status(request: Request):
-        if _device_auth_token(request) is None:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        return {
-            "desktop_uuid": _gateway.desktop_uuid,
-            "devices_bound": len(_gateway.devices.list()),
-            "active_pair_sessions": _gateway.pairing_mgr.active_sessions(),
-        }
-
-    @_device_router.get("/checkpoints")
-    async def _device_checkpoints(request: Request):
-        if _device_auth_token(request) is None:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        return {
-            "checkpoints": [],
-            "bound_devices": _gateway.devices.list(),
-        }
-
-    app.include_router(_device_router)
+    @app.post("/api/v1/device-link/devices/{device_uuid}/revoke")
+    async def api_device_link_revoke(device_uuid: str, _body: DeviceLinkEmptyRequest):
+        if device_link_controller.gateway is None:
+            return JSONResponse(
+                {
+                    "schema_version": "device-link-device-action-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "DEVICE_LINK_AUTHORITY_UNAVAILABLE",
+                },
+                status_code=503,
+            )
+        result = device_link_controller.gateway.revoke_device(device_uuid)
+        if "error" in result:
+            return JSONResponse(
+                {
+                    "schema_version": "device-link-device-action-1",
+                    "status": "UNCHANGED",
+                    "reason_code": "DEVICE_NOT_FOUND",
+                },
+                status_code=result.get("code", 404),
+            )
+        return {"schema_version": "device-link-device-action-1", **result}
 
     # --- Catch-all: serve SPA for non-API paths ---
     from fastapi.responses import HTMLResponse
+
     web_static = HERE.parent / "web_static"
 
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str):
+        if full_path == "device/v1" or full_path.startswith("device/v1/"):
+            return JSONResponse(
+                {
+                    "error": {
+                        "code": "DEVICE_ROUTE_NOT_FOUND",
+                        "message": "Device Link is served only by the independent 8788 listener",
+                    }
+                },
+                status_code=404,
+            )
         if full_path.startswith(("api/", "_docs")):
             return JSONResponse({"error": "Not found"}, status_code=404)
         if not web_static.is_dir():
@@ -685,11 +1053,19 @@ def create_app(
             if full_path and not full_path.startswith("api/"):
                 # Try exact static file match
                 static_file = (web_static / full_path).resolve()
-                if static_file.is_file() and str(static_file).startswith(str(web_static.resolve())):
+                if static_file.is_file() and str(static_file).startswith(
+                    str(web_static.resolve())
+                ):
                     content = static_file.read_bytes()
                     suffix = static_file.suffix.lower()
-                    ext_map = {".js": "text/javascript", ".css": "text/css", ".json": "application/json",
-                               ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+                    ext_map = {
+                        ".js": "text/javascript",
+                        ".css": "text/css",
+                        ".json": "application/json",
+                        ".png": "image/png",
+                        ".svg": "image/svg+xml",
+                        ".ico": "image/x-icon",
+                    }
                     media_type = ext_map.get(suffix, "application/octet-stream")
             return HTMLResponse(content=content, media_type=media_type)
         return JSONResponse({"error": "Not found"}, status_code=404)
@@ -697,16 +1073,21 @@ def create_app(
     return app
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8787, allow_remote: bool = False,
-               config: dict | None = None):
+def run_server(
+    host: str = "127.0.0.1",
+    port: int = 8787,
+    allow_remote: bool = False,
+    config: dict | None = None,
+):
     """Run the API server."""
     import uvicorn
+
+    if allow_remote or host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("CORE_API_LOOPBACK_ONLY")
     app = create_app(config=config, product_startup_discovery=True)
-    if not allow_remote:
-        host = "127.0.0.1"
     uvicorn.run(
         app,
-        host=host,
+        host="127.0.0.1",
         port=port,
         log_level="info",
         access_log=False,

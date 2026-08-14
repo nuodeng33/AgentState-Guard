@@ -1,42 +1,36 @@
 package com.agentstate.guard.network
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
-import org.junit.Assert.*
+import java.security.MessageDigest
 
 class QrPayloadTest {
+    private val publicKey = "04"
+    private val signingFingerprint = MessageDigest.getInstance("SHA-256")
+        .digest(byteArrayOf(0x04))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun uri(host: String = "192.168.1.21", expiry: Long = 2_000) =
+        "agentstate://pair?v=1&host=$host&port=8788&uuid=desktop-1" +
+            "&pub=$publicKey&sign_fp=$signingFingerprint&tls_fp=${"b".repeat(64)}" +
+            "&sid=${"c".repeat(32)}&ticket=${"d".repeat(64)}&exp=$expiry"
+
     @Test
-    fun parseValidUri() {
-        val uri = "agentstate://pair?host=192.168.1.21&port=8788&uuid=desktop-uuid-1234&fp=a1b2c3d4&sid=session-abc&exp=9999999999"
-        val payload = QrPayload.parse(uri)
+    fun parsesStrictPrivateLanInvitation() {
+        val payload = QrPayload.parse(uri(), nowEpochSeconds = 1_000)
         assertNotNull(payload)
-        assertEquals("192.168.1.21", payload?.host)
-        assertEquals(8788, payload?.port)
-        assertEquals("desktop-uuid-1234", payload?.desktopUuid)
-        assertEquals("a1b2c3d4", payload?.fingerprint)
-        assertEquals("session-abc", payload?.sessionId)
-        assertEquals(9999999999L, payload?.expiry)
+        assertEquals("192.168.1.21", payload?.endpoint?.host)
+        assertEquals("d".repeat(64), payload?.ticket)
+        assertEquals("a".repeat(64), payload?.desktopSigningFingerprint)
     }
 
-    @Test
-    fun parseInvalidScheme() {
-        assertNull(QrPayload.parse("https://example.com"))
-    }
-
-    @Test
-    fun parseMissingRequiredField() {
-        assertNull(QrPayload.parse("agentstate://pair?host=192.168.1.21&port=8788"))
-    }
-
-    @Test
-    fun parseCustomPort() {
-        val uri = "agentstate://pair?host=10.0.2.2&port=8790&uuid=desktop-1&fp=abcd1234&sid=sess-001&exp=8888"
-        val payload = QrPayload.parse(uri)
-        assertNotNull(payload)
-        assertEquals(8790, payload?.port)
-    }
-
-    @Test
-    fun parseEmptyUri() {
-        assertNull(QrPayload.parse(""))
-    }
+    @Test fun rejectsExpired() = assertNull(QrPayload.parse(uri(expiry = 999), 1_000))
+    @Test fun rejectsPublicAddress() = assertNull(QrPayload.parse(uri(host = "8.8.8.8"), 1_000))
+    @Test fun rejectsMissingTicket() = assertNull(QrPayload.parse(uri().replace(Regex("&ticket=[^&]+"), ""), 1_000))
+    @Test fun rejectsWrongScheme() = assertNull(QrPayload.parse("https://example.com", 1_000))
+    @Test fun rejectsSigningFingerprintThatDoesNotMatchPublicKey() = assertNull(
+        QrPayload.parse(uri().replace("sign_fp=$signingFingerprint", "sign_fp=${"0".repeat(64)}"), 1_000)
+    )
 }

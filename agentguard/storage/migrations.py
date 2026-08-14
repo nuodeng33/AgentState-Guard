@@ -30,7 +30,9 @@ def _iter_statements(script: str) -> Iterator[str]:
 class Migration:
     """A single schema migration step."""
 
-    def __init__(self, version: int, name: str, forward: str, backward: str | None = None):
+    def __init__(
+        self, version: int, name: str, forward: str, backward: str | None = None
+    ):
         self.version = version
         self.name = name
         self.forward_sql = textwrap.dedent(forward).strip()
@@ -50,7 +52,11 @@ class MigrationEngine:
         self._register_defaults()
 
     def _register_defaults(self) -> None:
-        self.register(Migration(1, "Initial schema", """
+        self.register(
+            Migration(
+                1,
+                "Initial schema",
+                """
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version     INTEGER PRIMARY KEY,
                 name        TEXT NOT NULL,
@@ -85,12 +91,19 @@ class MigrationEngine:
 
             CREATE INDEX IF NOT EXISTS idx_checkpoints_created
                 ON checkpoints(created_at DESC);
-        """, """
+        """,
+                """
             DROP TABLE IF EXISTS restore_log;
             DROP TABLE IF EXISTS checkpoints;
-        """))
+        """,
+            )
+        )
 
-        self.register(Migration(2, "Blob store and audit", """
+        self.register(
+            Migration(
+                2,
+                "Blob store and audit",
+                """
             CREATE TABLE IF NOT EXISTS blobs (
                 sha256          TEXT PRIMARY KEY,
                 size_bytes      INTEGER NOT NULL,
@@ -169,16 +182,23 @@ class MigrationEngine:
                 data_json       TEXT NOT NULL,
                 hash_sha256     TEXT
             );
-        """, """
+        """,
+                """
             DROP TABLE IF EXISTS host_observations;
             DROP TABLE IF EXISTS transaction_steps;
             DROP TABLE IF EXISTS transactions;
             DROP TABLE IF EXISTS audit_events;
             DROP TABLE IF EXISTS snapshot_files;
             DROP TABLE IF EXISTS blobs;
-        """))
+        """,
+            )
+        )
 
-        self.register(Migration(3, "R4 evidence ledger", """
+        self.register(
+            Migration(
+                3,
+                "R4 evidence ledger",
+                """
             CREATE TABLE evidence_ledger_events (
                 sequence                  INTEGER PRIMARY KEY,
                 event_id                  TEXT UNIQUE NOT NULL,
@@ -228,13 +248,20 @@ class MigrationEngine:
             BEGIN
                 SELECT RAISE(ABORT, 'EVIDENCE_LEDGER_APPEND_ONLY');
             END;
-        """, """
+        """,
+                """
             DROP TRIGGER IF EXISTS evidence_ledger_events_no_delete;
             DROP TRIGGER IF EXISTS evidence_ledger_events_no_update;
             DROP TABLE IF EXISTS evidence_ledger_events;
-        """))
+        """,
+            )
+        )
 
-        self.register(Migration(4, "R4 supervision sessions", """
+        self.register(
+            Migration(
+                4,
+                "R4 supervision sessions",
+                """
             CREATE TABLE supervision_sessions (
                 supervision_session_id       TEXT PRIMARY KEY,
                 status                       TEXT NOT NULL,
@@ -247,11 +274,18 @@ class MigrationEngine:
             );
             CREATE INDEX idx_supervision_sessions_status
                 ON supervision_sessions(status);
-        """, """
+        """,
+                """
             DROP TABLE IF EXISTS supervision_sessions;
-        """))
+        """,
+            )
+        )
 
-        self.register(Migration(5, "R4 controlled recovery drills", """
+        self.register(
+            Migration(
+                5,
+                "R4 controlled recovery drills",
+                """
             CREATE TABLE recovery_drills (
                 drill_id TEXT PRIMARY KEY,
                 checkpoint_id TEXT NOT NULL,
@@ -296,16 +330,23 @@ class MigrationEngine:
             CREATE TRIGGER trusted_baselines_no_delete
             BEFORE DELETE ON trusted_baselines
             BEGIN SELECT RAISE(ABORT, 'TRUSTED_BASELINE_IMMUTABLE'); END;
-        """, """
+        """,
+                """
             DROP TRIGGER IF EXISTS trusted_baselines_no_delete;
             DROP TRIGGER IF EXISTS trusted_baselines_no_update;
             DROP TABLE IF EXISTS trusted_baseline_retirements;
             DROP TABLE IF EXISTS trusted_baselines;
             DROP TABLE IF EXISTS recovery_drill_approvals;
             DROP TABLE IF EXISTS recovery_drills;
-        """))
+        """,
+            )
+        )
 
-        self.register(Migration(6, "Durable trusted baseline approvals", """
+        self.register(
+            Migration(
+                6,
+                "Durable trusted baseline approvals",
+                """
             CREATE TABLE trusted_baseline_candidates (
                 candidate_id TEXT PRIMARY KEY,
                 checkpoint_id TEXT NOT NULL,
@@ -327,12 +368,19 @@ class MigrationEngine:
                 consumed_by_baseline_id TEXT UNIQUE,
                 CHECK((consumed_at IS NULL) = (consumed_by_baseline_id IS NULL))
             );
-        """, """
+        """,
+                """
             DROP TABLE IF EXISTS trusted_baseline_approvals;
             DROP TABLE IF EXISTS trusted_baseline_candidates;
-        """))
+        """,
+            )
+        )
 
-        self.register(Migration(7, "Bound recovery supervision authorizations", """
+        self.register(
+            Migration(
+                7,
+                "Bound recovery supervision authorizations",
+                """
             CREATE TABLE recovery_drill_bindings (
                 drill_id TEXT PRIMARY KEY REFERENCES recovery_drills(drill_id),
                 supervision_session_id TEXT NOT NULL UNIQUE REFERENCES supervision_sessions(supervision_session_id),
@@ -373,11 +421,40 @@ class MigrationEngine:
             );
             CREATE INDEX idx_recovery_authorizations_subject
                 ON recovery_authorizations(subject_id);
-        """, """
+        """,
+                """
             DROP TABLE IF EXISTS recovery_authorizations;
             DROP TABLE IF EXISTS trusted_baseline_candidate_bindings;
             DROP TABLE IF EXISTS recovery_drill_bindings;
-        """))
+        """,
+            )
+        )
+
+        self.register(
+            Migration(
+                8,
+                "Durable Device Link bindings",
+                """
+            CREATE TABLE device_link_bindings (
+                device_uuid TEXT PRIMARY KEY,
+                public_key_der BLOB NOT NULL,
+                fingerprint TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                permissions TEXT NOT NULL,
+                protocol_version INTEGER NOT NULL CHECK(protocol_version = 1),
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT,
+                revoked_at TEXT
+            );
+            CREATE UNIQUE INDEX idx_device_link_active_fingerprint
+                ON device_link_bindings(fingerprint) WHERE revoked_at IS NULL;
+        """,
+                """
+            DROP INDEX IF EXISTS idx_device_link_active_fingerprint;
+            DROP TABLE IF EXISTS device_link_bindings;
+        """,
+            )
+        )
 
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
@@ -394,13 +471,18 @@ class MigrationEngine:
         for statement in _iter_statements(script):
             conn.execute(statement)
 
-    def migrate(self, conn: sqlite3.Connection, target: int | None = None) -> dict[str, Any]:
+    def migrate(
+        self, conn: sqlite3.Connection, target: int | None = None
+    ) -> dict[str, Any]:
         """Run pending migrations up to target (or all)."""
         current = self.current_version(conn)
         results = {"applied": [], "errors": [], "rolled_back": []}
 
-        pending = [m for v, m in sorted(self._migrations.items())
-                   if v > current and (target is None or v <= target)]
+        pending = [
+            m
+            for v, m in sorted(self._migrations.items())
+            if v > current and (target is None or v <= target)
+        ]
 
         for migration in pending:
             try:
@@ -409,12 +491,21 @@ class MigrationEngine:
                 self._execute_script(conn, migration.forward_sql)
                 # Record migration
                 import hashlib
-                checksum = hashlib.sha256(migration.forward_sql.encode()).hexdigest()[:16]
+
+                checksum = hashlib.sha256(migration.forward_sql.encode()).hexdigest()[
+                    :16
+                ]
                 duration = int((datetime.now(UTC) - start).total_seconds() * 1000)
                 conn.execute(
                     "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at, checksum, duration_ms) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (migration.version, migration.name, start.isoformat(), checksum, duration),
+                    (
+                        migration.version,
+                        migration.name,
+                        start.isoformat(),
+                        checksum,
+                        duration,
+                    ),
                 )
                 conn.commit()
                 results["applied"].append(migration.description)
@@ -431,8 +522,11 @@ class MigrationEngine:
         results = {"rolled_back": [], "errors": []}
 
         to_rollback = sorted(
-            [m for v, m in self._migrations.items()
-             if v > target_version and v <= current and m.backward_sql],
+            [
+                m
+                for v, m in self._migrations.items()
+                if v > target_version and v <= current and m.backward_sql
+            ],
             key=lambda m: -m.version,
         )
 
@@ -440,8 +534,10 @@ class MigrationEngine:
             try:
                 conn.execute("BEGIN IMMEDIATE")
                 self._execute_script(conn, migration.backward_sql)
-                conn.execute("DELETE FROM schema_migrations WHERE version = ?",
-                             (migration.version,))
+                conn.execute(
+                    "DELETE FROM schema_migrations WHERE version = ?",
+                    (migration.version,),
+                )
                 conn.commit()
                 results["rolled_back"].append(migration.description)
             except sqlite3.Error as exc:

@@ -6,13 +6,11 @@ Never persists API keys to disk. Never sends unsanitized config.
 from __future__ import annotations
 
 import json
-import urllib.request
-import urllib.error
 import time
+import urllib.error
+import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-
 
 # ── Data types ────────────────────────────────────────────────
 
@@ -46,9 +44,9 @@ class AIResult:
     status: str  # "ok" | "warn" | "attention" | "error"
     severity: str  # "low" | "medium" | "high" | "critical"
     summary: str
-    possible_causes: List[str] = field(default_factory=list)
-    recommended_checks: List[str] = field(default_factory=list)
-    evidence: List[str] = field(default_factory=list)
+    possible_causes: list[str] = field(default_factory=list)
+    recommended_checks: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
     model: str = ""
     provider: str = ""
     analyzed_at: str = ""
@@ -70,7 +68,7 @@ class AIResult:
 
 # ── Presets ────────────────────────────────────────────────────
 
-PROVIDER_PRESETS: Dict[str, dict] = {
+PROVIDER_PRESETS: dict[str, dict] = {
     "deepseek": {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1",
@@ -97,7 +95,7 @@ class AIProvider(ABC):
     def test_connection(self) -> dict: ...
 
     @abstractmethod
-    def list_models(self) -> List[AIModel]: ...
+    def list_models(self) -> list[AIModel]: ...
 
     @abstractmethod
     def analyze(self, context: dict) -> AIResult: ...
@@ -118,6 +116,11 @@ class OpenAICompatibleProvider(AIProvider):
     def model(self) -> str:
         """Expose the configured model for the existing R4 assessment cache key."""
         return self._config.model
+
+    @property
+    def provider_name(self) -> str:
+        """Expose only the non-secret provider label for product DTOs."""
+        return self._config.provider_name
 
     def _base(self) -> str:
         return self._config.base_url.rstrip("/")
@@ -148,10 +151,10 @@ class OpenAICompatibleProvider(AIProvider):
             return {"ok": False, "error": f"HTTP {e.code}", "detail": body[:200]}
         except urllib.error.URLError as e:
             return {"ok": False, "error": "Connection failed", "detail": str(e.reason)}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - provider network boundary.
             return {"ok": False, "error": str(type(e).__name__), "detail": str(e)[:200]}
 
-    def list_models(self) -> List[AIModel]:
+    def list_models(self) -> list[AIModel]:
         url = f"{self._base()}/models"
         req = urllib.request.Request(url, headers=self._headers(), method="GET")
         try:
@@ -163,7 +166,7 @@ class OpenAICompatibleProvider(AIProvider):
                 if mid:
                     models.append(AIModel(id=mid, provider=self._config.provider_name))
             return models
-        except Exception:
+        except Exception:  # noqa: BLE001 - provider network boundary.
             return []
 
     def analyze(self, context: dict) -> AIResult:
@@ -199,8 +202,9 @@ Return format:
 
         url = f"{self._base()}/chat/completions"
         body = json.dumps(payload).encode()
-        req = urllib.request.Request(url, data=body,
-                                      headers=self._headers(), method="POST")
+        req = urllib.request.Request(
+            url, data=body, headers=self._headers(), method="POST"
+        )
         try:
             resp = urllib.request.urlopen(req, timeout=self._timeout)
             data = json.loads(resp.read())
@@ -219,7 +223,8 @@ Return format:
             )
         except (json.JSONDecodeError, KeyError) as e:
             return AIResult(
-                status="error", severity="low",
+                status="error",
+                severity="low",
                 summary=f"AI response could not be parsed: {e}",
                 analyzed_at=now,
                 raw_error=str(e),
@@ -227,14 +232,16 @@ Return format:
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")
             return AIResult(
-                status="error", severity="low",
+                status="error",
+                severity="low",
                 summary=f"API error (HTTP {e.code})",
                 analyzed_at=now,
                 raw_error=body[:200],
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - provider network boundary.
             return AIResult(
-                status="error", severity="low",
+                status="error",
+                severity="low",
                 summary=f"AI request failed: {e}",
                 analyzed_at=now,
                 raw_error=str(e)[:200],
@@ -277,11 +284,11 @@ Return format:
 
 def build_analysis_context(
     health: str = "unknown",
-    versions: dict = None,
-    changes: list = None,
-    checkpoints: list = None,
-    sanitized_diff: list = None,
-    doctor: list = None,
+    versions: dict | None = None,
+    changes: list | None = None,
+    checkpoints: list | None = None,
+    sanitized_diff: list | None = None,
+    doctor: list | None = None,
 ) -> dict:
     """Build sanitized, structured context for AI analysis.
 
@@ -295,14 +302,20 @@ def build_analysis_context(
         },
         "changes": changes or [],
         "checkpoints": [
-            {"id": c.get("id"), "label": c.get("label"),
-             "created_at": c.get("created_at", "")[:19]}
+            {
+                "id": c.get("id"),
+                "label": c.get("label"),
+                "created_at": c.get("created_at", "")[:19],
+            }
             for c in (checkpoints or [])
         ],
         "sanitized_diff": sanitized_diff or [],
         "doctor_summary": [
-            {"check": d.get("check"), "status": d.get("status"),
-             "message": d.get("message")}
+            {
+                "check": d.get("check"),
+                "status": d.get("status"),
+                "message": d.get("message"),
+            }
             for d in (doctor or [])
         ],
     }

@@ -41,7 +41,9 @@ class RecoveryService:
         self._snapshots = snapshots
         self._adapters = dict(adapters)
         self._ledger = ledger or EvidenceLedger()
-        self._product_sha = product_sha if is_exact_git_sha(product_sha) else exact_product_sha()
+        self._product_sha = (
+            product_sha if is_exact_git_sha(product_sha) else exact_product_sha()
+        )
 
     def snapshot(self, request: RecoveryRequest) -> RecoveryOperationResult:
         if request.supervision_session_id is not None and self._product_sha is None:
@@ -62,13 +64,23 @@ class RecoveryService:
         try:
             outcome = adapter.snapshot(request)
         except PermissionError:
-            outcome = self._result(request, CapabilityStatus.PERMISSION_DENIED, "RECOVERY_PERMISSION_DENIED")
+            outcome = self._result(
+                request,
+                CapabilityStatus.PERMISSION_DENIED,
+                "RECOVERY_PERMISSION_DENIED",
+            )
         except OSError:
-            outcome = self._result(request, CapabilityStatus.UNREACHABLE, "RECOVERY_DOMAIN_UNREACHABLE")
+            outcome = self._result(
+                request, CapabilityStatus.UNREACHABLE, "RECOVERY_DOMAIN_UNREACHABLE"
+            )
         except Exception:  # noqa: BLE001 - adapter boundary fails closed.
-            outcome = self._result(request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_FAILED")
+            outcome = self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_FAILED"
+            )
         if not self._outcome_matches(request, outcome):
-            failed = self._result(request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID")
+            failed = self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID"
+            )
             self._record_failure(failed)
             return failed
         if not outcome.ok or outcome.artifact is None:
@@ -80,7 +92,9 @@ class RecoveryService:
             expected_domain=request.execution_domain_id,
         )
         if not valid or digest is None or outcome.manifest_digest != digest:
-            failed = self._result(request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID")
+            failed = self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID"
+            )
             self._record_failure(failed)
             return failed
         file_count = len(artifact["manifest"])
@@ -97,7 +111,9 @@ class RecoveryService:
                     None,
                     self._product_sha,
                 )
-                relative_path = self._snapshots.save_recovery_v3(checkpoint_id, artifact)
+                relative_path = self._snapshots.save_recovery_v3(
+                    checkpoint_id, artifact
+                )
                 expected_path = f"snapshots/snapshot-{checkpoint_id:06d}.dat"
                 if relative_path != expected_path:
                     raise RuntimeError("RECOVERY_ARTIFACT_PATH_INVALID")
@@ -128,10 +144,14 @@ class RecoveryService:
                 )
         except OSError:
             self._remove_artifact(relative_path)
-            return self._result(request, CapabilityStatus.UNREACHABLE, "RECOVERY_DOMAIN_UNREACHABLE")
+            return self._result(
+                request, CapabilityStatus.UNREACHABLE, "RECOVERY_DOMAIN_UNREACHABLE"
+            )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             self._remove_artifact(relative_path)
-            return self._result(request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED")
+            return self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED"
+            )
         return RecoveryOperationResult(
             operation=request.operation,
             status=CapabilityStatus.AVAILABLE,
@@ -144,7 +164,9 @@ class RecoveryService:
     def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:
         checkpoint = self._checkpoint(request)
         if checkpoint is None:
-            outcome = self._result(request, CapabilityStatus.NOT_PRESENT, "RECOVERY_CHECKPOINT_NOT_FOUND")
+            outcome = self._result(
+                request, CapabilityStatus.NOT_PRESENT, "RECOVERY_CHECKPOINT_NOT_FOUND"
+            )
             self._record_failure(outcome)
             return outcome
         artifact, load_reason = self._snapshots.load_recovery_v3_with_status(
@@ -169,7 +191,9 @@ class RecoveryService:
             return outcome
         adapter = self._adapters.get(request.execution_domain_id)
         if adapter is None:
-            outcome = self._result(request, CapabilityStatus.UNSUPPORTED, "RECOVERY_OPERATION_UNSUPPORTED")
+            outcome = self._result(
+                request, CapabilityStatus.UNSUPPORTED, "RECOVERY_OPERATION_UNSUPPORTED"
+            )
             self._record_failure(outcome)
             return outcome
         try:
@@ -182,11 +206,19 @@ class RecoveryService:
                 )
             )
         except PermissionError:
-            outcome = self._result(request, CapabilityStatus.PERMISSION_DENIED, "RECOVERY_PERMISSION_DENIED")
+            outcome = self._result(
+                request,
+                CapabilityStatus.PERMISSION_DENIED,
+                "RECOVERY_PERMISSION_DENIED",
+            )
         except OSError:
-            outcome = self._result(request, CapabilityStatus.UNREACHABLE, "RECOVERY_DOMAIN_UNREACHABLE")
+            outcome = self._result(
+                request, CapabilityStatus.UNREACHABLE, "RECOVERY_DOMAIN_UNREACHABLE"
+            )
         except Exception:  # noqa: BLE001 - adapter boundary fails closed.
-            outcome = self._result(request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_FAILED")
+            outcome = self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_FAILED"
+            )
         if (
             self._outcome_matches(request, outcome)
             and outcome.ok
@@ -214,19 +246,6 @@ class RecoveryService:
         return failed
 
     def restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
-        adapter = self._adapters.get(request.execution_domain_id)
-        if adapter is None:
-            outcome = self._result(request, CapabilityStatus.UNSUPPORTED, "RECOVERY_OPERATION_UNSUPPORTED")
-        else:
-            outcome = self._result(
-                request,
-                CapabilityStatus.UNSUPPORTED,
-                "REAL_RESTORE_OUT_OF_SCOPE_P6",
-            )
-        self._record_failure(outcome)
-        return outcome
-
-    def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
         if self._database._conn is None or verify_ledger(self._database._conn):
             return self._result(
                 request,
@@ -235,14 +254,20 @@ class RecoveryService:
             )
         checkpoint = self._checkpoint(request)
         if checkpoint is None:
-            outcome = self._result(request, CapabilityStatus.NOT_PRESENT, "RECOVERY_CHECKPOINT_NOT_FOUND")
+            outcome = self._result(
+                request, CapabilityStatus.NOT_PRESENT, "RECOVERY_CHECKPOINT_NOT_FOUND"
+            )
             self._record_failure(outcome)
             return outcome
         artifact, load_reason = self._snapshots.load_recovery_v3_with_status(
             checkpoint["snapshot_path"]
         )
         if artifact is None:
-            status = CapabilityStatus.UNSUPPORTED if load_reason == "LEGACY_SNAPSHOT_READ_ONLY" else CapabilityStatus.ERROR
+            status = {
+                "LEGACY_SNAPSHOT_READ_ONLY": CapabilityStatus.UNSUPPORTED,
+                "RECOVERY_ARTIFACT_NOT_FOUND": CapabilityStatus.NOT_PRESENT,
+                "RECOVERY_DOMAIN_UNREACHABLE": CapabilityStatus.UNREACHABLE,
+            }.get(load_reason, CapabilityStatus.ERROR)
             outcome = self._result(request, status, load_reason)
             self._record_failure(outcome)
             return outcome
@@ -256,7 +281,101 @@ class RecoveryService:
             return outcome
         adapter = self._adapters.get(request.execution_domain_id)
         if adapter is None:
-            outcome = self._result(request, CapabilityStatus.UNSUPPORTED, "RECOVERY_OPERATION_UNSUPPORTED")
+            outcome = self._result(
+                request, CapabilityStatus.UNSUPPORTED, "RECOVERY_OPERATION_UNSUPPORTED"
+            )
+        else:
+            try:
+                outcome = adapter.restore(replace(request, artifact=artifact))
+            except PermissionError:
+                outcome = self._result(
+                    request,
+                    CapabilityStatus.PERMISSION_DENIED,
+                    "RECOVERY_PERMISSION_DENIED",
+                )
+            except OSError:
+                outcome = self._result(
+                    request, CapabilityStatus.UNREACHABLE, "RECOVERY_DOMAIN_UNREACHABLE"
+                )
+            except Exception:  # noqa: BLE001 - adapter boundary fails closed.
+                outcome = self._result(
+                    request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_FAILED"
+                )
+        if not self._outcome_matches(request, outcome):
+            outcome = self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID"
+            )
+        if not outcome.ok or outcome.manifest_digest != digest:
+            self._record_failure(outcome)
+            return outcome
+        try:
+            with self._database.transaction() as connection:
+                count = outcome.details.get("verified_targets", 0)
+                self._append_event(
+                    connection,
+                    EventType.FILE_RESTORED,
+                    outcome,
+                    str(checkpoint["id"]),
+                    digest,
+                    count,
+                    (),
+                )
+                self._append_event(
+                    connection,
+                    EventType.VALIDATOR_PASSED,
+                    outcome,
+                    str(checkpoint["id"]),
+                    digest,
+                    count,
+                    (),
+                )
+                if verify_ledger(connection):
+                    raise RuntimeError("RECOVERY_LEDGER_INVALID")
+        except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
+            return self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED"
+            )
+        return outcome
+
+    def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
+        if self._database._conn is None or verify_ledger(self._database._conn):
+            return self._result(
+                request,
+                CapabilityStatus.ERROR,
+                "RECOVERY_LEDGER_INVALID",
+            )
+        checkpoint = self._checkpoint(request)
+        if checkpoint is None:
+            outcome = self._result(
+                request, CapabilityStatus.NOT_PRESENT, "RECOVERY_CHECKPOINT_NOT_FOUND"
+            )
+            self._record_failure(outcome)
+            return outcome
+        artifact, load_reason = self._snapshots.load_recovery_v3_with_status(
+            checkpoint["snapshot_path"]
+        )
+        if artifact is None:
+            status = (
+                CapabilityStatus.UNSUPPORTED
+                if load_reason == "LEGACY_SNAPSHOT_READ_ONLY"
+                else CapabilityStatus.ERROR
+            )
+            outcome = self._result(request, status, load_reason)
+            self._record_failure(outcome)
+            return outcome
+        valid, reason_code, digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=request.execution_domain_id,
+        )
+        if not valid or digest != checkpoint["hash_sha256"]:
+            outcome = self._result(request, CapabilityStatus.ERROR, reason_code)
+            self._record_failure(outcome)
+            return outcome
+        adapter = self._adapters.get(request.execution_domain_id)
+        if adapter is None:
+            outcome = self._result(
+                request, CapabilityStatus.UNSUPPORTED, "RECOVERY_OPERATION_UNSUPPORTED"
+            )
             self._record_failure(outcome)
             return outcome
         staging_root = Path(tempfile.mkdtemp(prefix="agentguard-test-restore-root-"))
@@ -278,20 +397,56 @@ class RecoveryService:
                 )
             )
             if not self._outcome_matches(request, outcome):
-                outcome = self._result(request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID")
+                outcome = self._result(
+                    request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID"
+                )
             with self._database.transaction() as connection:
-                self._append_event(connection, EventType.TEST_RESTORE_STARTED, started, str(checkpoint["id"]), digest, 0, ())
+                self._append_event(
+                    connection,
+                    EventType.TEST_RESTORE_STARTED,
+                    started,
+                    str(checkpoint["id"]),
+                    digest,
+                    0,
+                    (),
+                )
                 if outcome.ok:
-                    self._append_event(connection, EventType.FILE_RESTORED, outcome, str(checkpoint["id"]), digest, outcome.details.get("verified_targets", 0), ())
-                    self._append_event(connection, EventType.VALIDATOR_PASSED, outcome, str(checkpoint["id"]), digest, outcome.details.get("verified_targets", 0), ())
+                    self._append_event(
+                        connection,
+                        EventType.FILE_RESTORED,
+                        outcome,
+                        str(checkpoint["id"]),
+                        digest,
+                        outcome.details.get("verified_targets", 0),
+                        (),
+                    )
+                    self._append_event(
+                        connection,
+                        EventType.VALIDATOR_PASSED,
+                        outcome,
+                        str(checkpoint["id"]),
+                        digest,
+                        outcome.details.get("verified_targets", 0),
+                        (),
+                    )
                 else:
-                    self._append_event(connection, EventType.RESTORE_FAILED, outcome, str(checkpoint["id"]), digest, 0, ())
+                    self._append_event(
+                        connection,
+                        EventType.RESTORE_FAILED,
+                        outcome,
+                        str(checkpoint["id"]),
+                        digest,
+                        0,
+                        (),
+                    )
                 if verify_ledger(connection):
                     raise RuntimeError("RECOVERY_LEDGER_INVALID")
             persisted = True
             return outcome
         except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
-            failure = self._result(request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED")
+            failure = self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED"
+            )
             self._record_failure(failure)
             return failure
         finally:
@@ -329,8 +484,15 @@ class RecoveryService:
                            drill_id, checkpoint_id, execution_domain_id, manifest_digest,
                            target_refs_digest, binding_digest, status, created_at
                        ) VALUES (?, ?, ?, ?, ?, ?, 'AWAITING_APPROVAL', ?)""",
-                    (drill_id, checkpoint_id, execution_domain_id, context["manifest_digest"],
-                     context["target_refs_digest"], binding, now.isoformat()),
+                    (
+                        drill_id,
+                        checkpoint_id,
+                        execution_domain_id,
+                        context["manifest_digest"],
+                        context["target_refs_digest"],
+                        binding,
+                        now.isoformat(),
+                    ),
                 )
                 connection.execute(
                     """INSERT INTO recovery_drill_bindings
@@ -338,13 +500,21 @@ class RecoveryService:
                         policy_version, operation_kind, binding_digest, created_at)
                        VALUES (?, ?, ?, ?, 'SELF_RUNTIME_R3_DRILL', ?, ?)""",
                     (
-                        drill_id, session.supervision_session_id, session_identity,
-                        "P4-LOCAL-1", binding, now.isoformat(),
+                        drill_id,
+                        session.supervision_session_id,
+                        session_identity,
+                        "P4-LOCAL-1",
+                        binding,
+                        now.isoformat(),
                     ),
                 )
                 self._append_drill_event(
-                    connection, EventType.RECOVERY_DRILL_PREPARED, drill_id,
-                    "AWAITING_APPROVAL", context, binding,
+                    connection,
+                    EventType.RECOVERY_DRILL_PREPARED,
+                    drill_id,
+                    "AWAITING_APPROVAL",
+                    context,
+                    binding,
                     supervision_session_id=session.supervision_session_id,
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError, IndexError):
@@ -376,46 +546,69 @@ class RecoveryService:
                 if row is None or row[5] != "AWAITING_APPROVAL":
                     return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_INVALID"}
                 context = {
-                    "checkpoint_id": row[0], "execution_domain_id": row[1],
-                    "manifest_digest": row[2], "target_refs_digest": row[3],
+                    "checkpoint_id": row[0],
+                    "execution_domain_id": row[1],
+                    "manifest_digest": row[2],
+                    "target_refs_digest": row[3],
                 }
                 fingerprint = self._drill_fingerprint(drill_id, row[4])
                 binding = self._authorization_binding_digest(
-                    authorization_id, drill_id, row[7], context,
-                    "SELF_RUNTIME_R3_DRILL", fingerprint, row[8], nonce,
+                    authorization_id,
+                    drill_id,
+                    row[7],
+                    context,
+                    "SELF_RUNTIME_R3_DRILL",
+                    fingerprint,
+                    row[8],
+                    nonce,
                 )
                 authorization = {
-                    "authorization_id": authorization_id, "subject_id": drill_id,
-                    "session_identity_digest": row[7], "checkpoint_id": row[0],
-                    "execution_domain_id": row[1], "manifest_digest": row[2],
+                    "authorization_id": authorization_id,
+                    "subject_id": drill_id,
+                    "session_identity_digest": row[7],
+                    "checkpoint_id": row[0],
+                    "execution_domain_id": row[1],
+                    "manifest_digest": row[2],
                     "operation_kind": "SELF_RUNTIME_R3_DRILL",
-                    "target_refs_digest": row[3], "drill_fingerprint": fingerprint,
-                    "policy_version": row[8], "binding_digest": binding,
-                    "issued_at": now.isoformat(), "expires_at": expires_at.isoformat(),
+                    "target_refs_digest": row[3],
+                    "drill_fingerprint": fingerprint,
+                    "policy_version": row[8],
+                    "binding_digest": binding,
+                    "issued_at": now.isoformat(),
+                    "expires_at": expires_at.isoformat(),
                     "nonce": nonce,
                 }
                 from agentguard.supervision.service import SupervisionService
 
-                approved = SupervisionService(self._database)._approve_recovery_authorization_in_transaction(
+                approved = SupervisionService(
+                    self._database
+                )._approve_recovery_authorization_in_transaction(
                     connection, row[6], authorization
                 )
                 if approved.status != "APPROVED":
                     return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_INVALID"}
-                if connection.execute(
-                    """UPDATE recovery_drills SET status = 'APPROVED'
+                if (
+                    connection.execute(
+                        """UPDATE recovery_drills SET status = 'APPROVED'
                        WHERE drill_id = ? AND status = 'AWAITING_APPROVAL'""",
-                    (drill_id,),
-                ).rowcount != 1:
+                        (drill_id,),
+                    ).rowcount
+                    != 1
+                ):
                     raise RuntimeError("DRILL_APPROVAL_STATE_INVALID")
                 self._append_drill_event(
-                    connection, EventType.RECOVERY_DRILL_APPROVED, drill_id,
-                    "APPROVED", context, row[4],
-                    {"authorization_binding_digest": binding}, row[6],
+                    connection,
+                    EventType.RECOVERY_DRILL_APPROVED,
+                    drill_id,
+                    "APPROVED",
+                    context,
+                    row[4],
+                    {"authorization_binding_digest": binding},
+                    row[6],
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError, KeyError, IndexError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
         return {"drill_id": drill_id, "status": "APPROVED", "binding_digest": row[4]}
-
 
     def run_drill(self, drill_id: str) -> dict[str, object]:
         try:
@@ -438,8 +631,10 @@ class RecoveryService:
                 if row is None:
                     return {"status": "FAILED", "reason_code": "DRILL_NOT_FOUND"}
                 context = {
-                    "checkpoint_id": row[0], "execution_domain_id": row[1],
-                    "manifest_digest": row[2], "target_refs_digest": row[3],
+                    "checkpoint_id": row[0],
+                    "execution_domain_id": row[1],
+                    "manifest_digest": row[2],
+                    "target_refs_digest": row[3],
                 }
                 fingerprint = self._drill_fingerprint(drill_id, row[4])
                 authorization = connection.execute(
@@ -449,17 +644,38 @@ class RecoveryService:
                        FROM recovery_authorizations WHERE subject_id = ?""",
                     (drill_id,),
                 ).fetchone()
-                if row[5] != "APPROVED" or authorization is None or authorization[10] is not None:
-                    return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
-                try:
-                    expired = datetime.now(UTC) >= datetime.fromisoformat(authorization[8])
-                except ValueError:
-                    return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
-                if expired or authorization[:8] != (
-                    row[7], row[0], row[1], row[2], "SELF_RUNTIME_R3_DRILL",
-                    row[3], fingerprint, row[8],
+                if (
+                    row[5] != "APPROVED"
+                    or authorization is None
+                    or authorization[10] is not None
                 ):
-                    return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED",
+                    }
+                try:
+                    expired = datetime.now(UTC) >= datetime.fromisoformat(
+                        authorization[8]
+                    )
+                except ValueError:
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED",
+                    }
+                if expired or authorization[:8] != (
+                    row[7],
+                    row[0],
+                    row[1],
+                    row[2],
+                    "SELF_RUNTIME_R3_DRILL",
+                    row[3],
+                    fingerprint,
+                    row[8],
+                ):
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED",
+                    }
                 run_id = f"drill-run-{uuid4()}"
                 consumed = connection.execute(
                     """UPDATE recovery_authorizations
@@ -467,12 +683,18 @@ class RecoveryService:
                        WHERE subject_id = ? AND nonce = ? AND consumed_at IS NULL
                          AND expires_at > ?""",
                     (
-                        datetime.now(UTC).isoformat(), run_id, drill_id,
-                        authorization[9], datetime.now(UTC).isoformat(),
+                        datetime.now(UTC).isoformat(),
+                        run_id,
+                        drill_id,
+                        authorization[9],
+                        datetime.now(UTC).isoformat(),
                     ),
                 ).rowcount
                 if consumed != 1:
-                    return {"status": "FAILED", "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "DRILL_APPROVAL_MISSING_OR_CONSUMED",
+                    }
                 transitioned = connection.execute(
                     "UPDATE recovery_drills SET status = 'RUNNING' WHERE drill_id = ? AND status = 'APPROVED'",
                     (drill_id,),
@@ -480,8 +702,14 @@ class RecoveryService:
                 if transitioned != 1:
                     raise RuntimeError("DRILL_START_STATE_INVALID")
                 self._append_drill_event(
-                    connection, EventType.RECOVERY_DRILL_STARTED, drill_id,
-                    "RUNNING", context, row[4], {"run_id": run_id}, row[6],
+                    connection,
+                    EventType.RECOVERY_DRILL_STARTED,
+                    drill_id,
+                    "RUNNING",
+                    context,
+                    row[4],
+                    {"run_id": run_id},
+                    row[6],
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
@@ -516,26 +744,57 @@ class RecoveryService:
                 }
                 if result.details.get("drift_established"):
                     self._append_drill_event(
-                        connection, EventType.DRIFT_ESTABLISHED, drill_id,
-                        "AVAILABLE", context, row[4], details, row[6],
+                        connection,
+                        EventType.DRIFT_ESTABLISHED,
+                        drill_id,
+                        "AVAILABLE",
+                        context,
+                        row[4],
+                        details,
+                        row[6],
                     )
                 if result.ok:
                     self._append_drill_event(
-                        connection, EventType.FILE_RESTORED, drill_id,
-                        "AVAILABLE", context, row[4], details, row[6],
+                        connection,
+                        EventType.FILE_RESTORED,
+                        drill_id,
+                        "AVAILABLE",
+                        context,
+                        row[4],
+                        details,
+                        row[6],
                     )
                     self._append_drill_event(
-                        connection, EventType.VALIDATOR_PASSED, drill_id,
-                        "AVAILABLE", context, row[4], details, row[6],
+                        connection,
+                        EventType.VALIDATOR_PASSED,
+                        drill_id,
+                        "AVAILABLE",
+                        context,
+                        row[4],
+                        details,
+                        row[6],
                     )
                     self._append_drill_event(
-                        connection, EventType.RECOVERY_DRILL_VERIFIED, drill_id,
-                        "VERIFIED_R3", context, row[4], details, row[6],
+                        connection,
+                        EventType.RECOVERY_DRILL_VERIFIED,
+                        drill_id,
+                        "VERIFIED_R3",
+                        context,
+                        row[4],
+                        details,
+                        row[6],
                     )
                 self._append_drill_event(
                     connection,
-                    EventType.RECOVERY_DRILL_COMPLETED if result.ok else EventType.RESTORE_FAILED,
-                    drill_id, final_status, context, row[4], details, row[6],
+                    EventType.RECOVERY_DRILL_COMPLETED
+                    if result.ok
+                    else EventType.RESTORE_FAILED,
+                    drill_id,
+                    final_status,
+                    context,
+                    row[4],
+                    details,
+                    row[6],
                 )
                 if verify_ledger(connection):
                     raise RuntimeError("RECOVERY_LEDGER_INVALID")
@@ -556,24 +815,36 @@ class RecoveryService:
         checkpoint = self._database.get_checkpoint(int(context["checkpoint_id"]))
         if checkpoint is None:
             return self._result(
-                RecoveryRequest(RecoveryOperation.DRILL_RESTORE, context["execution_domain_id"]),
+                RecoveryRequest(
+                    RecoveryOperation.DRILL_RESTORE, context["execution_domain_id"]
+                ),
                 CapabilityStatus.NOT_PRESENT,
                 "RECOVERY_CHECKPOINT_NOT_FOUND",
             )
-        artifact, reason_code = self._snapshots.load_recovery_v3_with_status(checkpoint["snapshot_path"])
+        artifact, reason_code = self._snapshots.load_recovery_v3_with_status(
+            checkpoint["snapshot_path"]
+        )
         valid, validation_reason, digest = validate_snapshot_v3(
             artifact, expected_domain=context["execution_domain_id"]
         )
         if artifact is None or not valid or digest != context["manifest_digest"]:
             return self._result(
-                RecoveryRequest(RecoveryOperation.DRILL_RESTORE, context["execution_domain_id"], checkpoint_id=context["checkpoint_id"]),
+                RecoveryRequest(
+                    RecoveryOperation.DRILL_RESTORE,
+                    context["execution_domain_id"],
+                    checkpoint_id=context["checkpoint_id"],
+                ),
                 CapabilityStatus.ERROR,
                 validation_reason if artifact is not None else reason_code,
             )
         adapter = self._adapters.get(context["execution_domain_id"])
         if adapter is None or context["execution_domain_id"] != "self-runtime":
             return self._result(
-                RecoveryRequest(RecoveryOperation.DRILL_RESTORE, context["execution_domain_id"], checkpoint_id=context["checkpoint_id"]),
+                RecoveryRequest(
+                    RecoveryOperation.DRILL_RESTORE,
+                    context["execution_domain_id"],
+                    checkpoint_id=context["checkpoint_id"],
+                ),
                 CapabilityStatus.UNSUPPORTED,
                 "RECOVERY_OPERATION_UNSUPPORTED",
             )
@@ -581,11 +852,16 @@ class RecoveryService:
         try:
             managed_base.mkdir(mode=0o700, exist_ok=True)
             base = managed_base.resolve(strict=True)
-            source_paths = [Path(entry["logical_path"]).resolve() for entry in artifact["manifest"]]
+            source_paths = [
+                Path(entry["logical_path"]).resolve() for entry in artifact["manifest"]
+            ]
             if any(path == base or base in path.parents for path in source_paths):
                 raise ValueError("DRILL_TARGET_OVERLAPS_SOURCE")
             drill_root = Path(tempfile.mkdtemp(prefix="drill-", dir=base))
-            if drill_root.resolve(strict=True).parent != base or drill_root.is_symlink():
+            if (
+                drill_root.resolve(strict=True).parent != base
+                or drill_root.is_symlink()
+            ):
                 raise ValueError("DRILL_TARGET_UNSAFE")
             request = RecoveryRequest(
                 operation=RecoveryOperation.DRILL_RESTORE,
@@ -595,7 +871,10 @@ class RecoveryService:
                 drill_root=drill_root,
             )
             outcome = adapter.drill_restore(request)
-            if not self._outcome_matches(request, outcome) or outcome.manifest_digest != digest:
+            if (
+                not self._outcome_matches(request, outcome)
+                or outcome.manifest_digest != digest
+            ):
                 invalid = self._result(
                     request,
                     CapabilityStatus.ERROR,
@@ -607,11 +886,18 @@ class RecoveryService:
                 )
             return replace(
                 outcome,
-                details={**outcome.details, "managed_target_root": str(drill_root.resolve())},
+                details={
+                    **outcome.details,
+                    "managed_target_root": str(drill_root.resolve()),
+                },
             )
         except (OSError, ValueError):
             return self._result(
-                RecoveryRequest(RecoveryOperation.DRILL_RESTORE, context["execution_domain_id"], checkpoint_id=context["checkpoint_id"]),
+                RecoveryRequest(
+                    RecoveryOperation.DRILL_RESTORE,
+                    context["execution_domain_id"],
+                    checkpoint_id=context["checkpoint_id"],
+                ),
                 CapabilityStatus.ERROR,
                 "DRILL_TARGET_UNSAFE",
             )
@@ -622,7 +908,11 @@ class RecoveryService:
             return False
         try:
             path = Path(root)
-            if not path.is_dir() or path.is_symlink() or path.name == ".agentguard-r3-drills":
+            if (
+                not path.is_dir()
+                or path.is_symlink()
+                or path.name == ".agentguard-r3-drills"
+            ):
                 return False
             shutil.rmtree(path)
             return not path.exists()
@@ -634,19 +924,29 @@ class RecoveryService:
         checkpoint_id: str | None,
         execution_domain_id: str,
     ) -> dict[str, str] | None:
-        if execution_domain_id != "self-runtime" or checkpoint_id is None or not checkpoint_id.isdecimal():
+        if (
+            execution_domain_id != "self-runtime"
+            or checkpoint_id is None
+            or not checkpoint_id.isdecimal()
+        ):
             return None
         checkpoint = self._database.get_checkpoint(int(checkpoint_id))
         if checkpoint is None:
             return None
-        artifact, _reason = self._snapshots.load_recovery_v3_with_status(checkpoint["snapshot_path"])
+        artifact, _reason = self._snapshots.load_recovery_v3_with_status(
+            checkpoint["snapshot_path"]
+        )
         if artifact is None:
             return None
-        valid, _reason, digest = validate_snapshot_v3(artifact, expected_domain=execution_domain_id)
+        valid, _reason, digest = validate_snapshot_v3(
+            artifact, expected_domain=execution_domain_id
+        )
         if not valid or digest != checkpoint["hash_sha256"]:
             return None
         conn = self._database._conn
-        if conn is None or not self._has_r2_evidence(conn, checkpoint_id, execution_domain_id, digest):
+        if conn is None or not self._has_r2_evidence(
+            conn, checkpoint_id, execution_domain_id, digest
+        ):
             return None
         targets = self._target_ref_digests(artifact)
         if not targets:
@@ -655,11 +955,15 @@ class RecoveryService:
             "checkpoint_id": checkpoint_id,
             "execution_domain_id": execution_domain_id,
             "manifest_digest": digest,
-            "target_refs_digest": hashlib.sha256(canonical_json(list(targets)).encode()).hexdigest(),
+            "target_refs_digest": hashlib.sha256(
+                canonical_json(list(targets)).encode()
+            ).hexdigest(),
         }
 
     @staticmethod
-    def _has_r2_evidence(connection, checkpoint_id: str, domain: str, digest: str) -> bool:
+    def _has_r2_evidence(
+        connection, checkpoint_id: str, domain: str, digest: str
+    ) -> bool:
         rows = connection.execute(
             """SELECT event_type, result, execution_domain_id, subject_ref
                FROM evidence_ledger_events
@@ -667,39 +971,64 @@ class RecoveryService:
             (checkpoint_id,),
         ).fetchall()
         return {
-            event_type for event_type, result, current_domain, subject_ref in rows
-            if result == "AVAILABLE" and current_domain == domain and subject_ref == f"manifest:{digest}"
+            event_type
+            for event_type, result, current_domain, subject_ref in rows
+            if result == "AVAILABLE"
+            and current_domain == domain
+            and subject_ref == f"manifest:{digest}"
         } == {"TEST_RESTORE_STARTED", "FILE_RESTORED", "VALIDATOR_PASSED"}
 
     @staticmethod
     def _binding_digest(drill_id: str, context: dict[str, str]) -> str:
-        payload = {"operation": "SELF_RUNTIME_R3_DRILL", "drill_id": drill_id, **context}
+        payload = {
+            "operation": "SELF_RUNTIME_R3_DRILL",
+            "drill_id": drill_id,
+            **context,
+        }
         return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
     @staticmethod
     def _drill_fingerprint(drill_id: str, binding_digest: str) -> str:
-        return hashlib.sha256(canonical_json({
-            "drill_id": drill_id,
-            "binding_digest": binding_digest,
-        }).encode()).hexdigest()
+        return hashlib.sha256(
+            canonical_json(
+                {
+                    "drill_id": drill_id,
+                    "binding_digest": binding_digest,
+                }
+            ).encode()
+        ).hexdigest()
 
     def _append_drill_event(
-        self, connection, event_type: EventType, drill_id: str, result: str,
-        context: dict[str, str], binding_digest: str, details: dict[str, object] | None = None,
+        self,
+        connection,
+        event_type: EventType,
+        drill_id: str,
+        result: str,
+        context: dict[str, str],
+        binding_digest: str,
+        details: dict[str, object] | None = None,
         supervision_session_id: str | None = None,
     ) -> None:
         self._ledger.append(
             connection,
             EvidenceEvent(
-                schema_version=1, event_id=f"recovery-drill-{uuid4()}",
-                recorded_at=datetime.now(UTC), observed_at=None,
-                event_family=EventFamily.RECOVERY, event_type=event_type,
-                source="recovery-drill-service", result=result,
-                execution_domain_id=context["execution_domain_id"], supervision_session_id=supervision_session_id,
-                transaction_id=None, checkpoint_id=context["checkpoint_id"],
-                subject_ref=f"manifest:{context['manifest_digest']}", evidence_refs=(),
+                schema_version=1,
+                event_id=f"recovery-drill-{uuid4()}",
+                recorded_at=datetime.now(UTC),
+                observed_at=None,
+                event_family=EventFamily.RECOVERY,
+                event_type=event_type,
+                source="recovery-drill-service",
+                result=result,
+                execution_domain_id=context["execution_domain_id"],
+                supervision_session_id=supervision_session_id,
+                transaction_id=None,
+                checkpoint_id=context["checkpoint_id"],
+                subject_ref=f"manifest:{context['manifest_digest']}",
+                evidence_refs=(),
                 payload_safe={
-                    "drill_id": drill_id, "binding_digest": binding_digest,
+                    "drill_id": drill_id,
+                    "binding_digest": binding_digest,
                     "manifest_digest": context["manifest_digest"],
                     "target_refs_digest": context["target_refs_digest"],
                     **(details or {}),
@@ -791,7 +1120,14 @@ class RecoveryService:
             (baseline_id,),
         ).fetchone()
         if candidate is not None:
-            return {"candidate_id": candidate[0], "status": candidate[1], "binding_digest": candidate[2], "checkpoint_id": candidate[3], "execution_domain_id": candidate[4], "manifest_digest": candidate[5]}
+            return {
+                "candidate_id": candidate[0],
+                "status": candidate[1],
+                "binding_digest": candidate[2],
+                "checkpoint_id": candidate[3],
+                "execution_domain_id": candidate[4],
+                "manifest_digest": candidate[5],
+            }
         baseline = connection.execute(
             """SELECT baseline_id, checkpoint_id, execution_domain_id, manifest_digest
                FROM trusted_baselines WHERE baseline_id = ?""",
@@ -800,10 +1136,17 @@ class RecoveryService:
         if baseline is None:
             return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_NOT_FOUND"}
         retired = connection.execute(
-            "SELECT 1 FROM trusted_baseline_retirements WHERE baseline_id = ?", (baseline_id,)
+            "SELECT 1 FROM trusted_baseline_retirements WHERE baseline_id = ?",
+            (baseline_id,),
         ).fetchone()
         if retired is not None:
-            return {"baseline_id": baseline[0], "status": "RETIRED", "checkpoint_id": baseline[1], "execution_domain_id": baseline[2], "manifest_digest": baseline[3]}
+            return {
+                "baseline_id": baseline[0],
+                "status": "RETIRED",
+                "checkpoint_id": baseline[1],
+                "execution_domain_id": baseline[2],
+                "manifest_digest": baseline[3],
+            }
         try:
             checkpoint = self._database.get_checkpoint(int(baseline[1]))
             if checkpoint is None:
@@ -827,9 +1170,22 @@ class RecoveryService:
             )
         except (OSError, TypeError, ValueError, KeyError, sqlite3.DatabaseError):
             facts = None
-        if facts is None or facts.trusted_baseline_status != "TRUSTED" or facts.trusted_baseline_id != baseline_id:
-            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_AUTHORITY_INVALID"}
-        return {"baseline_id": baseline[0], "status": "TRUSTED", "checkpoint_id": baseline[1], "execution_domain_id": baseline[2], "manifest_digest": baseline[3]}
+        if (
+            facts is None
+            or facts.trusted_baseline_status != "TRUSTED"
+            or facts.trusted_baseline_id != baseline_id
+        ):
+            return {
+                "status": "FAILED",
+                "reason_code": "TRUSTED_BASELINE_AUTHORITY_INVALID",
+            }
+        return {
+            "baseline_id": baseline[0],
+            "status": "TRUSTED",
+            "checkpoint_id": baseline[1],
+            "execution_domain_id": baseline[2],
+            "manifest_digest": baseline[3],
+        }
 
     def show_drill(self, drill_id: str) -> dict[str, object]:
         connection = self._database._conn
@@ -849,9 +1205,13 @@ class RecoveryService:
                 context is None
                 or context["manifest_digest"] != row[3]
                 or context["target_refs_digest"] != row[4]
-                or self._validated_r3_evidence(connection, context, drill_id=row[0]) is None
+                or self._validated_r3_evidence(connection, context, drill_id=row[0])
+                is None
             ):
-                return {"status": "FAILED", "reason_code": "RECOVERY_DRILL_AUTHORITY_INVALID"}
+                return {
+                    "status": "FAILED",
+                    "reason_code": "RECOVERY_DRILL_AUTHORITY_INVALID",
+                }
         return {
             "drill_id": row[0],
             "checkpoint_id": row[1],
@@ -878,7 +1238,10 @@ class RecoveryService:
                     (candidate_id,),
                 ).fetchone()
                 if row is None or row[5] != "CANDIDATE":
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+                    }
                 context = self._context_from_row(row)
                 evidence = self._validated_r3_evidence(connection, context)
                 if (
@@ -887,31 +1250,55 @@ class RecoveryService:
                     or evidence["drill_fingerprint"] != row[9]
                     or evidence["policy_version"] != row[8]
                 ):
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_R3_REQUIRED",
+                    }
                 binding = self._authorization_binding_digest(
-                    authorization_id, candidate_id, row[7], context,
-                    "TRUSTED_BASELINE_CONFIRM", row[9], row[8], nonce,
+                    authorization_id,
+                    candidate_id,
+                    row[7],
+                    context,
+                    "TRUSTED_BASELINE_CONFIRM",
+                    row[9],
+                    row[8],
+                    nonce,
                 )
                 authorization = {
-                    "authorization_id": authorization_id, "subject_id": candidate_id,
-                    "session_identity_digest": row[7], "checkpoint_id": row[0],
-                    "execution_domain_id": row[1], "manifest_digest": row[2],
+                    "authorization_id": authorization_id,
+                    "subject_id": candidate_id,
+                    "session_identity_digest": row[7],
+                    "checkpoint_id": row[0],
+                    "execution_domain_id": row[1],
+                    "manifest_digest": row[2],
                     "operation_kind": "TRUSTED_BASELINE_CONFIRM",
-                    "target_refs_digest": row[3], "drill_fingerprint": row[9],
-                    "policy_version": row[8], "binding_digest": binding,
-                    "issued_at": now.isoformat(), "expires_at": expires_at.isoformat(),
+                    "target_refs_digest": row[3],
+                    "drill_fingerprint": row[9],
+                    "policy_version": row[8],
+                    "binding_digest": binding,
+                    "issued_at": now.isoformat(),
+                    "expires_at": expires_at.isoformat(),
                     "nonce": nonce,
                 }
                 from agentguard.supervision.service import SupervisionService
 
-                approved = SupervisionService(self._database)._approve_recovery_authorization_in_transaction(
+                approved = SupervisionService(
+                    self._database
+                )._approve_recovery_authorization_in_transaction(
                     connection, row[6], authorization
                 )
                 if approved.status != "APPROVED":
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+                    }
         except (sqlite3.DatabaseError, RuntimeError, ValueError, KeyError, IndexError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
-        return {"authorization_id": authorization_id, "nonce": nonce, "status": "APPROVED"}
+        return {
+            "authorization_id": authorization_id,
+            "nonce": nonce,
+            "status": "APPROVED",
+        }
 
     def confirm_trusted_baseline(
         self,
@@ -920,7 +1307,10 @@ class RecoveryService:
         nonce: str | None = None,
     ) -> dict[str, object]:
         if not authorization_id or not nonce:
-            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+            return {
+                "status": "FAILED",
+                "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+            }
         now = datetime.now(UTC)
         baseline_id = f"baseline-{uuid4()}"
         try:
@@ -936,7 +1326,10 @@ class RecoveryService:
                     (candidate_id,),
                 ).fetchone()
                 if row is None or row[5] != "CANDIDATE":
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+                    }
                 context = self._context_from_row(row)
                 evidence = self._validated_r3_evidence(transaction, context)
                 if (
@@ -945,7 +1338,10 @@ class RecoveryService:
                     or evidence["drill_fingerprint"] != row[9]
                     or evidence["policy_version"] != row[8]
                 ):
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_R3_REQUIRED"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_R3_REQUIRED",
+                    }
                 authorization = transaction.execute(
                     """SELECT subject_id, supervision_session_id, session_identity_digest,
                               checkpoint_id, execution_domain_id, manifest_digest,
@@ -955,62 +1351,134 @@ class RecoveryService:
                     (authorization_id,),
                 ).fetchone()
                 if authorization is None or authorization[13] is not None:
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+                    }
                 try:
                     expired = now >= datetime.fromisoformat(authorization[11])
                 except ValueError:
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+                    }
                 if expired:
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_EXPIRED"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_EXPIRED",
+                    }
                 expected = self._authorization_binding_digest(
-                    authorization_id, candidate_id, row[7], context,
-                    "TRUSTED_BASELINE_CONFIRM", row[9], row[8], nonce,
+                    authorization_id,
+                    candidate_id,
+                    row[7],
+                    context,
+                    "TRUSTED_BASELINE_CONFIRM",
+                    row[9],
+                    row[8],
+                    nonce,
                 )
-                if authorization[:11] != (
-                    candidate_id, row[6], row[7], row[0], row[1], row[2],
-                    "TRUSTED_BASELINE_CONFIRM", row[3], row[9], row[8], expected,
-                ) or authorization[12] != nonce:
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                if (
+                    authorization[:11]
+                    != (
+                        candidate_id,
+                        row[6],
+                        row[7],
+                        row[0],
+                        row[1],
+                        row[2],
+                        "TRUSTED_BASELINE_CONFIRM",
+                        row[3],
+                        row[9],
+                        row[8],
+                        expected,
+                    )
+                    or authorization[12] != nonce
+                ):
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+                    }
                 session = transaction.execute(
                     """SELECT status, decision, declared_intent_digest FROM supervision_sessions
                        WHERE supervision_session_id = ?""",
                     (row[6],),
                 ).fetchone()
                 if session != ("APPROVED", "REVIEW", row[7]):
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_CONFIRMATION_INVALID",
+                    }
                 transaction.execute(
                     """INSERT INTO trusted_baselines
                        (baseline_id, checkpoint_id, execution_domain_id, manifest_digest,
                         target_refs_digest, recovery_evidence_digest, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (baseline_id, row[0], row[1], row[2], row[3], row[4], now.isoformat()),
+                    (
+                        baseline_id,
+                        row[0],
+                        row[1],
+                        row[2],
+                        row[3],
+                        row[4],
+                        now.isoformat(),
+                    ),
                 )
-                if transaction.execute(
-                    """UPDATE trusted_baseline_candidates SET status = 'CONSUMED'
+                if (
+                    transaction.execute(
+                        """UPDATE trusted_baseline_candidates SET status = 'CONSUMED'
                        WHERE candidate_id = ? AND status = 'CANDIDATE'""",
-                    (candidate_id,),
-                ).rowcount != 1:
+                        (candidate_id,),
+                    ).rowcount
+                    != 1
+                ):
                     raise RuntimeError("TRUSTED_BASELINE_CONSUME_FAILED")
-                if transaction.execute(
-                    """UPDATE recovery_authorizations
+                if (
+                    transaction.execute(
+                        """UPDATE recovery_authorizations
                        SET consumed_at = ?, consumed_by_ref = ?
                        WHERE authorization_id = ? AND nonce = ? AND consumed_at IS NULL
                          AND expires_at > ?""",
-                    (now.isoformat(), baseline_id, authorization_id, nonce, now.isoformat()),
-                ).rowcount != 1:
+                        (
+                            now.isoformat(),
+                            baseline_id,
+                            authorization_id,
+                            nonce,
+                            now.isoformat(),
+                        ),
+                    ).rowcount
+                    != 1
+                ):
                     raise RuntimeError("RECOVERY_AUTHORIZATION_CONSUME_FAILED")
                 self._append_baseline_event(
-                    transaction, EventType.TRUSTED_BASELINE_CREATED, baseline_id,
-                    "TRUSTED", context, row[4], row[6], row[8], row[9],
-                    now.isoformat(), candidate_id, authorization_id,
+                    transaction,
+                    EventType.TRUSTED_BASELINE_CREATED,
+                    baseline_id,
+                    "TRUSTED",
+                    context,
+                    row[4],
+                    row[6],
+                    row[8],
+                    row[9],
+                    now.isoformat(),
+                    candidate_id,
+                    authorization_id,
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
-        return {"baseline_id": baseline_id, "status": "TRUSTED", "recovery_evidence_digest": row[4]}
+        return {
+            "baseline_id": baseline_id,
+            "status": "TRUSTED",
+            "recovery_evidence_digest": row[4],
+        }
 
-    def retire_trusted_baseline(self, baseline_id: str, reason_code: str) -> dict[str, object]:
+    def retire_trusted_baseline(
+        self, baseline_id: str, reason_code: str
+    ) -> dict[str, object]:
         if not reason_code or len(reason_code) > 128:
-            return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_RETIREMENT_INVALID"}
+            return {
+                "status": "FAILED",
+                "reason_code": "TRUSTED_BASELINE_RETIREMENT_INVALID",
+            }
         try:
             with self._database.transaction() as connection:
                 row = connection.execute(
@@ -1019,23 +1487,46 @@ class RecoveryService:
                     (baseline_id,),
                 ).fetchone()
                 if row is None:
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_NOT_FOUND"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_NOT_FOUND",
+                    }
                 retired = connection.execute(
                     "SELECT 1 FROM trusted_baseline_retirements WHERE baseline_id = ?",
                     (baseline_id,),
                 ).fetchone()
                 if retired is not None:
-                    return {"status": "FAILED", "reason_code": "TRUSTED_BASELINE_ALREADY_RETIRED"}
+                    return {
+                        "status": "FAILED",
+                        "reason_code": "TRUSTED_BASELINE_ALREADY_RETIRED",
+                    }
                 connection.execute(
                     """INSERT INTO trusted_baseline_retirements
                            (retirement_id, baseline_id, retired_at, reason_code)
                        VALUES (?, ?, ?, ?)""",
-                    (f"baseline-retirement-{uuid4()}", baseline_id, datetime.now(UTC).isoformat(), reason_code),
+                    (
+                        f"baseline-retirement-{uuid4()}",
+                        baseline_id,
+                        datetime.now(UTC).isoformat(),
+                        reason_code,
+                    ),
                 )
-                context = {"checkpoint_id": row[0], "execution_domain_id": row[1], "manifest_digest": row[2], "target_refs_digest": row[3]}
+                context = {
+                    "checkpoint_id": row[0],
+                    "execution_domain_id": row[1],
+                    "manifest_digest": row[2],
+                    "target_refs_digest": row[3],
+                }
                 self._append_baseline_event(
-                    connection, EventType.TRUSTED_BASELINE_RETIRED, baseline_id, "RETIRED",
-                    context, reason_code, "retired", "P4-LOCAL-1", "retired",
+                    connection,
+                    EventType.TRUSTED_BASELINE_RETIRED,
+                    baseline_id,
+                    "RETIRED",
+                    context,
+                    reason_code,
+                    "retired",
+                    "P4-LOCAL-1",
+                    "retired",
                 )
         except (sqlite3.DatabaseError, RuntimeError, ValueError):
             return {"status": "FAILED", "reason_code": "RECOVERY_PERSISTENCE_FAILED"}
@@ -1056,14 +1547,18 @@ class RecoveryService:
         context: dict[str, str],
         evidence: dict[str, str],
     ) -> str:
-        return hashlib.sha256(canonical_json({
-            "operation": "TRUSTED_BASELINE_CONFIRM",
-            "candidate_id": candidate_id,
-            **context,
-            "recovery_evidence_digest": evidence["recovery_evidence_digest"],
-            "drill_fingerprint": evidence["drill_fingerprint"],
-            "policy_version": evidence["policy_version"],
-        }).encode()).hexdigest()
+        return hashlib.sha256(
+            canonical_json(
+                {
+                    "operation": "TRUSTED_BASELINE_CONFIRM",
+                    "candidate_id": candidate_id,
+                    **context,
+                    "recovery_evidence_digest": evidence["recovery_evidence_digest"],
+                    "drill_fingerprint": evidence["drill_fingerprint"],
+                    "policy_version": evidence["policy_version"],
+                }
+            ).encode()
+        ).hexdigest()
 
     @staticmethod
     def _authorization_binding_digest(
@@ -1076,16 +1571,20 @@ class RecoveryService:
         policy_version: str,
         nonce: str,
     ) -> str:
-        return hashlib.sha256(canonical_json({
-            "authorization_id": authorization_id,
-            "subject_id": subject_id,
-            "session_identity_digest": session_identity_digest,
-            **context,
-            "operation_kind": operation_kind,
-            "drill_fingerprint": drill_fingerprint,
-            "policy_version": policy_version,
-            "nonce": nonce,
-        }).encode()).hexdigest()
+        return hashlib.sha256(
+            canonical_json(
+                {
+                    "authorization_id": authorization_id,
+                    "subject_id": subject_id,
+                    "session_identity_digest": session_identity_digest,
+                    **context,
+                    "operation_kind": operation_kind,
+                    "drill_fingerprint": drill_fingerprint,
+                    "policy_version": policy_version,
+                    "nonce": nonce,
+                }
+            ).encode()
+        ).hexdigest()
 
     def _validated_r3_evidence(
         self,
@@ -1106,9 +1605,12 @@ class RecoveryService:
                  AND status = 'VERIFIED_R3'
                ORDER BY created_at, drill_id""",
             (
-                context["checkpoint_id"], context["execution_domain_id"],
-                context["manifest_digest"], context["target_refs_digest"],
-                drill_id, drill_id,
+                context["checkpoint_id"],
+                context["execution_domain_id"],
+                context["manifest_digest"],
+                context["target_refs_digest"],
+                drill_id,
+                drill_id,
             ),
         ).fetchall()
         if not drills:
@@ -1156,14 +1658,21 @@ class RecoveryService:
                  AND execution_domain_id = ? AND subject_ref = ?
                ORDER BY sequence""",
             (
-                context["checkpoint_id"], context["execution_domain_id"],
+                context["checkpoint_id"],
+                context["execution_domain_id"],
                 f"manifest:{context['manifest_digest']}",
             ),
         ).fetchall()
         required = set(expected_results)
         seen: set[str] = set()
         refs: list[str] = []
-        for event_id, event_type, result, supervision_session_id, payload_json in events:
+        for (
+            event_id,
+            event_type,
+            result,
+            supervision_session_id,
+            payload_json,
+        ) in events:
             try:
                 payload = json.loads(payload_json)
             except (TypeError, json.JSONDecodeError):
@@ -1178,7 +1687,11 @@ class RecoveryService:
                 return None
             if event_type in required and supervision_session_id != binding[0]:
                 return None
-            if event_type in {"RESTORE_FAILED", "SCOPE_DRIFT", "EXTERNAL_EFFECT_UNKNOWN"}:
+            if event_type in {
+                "RESTORE_FAILED",
+                "SCOPE_DRIFT",
+                "EXTERNAL_EFFECT_UNKNOWN",
+            }:
                 return None
             if event_type in required:
                 if event_type in seen or result != expected_results[event_type]:
@@ -1191,9 +1704,14 @@ class RecoveryService:
             "recovery_evidence_digest": hashlib.sha256(
                 canonical_json(sorted(refs)).encode()
             ).hexdigest(),
-            "drill_fingerprint": hashlib.sha256(canonical_json({
-                "drill_id": drill_id, "binding_digest": binding_digest,
-            }).encode()).hexdigest(),
+            "drill_fingerprint": hashlib.sha256(
+                canonical_json(
+                    {
+                        "drill_id": drill_id,
+                        "binding_digest": binding_digest,
+                    }
+                ).encode()
+            ).hexdigest(),
             "policy_version": "P4-LOCAL-1",
         }
 
@@ -1201,22 +1719,37 @@ class RecoveryService:
         return self._validated_r3_evidence(connection, context) is not None
 
     def _append_baseline_event(
-        self, connection, event_type: EventType, baseline_id: str, result: str,
-        context: dict[str, str], evidence_digest: str, supervision_session_id: str,
-        policy_version: str, drill_fingerprint: str, created_at: str | None = None,
-        candidate_id: str | None = None, authorization_id: str | None = None,
+        self,
+        connection,
+        event_type: EventType,
+        baseline_id: str,
+        result: str,
+        context: dict[str, str],
+        evidence_digest: str,
+        supervision_session_id: str,
+        policy_version: str,
+        drill_fingerprint: str,
+        created_at: str | None = None,
+        candidate_id: str | None = None,
+        authorization_id: str | None = None,
     ) -> None:
         self._ledger.append(
             connection,
             EvidenceEvent(
-                schema_version=1, event_id=f"trusted-baseline-{uuid4()}",
-                recorded_at=datetime.now(UTC), observed_at=None,
-                event_family=EventFamily.RECOVERY, event_type=event_type,
-                source="trusted-baseline-service", result=result,
+                schema_version=1,
+                event_id=f"trusted-baseline-{uuid4()}",
+                recorded_at=datetime.now(UTC),
+                observed_at=None,
+                event_family=EventFamily.RECOVERY,
+                event_type=event_type,
+                source="trusted-baseline-service",
+                result=result,
                 execution_domain_id=context["execution_domain_id"],
                 supervision_session_id=supervision_session_id,
-                transaction_id=None, checkpoint_id=context["checkpoint_id"],
-                subject_ref=f"baseline:{baseline_id}", evidence_refs=(),
+                transaction_id=None,
+                checkpoint_id=context["checkpoint_id"],
+                subject_ref=f"baseline:{baseline_id}",
+                evidence_refs=(),
                 payload_safe={
                     "baseline_id": baseline_id,
                     "candidate_id": candidate_id,
@@ -1224,15 +1757,21 @@ class RecoveryService:
                     "manifest_digest": context["manifest_digest"],
                     "target_refs_digest": context["target_refs_digest"],
                     "recovery_evidence_digest": evidence_digest,
-                    "baseline_binding_digest": hashlib.sha256(canonical_json({
-                        "baseline_id": baseline_id,
-                        "checkpoint_id": context["checkpoint_id"],
-                        "execution_domain_id": context["execution_domain_id"],
-                        "manifest_digest": context["manifest_digest"],
-                        "target_refs_digest": context["target_refs_digest"],
-                        "recovery_evidence_digest": evidence_digest,
-                        "created_at": created_at,
-                    }).encode()).hexdigest() if created_at is not None else None,
+                    "baseline_binding_digest": hashlib.sha256(
+                        canonical_json(
+                            {
+                                "baseline_id": baseline_id,
+                                "checkpoint_id": context["checkpoint_id"],
+                                "execution_domain_id": context["execution_domain_id"],
+                                "manifest_digest": context["manifest_digest"],
+                                "target_refs_digest": context["target_refs_digest"],
+                                "recovery_evidence_digest": evidence_digest,
+                                "created_at": created_at,
+                            }
+                        ).encode()
+                    ).hexdigest()
+                    if created_at is not None
+                    else None,
                     "created_at": created_at,
                     "policy_version": policy_version,
                     "drill_fingerprint": drill_fingerprint,
@@ -1311,7 +1850,9 @@ class RecoveryService:
                 subject_ref=(f"manifest:{digest}" if digest else None),
                 evidence_refs=(),
                 payload_safe={
-                    "adapter": type(self._adapters.get(outcome.execution_domain_id)).__name__,
+                    "adapter": type(
+                        self._adapters.get(outcome.execution_domain_id)
+                    ).__name__,
                     "reason_code": outcome.reason_code,
                     "manifest_digest": digest,
                     "file_count": file_count,

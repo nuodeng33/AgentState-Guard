@@ -1,11 +1,16 @@
 """ASDL/1 Pairing State Machine — injectable Clock + RandomSource."""
 
 from enum import Enum
-from typing import Dict, Optional
+
 from .crypto import (
-    Clock, SystemClock, RandomSource, SecureRandom,
-    random_session_id, derive_sas, build_pairing_transcript,
-    format_sas, random_bytes,
+    Clock,
+    RandomSource,
+    SecureRandom,
+    SystemClock,
+    build_pairing_transcript,
+    derive_sas,
+    format_sas,
+    random_bytes,
 )
 
 
@@ -22,21 +27,44 @@ class PairState(str, Enum):
 
 
 TERMINAL_STATES = {
-    PairState.CONSUMED, PairState.EXPIRED, PairState.REJECTED,
-    PairState.FAILED, PairState.CANCELLED,
+    PairState.CONSUMED,
+    PairState.EXPIRED,
+    PairState.REJECTED,
+    PairState.FAILED,
+    PairState.CANCELLED,
 }
 
 # Complete transition table
-ALLOWED_TRANSITIONS: Dict[PairState, set] = {
-    PairState.CREATED:        {PairState.FIRST_CONNECTION, PairState.EXPIRED, PairState.REJECTED, PairState.CANCELLED},
-    PairState.FIRST_CONNECTION: {PairState.SAS_PENDING, PairState.EXPIRED, PairState.REJECTED, PairState.CANCELLED},
-    PairState.SAS_PENDING:    {PairState.CONFIRMED_BOTH, PairState.FAILED, PairState.EXPIRED, PairState.REJECTED, PairState.CANCELLED},
-    PairState.CONFIRMED_BOTH: {PairState.CONSUMED, PairState.EXPIRED, PairState.CANCELLED},
+ALLOWED_TRANSITIONS: dict[PairState, set] = {
+    PairState.CREATED: {
+        PairState.FIRST_CONNECTION,
+        PairState.EXPIRED,
+        PairState.REJECTED,
+        PairState.CANCELLED,
+    },
+    PairState.FIRST_CONNECTION: {
+        PairState.SAS_PENDING,
+        PairState.EXPIRED,
+        PairState.REJECTED,
+        PairState.CANCELLED,
+    },
+    PairState.SAS_PENDING: {
+        PairState.CONFIRMED_BOTH,
+        PairState.FAILED,
+        PairState.EXPIRED,
+        PairState.REJECTED,
+        PairState.CANCELLED,
+    },
+    PairState.CONFIRMED_BOTH: {
+        PairState.CONSUMED,
+        PairState.EXPIRED,
+        PairState.CANCELLED,
+    },
     # ALL terminal states accept no further transitions:
-    PairState.CONSUMED:  set(),
-    PairState.EXPIRED:   set(),
-    PairState.REJECTED:  set(),
-    PairState.FAILED:    set(),
+    PairState.CONSUMED: set(),
+    PairState.EXPIRED: set(),
+    PairState.REJECTED: set(),
+    PairState.FAILED: set(),
     PairState.CANCELLED: set(),
 }
 
@@ -67,9 +95,9 @@ class PairingSession:
         self._rng = rng or SecureRandom()
         self.pairing_secret = random_bytes(32, self._rng)
         self.nonce_desktop = random_bytes(32, self._rng)
-        self.nonce_android: Optional[bytes] = None
-        self.android_uuid: Optional[str] = None
-        self.android_pubkey_der: Optional[bytes] = None
+        self.nonce_android: bytes | None = None
+        self.android_uuid: str | None = None
+        self.android_pubkey_der: bytes | None = None
         self._created_at = self._clock.now()
         self.expiry_seconds = expiry_seconds
         self._expiry_abs = self._created_at + expiry_seconds
@@ -101,7 +129,9 @@ class PairingSession:
         if force_expiry_check and self.expire_if_needed():
             raise ValueError("Pairing session expired")
         if self.is_terminal:
-            raise ValueError(f"Terminal state {self.state.value}: cannot transition to {target.value}")
+            raise ValueError(
+                f"Terminal state {self.state.value}: cannot transition to {target.value}"
+            )
         if not is_valid_transition(self.state, target):
             raise ValueError(f"Invalid transition: {self.state.value} → {target.value}")
 
@@ -126,20 +156,34 @@ class PairingSession:
         if self.expire_if_needed():
             raise ValueError("Pairing session expired")
         if self.state != PairState.FIRST_CONNECTION:
-            raise ValueError(f"Invalid transition: {self.state.value} → set_android_pubkey")
-        if self.android_pubkey_der is not None and self.android_pubkey_der != pubkey_der:
+            raise ValueError(
+                f"Invalid transition: {self.state.value} → set_android_pubkey"
+            )
+        if (
+            self.android_pubkey_der is not None
+            and self.android_pubkey_der != pubkey_der
+        ):
             raise ValueError("Android public key cannot be replaced")
         self.android_pubkey_der = pubkey_der
 
     def start_sas(self) -> str:
         self._transition(PairState.SAS_PENDING)
-        if not self.android_uuid or self.nonce_android is None or self.android_pubkey_der is None:
+        if (
+            not self.android_uuid
+            or self.nonce_android is None
+            or self.android_pubkey_der is None
+        ):
             raise ValueError("Pairing identity is incomplete")
         transcript = build_pairing_transcript(
-            1, self.session_id, self.desktop_uuid, self.android_uuid,
-            self.desktop_pubkey_der, self.android_pubkey_der,
+            1,
+            self.session_id,
+            self.desktop_uuid,
+            self.android_uuid,
+            self.desktop_pubkey_der,
+            self.android_pubkey_der,
             self.desktop_tls_spki_fp,
-            self.nonce_desktop, self.nonce_android,
+            self.nonce_desktop,
+            self.nonce_android,
             int(self._expiry_abs),
         )
         sas = derive_sas(self.pairing_secret, transcript)
@@ -185,14 +229,18 @@ class PairingManager:
     """Minimal manager for active pairing sessions."""
 
     def __init__(self, max_sessions: int = 5):
-        self._sessions: Dict[str, PairingSession] = {}
+        self._sessions: dict[str, PairingSession] = {}
         self._max = max_sessions
 
     def create_session(
-        self, desktop_uuid: str, desktop_pubkey_der: bytes,
+        self,
+        desktop_uuid: str,
+        desktop_pubkey_der: bytes,
         desktop_tls_spki_fp: str,
-        expiry_seconds: int = 120, max_sas_attempts: int = 3,
-        clock: Clock = None, rng: RandomSource = None,
+        expiry_seconds: int = 120,
+        max_sas_attempts: int = 3,
+        clock: Clock = None,
+        rng: RandomSource = None,
     ) -> PairingSession:
         for session in self._sessions.values():
             session.expire_if_needed()
@@ -203,14 +251,19 @@ class PairingManager:
             raise ValueError("Maximum active pairing sessions reached")
         sid = (rng or SecureRandom()).bytes(16).hex()
         session = PairingSession(
-            sid, desktop_uuid, desktop_pubkey_der, desktop_tls_spki_fp,
-            expiry_seconds=expiry_seconds, max_sas_attempts=max_sas_attempts,
-            clock=clock, rng=rng,
+            sid,
+            desktop_uuid,
+            desktop_pubkey_der,
+            desktop_tls_spki_fp,
+            expiry_seconds=expiry_seconds,
+            max_sas_attempts=max_sas_attempts,
+            clock=clock,
+            rng=rng,
         )
         self._sessions[sid] = session
         return session
 
-    def get(self, session_id: str) -> Optional[PairingSession]:
+    def get(self, session_id: str) -> PairingSession | None:
         s = self._sessions.get(session_id)
         if s:
             s.expire_if_needed()
@@ -223,3 +276,16 @@ class PairingManager:
         for sid in to_del:
             del self._sessions[sid]
         return len(self._sessions)
+
+    def cancel_all(self) -> None:
+        """Cancel and forget every transient pairing session."""
+        try:
+            for session in self._sessions.values():
+                if not session.is_terminal:
+                    try:
+                        session.cancel()
+                    except ValueError:
+                        # Expiry is also terminal and clears the pairing secret.
+                        continue
+        finally:
+            self._sessions.clear()

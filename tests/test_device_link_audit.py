@@ -56,7 +56,7 @@ class TestGoldenVectors:
         """The reference crypto MUST be independent."""
         import tests.reference_crypto as rc
         src = rc.__file__
-        with open(src) as f:
+        with open(src, encoding="utf-8") as f:
             content = f.read()
         import_lines = [l.strip() for l in content.split('\n')
                          if l.strip().startswith(('import ', 'from '))]

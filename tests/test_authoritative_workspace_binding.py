@@ -231,6 +231,7 @@ def test_authoritative_snapshot_is_atomically_ledgered_and_projected(
         "view": "agents",
         "status": "AVAILABLE",
         "reason_code": "R4_AGENTS_AVAILABLE",
+        "observed_at": OBSERVED_AT.isoformat(),
         "evidence_refs": [receipts[1].event_id, receipts[2].event_id],
         "items": [
             {
@@ -247,6 +248,7 @@ def test_authoritative_snapshot_is_atomically_ledgered_and_projected(
                 },
                 "reason_code": "AGENT_DETECTED",
                 "uncertainty": False,
+                "observed_at": OBSERVED_AT.isoformat(),
                 "evidence_refs": [receipts[1].event_id, receipts[2].event_id],
             }
         ],

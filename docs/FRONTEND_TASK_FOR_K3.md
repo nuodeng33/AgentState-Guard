@@ -58,12 +58,22 @@ checkpoint, evidence reference, or authority binding. A changed content body
 between prepare and apply must remain a visible backend rejection, not an
 automatic retry.
 
-## Android honesty boundary
+## Android Device Link wiring boundary
 
-Until a production device transport and pairing backend are implemented, keep
-QR scan, LAN discovery, manual address entry, pairing, and remote mutations
-disabled or explicitly unavailable. Do not label demo/local data as connected,
-paired, synchronized, or live.
+The production transport, pairing backend, bounded projections, AndroidKeyStore
+identity, durable binding metadata, re-authentication, exact-bound-UUID
+rediscovery, and repository boundary now exist. Wire the frozen K3 Compose
+presentation only through the contracts in
+`docs/FRONTEND_BACKEND_CONTRACT.md`.
+
+- QR creation/scanning, SAS confirmation, bounded data, approve/reject,
+  reconnect/offline-last-known state, revoke, and unpair must preserve backend
+  states and reason codes.
+- Do not add generic LAN browsing or normal-flow manual IP entry.
+- Do not let Screens own the HTTP client or infer connected/live state from
+  cached data.
+- Until K3 wiring and real-device verification are complete, do not label the
+  overall Android product surface or real dogfood as complete.
 
 ## Branding boundary
 

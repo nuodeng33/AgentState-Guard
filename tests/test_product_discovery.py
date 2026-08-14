@@ -143,7 +143,9 @@ def test_product_discovery_preserves_agent_probe_permission_denied():
     snapshot = service.discover()
 
     assert snapshot.agents == ()
-    failure = next(item for item in snapshot.evidence if item.fact_type == "probe.unreachable")
+    failure = next(
+        item for item in snapshot.evidence if item.fact_type == "probe.unreachable"
+    )
     assert failure.status is CapabilityStatus.PERMISSION_DENIED
     assert failure.value == {
         "execution_domain_id": "windows-current",
@@ -169,7 +171,11 @@ def _snapshot(snapshot_id: str, *, include_agent: bool) -> DiscoverySnapshot:
         source="local",
         observed_at=NOW,
         fact_type="agent.metadata",
-        value={"agent_kind": "CODEX", "lifecycle": "RUNNING", "role": "EXECUTION_AGENT"},
+        value={
+            "agent_kind": "CODEX",
+            "lifecycle": "RUNNING",
+            "role": "EXECUTION_AGENT",
+        },
         status=CapabilityStatus.AVAILABLE,
         sanitized=True,
     )
@@ -199,7 +205,9 @@ def _snapshot(snapshot_id: str, *, include_agent: bool) -> DiscoverySnapshot:
         )
         if include_agent
         else (),
-        evidence=(runtime_evidence, agent_evidence) if include_agent else (runtime_evidence,),
+        evidence=(runtime_evidence, agent_evidence)
+        if include_agent
+        else (runtime_evidence,),
         status=CapabilityStatus.AVAILABLE,
     )
 
@@ -230,7 +238,9 @@ def _free_port() -> int:
     return port
 
 
-def _request(base_url: str, path: str, token: str | None = None, *, method="GET", body=None):
+def _request(
+    base_url: str, path: str, token: str | None = None, *, method="GET", body=None
+):
     data = None if body is None else json.dumps(body).encode("utf-8")
     request = urllib.request.Request(
         f"{base_url}{path}",
@@ -301,7 +311,9 @@ def _running_failing_api(root: Path):
         thread.join(timeout=5)
 
 
-def test_packaged_startup_records_discovery_and_refresh_replaces_visible_agents(tmp_path):
+def test_packaged_startup_records_discovery_and_refresh_replaces_visible_agents(
+    tmp_path,
+):
     with _running_api(tmp_path) as (base_url, token):
         startup_agents = _request(base_url, "/api/v1/agents", token)[1]
         status, refreshed = _request(
@@ -323,15 +335,17 @@ def test_packaged_startup_records_discovery_and_refresh_replaces_visible_agents(
 
     assert startup_agents["items"][0]["detected_identity"] == "CODEX"
     assert startup_agents["items"][0]["lifecycle"] == "RUNNING"
+    assert startup_agents["items"][0]["observed_at"] == NOW.isoformat()
     assert status == 200
-    assert refreshed == {
-        "schema_version": "product-discovery-1",
-        "status": "AVAILABLE",
-        "reason_code": "DISCOVERY_REFRESHED",
-        "snapshot_id": "refresh-snapshot",
-        "runtime_count": 1,
-        "agent_count": 0,
-    }
+    assert refreshed["schema_version"] == "product-discovery-1"
+    assert refreshed["status"] == "AVAILABLE"
+    assert refreshed["reason_code"] == "DISCOVERY_REFRESHED"
+    assert refreshed["snapshot_id"] == "refresh-snapshot"
+    assert refreshed["observed_at"] == NOW.isoformat()
+    assert refreshed["affected_views"] == ["runtime", "agents", "supervision"]
+    assert refreshed["runtime_count"] == 1
+    assert refreshed["agent_count"] == 0
+    assert refreshed["evidence_refs"]
     assert refreshed_agents["status"] == "EMPTY"
     assert refreshed_agents["items"] == []
     assert len(refreshed_runtime["items"]) == 1
@@ -359,7 +373,9 @@ def test_discovery_failure_is_ledgered_as_degraded_without_leaking_exception(tmp
     assert "sensitive" not in json.dumps(refresh).lower()
 
 
-def test_run_server_enables_startup_discovery_and_disables_access_log(tmp_path, monkeypatch):
+def test_run_server_enables_startup_discovery_and_disables_access_log(
+    tmp_path, monkeypatch
+):
     captured = {}
 
     def fake_create_app(**kwargs):

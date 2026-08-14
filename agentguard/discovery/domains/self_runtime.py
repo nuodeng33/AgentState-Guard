@@ -137,7 +137,11 @@ def _kernel_facts(text: str) -> Mapping[str, Any]:
     lowered = text.lower()
     warnings = _warnings_for_text(text)
     wsl2 = "wsl2" in lowered or "microsoft-standard" in lowered
-    wsl1 = "microsoft" in lowered and bool(re.search(r"(?:^|\s)4\.4\.", lowered)) and not wsl2
+    wsl1 = (
+        "microsoft" in lowered
+        and bool(re.search(r"(?:^|\s)4\.4\.", lowered))
+        and not wsl2
+    )
     return {
         "microsoft": "microsoft" in lowered,
         "wsl": "microsoft" in lowered or "wsl" in lowered,
@@ -239,9 +243,15 @@ class SelfRuntimeAdapter:
         platform_value: Mapping[str, Any] | None = None
         try:
             os_name, os_name_warnings = _sanitized_local_text(self._source.os_name())
-            system, system_warnings = _sanitized_local_text(self._source.platform_system())
-            release, release_warnings = _sanitized_local_text(self._source.platform_release())
-            version, version_warnings = _sanitized_local_text(self._source.platform_version())
+            system, system_warnings = _sanitized_local_text(
+                self._source.platform_system()
+            )
+            release, release_warnings = _sanitized_local_text(
+                self._source.platform_release()
+            )
+            version, version_warnings = _sanitized_local_text(
+                self._source.platform_version()
+            )
             platform_value = {
                 "os_name": os_name,
                 "system": system,
@@ -412,11 +422,96 @@ class SelfRuntimeAdapter:
         )
 
     def restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
-        """Refuse real restores until a later phase defines test-restore semantics."""
+        """Restore one explicitly approved local target and validate it in place."""
+        artifact = request.artifact
+        valid, reason_code, digest = validate_snapshot_v3(
+            artifact,
+            expected_domain=request.execution_domain_id,
+        )
+        if not valid:
+            return self._recovery_result(request, CapabilityStatus.ERROR, reason_code)
+        target = request.target_path
+        entries = [
+            entry
+            for entry in artifact["manifest"]
+            if entry["classification"] == "restorable"
+        ]
+        if target is None or len(entries) != 1:
+            return self._recovery_result(
+                request,
+                CapabilityStatus.ERROR,
+                "RECOVERY_TARGET_SCOPE_INVALID",
+                manifest_digest=digest,
+            )
+        entry = entries[0]
+        lexical_target = target if target.is_absolute() else Path.cwd() / target
+        if (
+            str(lexical_target) != entry["logical_path"]
+            or target.is_symlink()
+            or not target.is_file()
+        ):
+            return self._recovery_result(
+                request,
+                CapabilityStatus.ERROR,
+                "RECOVERY_TARGET_SCOPE_INVALID",
+                manifest_digest=digest,
+            )
+        try:
+            decision = self._recovery_policy.classify(
+                target,
+                request.execution_domain_id,
+                user_approved=request.user_approved,
+            )
+            if decision.mode != "restorable":
+                return self._recovery_result(
+                    request,
+                    CapabilityStatus.ERROR,
+                    f"RECOVERY_{decision.status.value}",
+                    manifest_digest=digest,
+                )
+            content = artifact["blobs"][entry["blob_sha256"]]
+            self._write_atomic(target, content, int(entry["mode"], 8))
+            recovered = self._read_regular(target)
+            current = target.stat(follow_symlinks=False)
+            if (
+                recovered != content
+                or hashlib.sha256(recovered).hexdigest() != entry["sha256"]
+                or len(recovered) != entry["size"]
+                or stat.S_IMODE(current.st_mode) != stat.S_IMODE(int(entry["mode"], 8))
+            ):
+                raise ValueError("RECOVERY_CONTENT_INVALID")
+            if entry["validator"] != "toml-parse":
+                raise ValueError("RECOVERY_VALIDATOR_UNDEFINED")
+            tomllib.loads(recovered.decode("utf-8"))
+        except PermissionError:
+            return self._recovery_result(
+                request,
+                CapabilityStatus.PERMISSION_DENIED,
+                "RECOVERY_PERMISSION_DENIED",
+                manifest_digest=digest,
+            )
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            UnicodeDecodeError,
+            tomllib.TOMLDecodeError,
+        ) as error:
+            reason = str(error)
+            if not reason.startswith("RECOVERY_"):
+                reason = "RECOVERY_VALIDATION_FAILED"
+            return self._recovery_result(
+                request,
+                CapabilityStatus.ERROR,
+                reason,
+                manifest_digest=digest,
+            )
         return self._recovery_result(
             request,
-            CapabilityStatus.UNSUPPORTED,
-            "REAL_RESTORE_OUT_OF_SCOPE_P6",
+            CapabilityStatus.AVAILABLE,
+            "RECOVERY_RESTORED_AND_VERIFIED",
+            manifest_digest=digest,
+            details={"verified_targets": 1},
         )
 
     def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:
@@ -442,7 +537,9 @@ class SelfRuntimeAdapter:
         if not valid:
             return self._recovery_result(request, CapabilityStatus.ERROR, reason_code)
         entries = [
-            entry for entry in artifact["manifest"] if entry["classification"] == "restorable"
+            entry
+            for entry in artifact["manifest"]
+            if entry["classification"] == "restorable"
         ]
         if not entries:
             return self._recovery_result(
@@ -473,7 +570,11 @@ class SelfRuntimeAdapter:
                 if sandbox not in destination.parents:
                     raise ValueError("TEST_RESTORE_PATH_INVALID")
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                if destination.is_symlink() or destination.exists() and not destination.is_file():
+                if (
+                    destination.is_symlink()
+                    or destination.exists()
+                    and not destination.is_file()
+                ):
                     raise ValueError("TEST_RESTORE_PATH_INVALID")
                 content = artifact["blobs"][entry["blob_sha256"]]
                 temporary = destination.with_name(f".{destination.name}.tmp")
@@ -491,7 +592,8 @@ class SelfRuntimeAdapter:
                 current = destination.stat()
                 if (
                     len(actual) != entry["size"]
-                    or __import__("hashlib").sha256(actual).hexdigest() != entry["sha256"]
+                    or __import__("hashlib").sha256(actual).hexdigest()
+                    != entry["sha256"]
                     or stat.S_IMODE(current.st_mode) != expected_mode
                 ):
                     raise ValueError("TEST_RESTORE_CONTENT_INVALID")
@@ -501,9 +603,22 @@ class SelfRuntimeAdapter:
                 verified += 1
         except PermissionError:
             shutil.rmtree(sandbox, ignore_errors=True)
-            return self._recovery_result(request, CapabilityStatus.PERMISSION_DENIED, "RECOVERY_PERMISSION_DENIED")
-        except (OSError, ValueError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
-            reason = str(error) if str(error).startswith("TEST_RESTORE_") else "TEST_RESTORE_VALIDATION_FAILED"
+            return self._recovery_result(
+                request,
+                CapabilityStatus.PERMISSION_DENIED,
+                "RECOVERY_PERMISSION_DENIED",
+            )
+        except (
+            OSError,
+            ValueError,
+            UnicodeDecodeError,
+            tomllib.TOMLDecodeError,
+        ) as error:
+            reason = (
+                str(error)
+                if str(error).startswith("TEST_RESTORE_")
+                else "TEST_RESTORE_VALIDATION_FAILED"
+            )
             shutil.rmtree(sandbox, ignore_errors=True)
             return self._recovery_result(request, CapabilityStatus.ERROR, reason)
         return self._recovery_result(
@@ -525,13 +640,17 @@ class SelfRuntimeAdapter:
             return self._recovery_result(request, CapabilityStatus.ERROR, reason_code)
         root = request.drill_root
         if root is None or not root.is_dir() or root.is_symlink():
-            return self._recovery_result(request, CapabilityStatus.ERROR, "DRILL_TARGET_UNAVAILABLE")
+            return self._recovery_result(
+                request, CapabilityStatus.ERROR, "DRILL_TARGET_UNAVAILABLE"
+            )
         try:
             resolved_root = root.resolve(strict=True)
             if resolved_root != root.absolute() or not root.is_dir():
                 raise ValueError("DRILL_TARGET_UNSAFE")
             entries = [
-                entry for entry in artifact["manifest"] if entry["classification"] == "restorable"
+                entry
+                for entry in artifact["manifest"]
+                if entry["classification"] == "restorable"
             ]
             if not entries:
                 raise ValueError("TEST_RESTORE_NO_RESTORABLE_ENTRIES")
@@ -546,7 +665,10 @@ class SelfRuntimeAdapter:
                 target = root.joinpath(*relative.parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 resolved_parent = target.parent.resolve(strict=True)
-                if resolved_root != resolved_parent and resolved_root not in resolved_parent.parents:
+                if (
+                    resolved_root != resolved_parent
+                    and resolved_root not in resolved_parent.parents
+                ):
                     raise ValueError("DRILL_TARGET_UNSAFE")
                 if target.exists() or target.is_symlink():
                     raise ValueError("DRILL_TARGET_UNSAFE")
@@ -558,7 +680,10 @@ class SelfRuntimeAdapter:
                 drift = self._drift_bytes(content)
                 self._write_atomic(target, drift, int(entry["mode"], 8))
                 drifted = self._read_regular(target)
-                if drifted == content or hashlib.sha256(drifted).hexdigest() == entry["sha256"]:
+                if (
+                    drifted == content
+                    or hashlib.sha256(drifted).hexdigest() == entry["sha256"]
+                ):
                     raise ValueError("DRILL_DRIFT_NOT_ESTABLISHED")
                 self._write_atomic(target, content, int(entry["mode"], 8))
                 recovered = self._read_regular(target)
@@ -567,7 +692,8 @@ class SelfRuntimeAdapter:
                     recovered != content
                     or hashlib.sha256(recovered).hexdigest() != entry["sha256"]
                     or len(recovered) != entry["size"]
-                    or stat.S_IMODE(current.st_mode) != stat.S_IMODE(int(entry["mode"], 8))
+                    or stat.S_IMODE(current.st_mode)
+                    != stat.S_IMODE(int(entry["mode"], 8))
                     or entry["domain"] != request.execution_domain_id
                 ):
                     raise ValueError("DRILL_RECOVERY_VALIDATION_FAILED")
@@ -577,12 +703,23 @@ class SelfRuntimeAdapter:
                 targets.append(str(target.relative_to(resolved_root)))
                 verified += 1
         except PermissionError:
-            return self._recovery_result(request, CapabilityStatus.PERMISSION_DENIED, "RECOVERY_PERMISSION_DENIED")
-        except (OSError, ValueError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+            return self._recovery_result(
+                request,
+                CapabilityStatus.PERMISSION_DENIED,
+                "RECOVERY_PERMISSION_DENIED",
+            )
+        except (
+            OSError,
+            ValueError,
+            UnicodeDecodeError,
+            tomllib.TOMLDecodeError,
+        ) as error:
             reason = str(error)
             if not reason.startswith(("DRILL_", "TEST_RESTORE_")):
                 reason = "DRILL_RECOVERY_VALIDATION_FAILED"
-            return self._recovery_result(request, CapabilityStatus.ERROR, reason, manifest_digest=digest)
+            return self._recovery_result(
+                request, CapabilityStatus.ERROR, reason, manifest_digest=digest
+            )
         return self._recovery_result(
             request,
             CapabilityStatus.AVAILABLE,

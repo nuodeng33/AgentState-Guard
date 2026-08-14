@@ -40,7 +40,7 @@ def _http(method: str, port: int, path: str, data: dict = None,
           headers: dict = None, max_bytes: int = 1_048_576) -> tuple:
     """Execute HTTP request. Returns (body_dict, status_code)."""
     url = f"http://127.0.0.1:{port}{path}"
-    body = json.dumps(data or {}).encode()
+    body = None if method == "GET" else json.dumps(data or {}).encode()
     req = urllib.request.Request(url, data=body, method=method)
     req.add_header("Content-Type", "application/json")
     for k, v in (headers or {}).items():
@@ -404,7 +404,7 @@ class TestGatewayE2E:
             r, s = _http("POST", port, "/device/v1/pair/start", data=big)
             # Server should reject or crash gracefully
             assert s in (0, 400, 413, 500)
-        except (ConnectionResetError, BrokenPipeError, urllib.error.URLError):
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, urllib.error.URLError):
             # Connection dropped — that's also a valid rejection behavior
             pass
 

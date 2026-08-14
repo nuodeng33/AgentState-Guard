@@ -65,17 +65,19 @@ def test_snapshot_verify_and_restore_route_through_adapter_and_ledger(tmp_path):
         assert verified.status is CapabilityStatus.AVAILABLE
         assert verified.reason_code == "RECOVERY_MANIFEST_VERIFIED"
 
-        before = target.read_bytes()
+        target.write_text("safe=false")
         restored = service.restore(
             RecoveryRequest(
                 operation=RecoveryOperation.RESTORE,
                 execution_domain_id="local-domain",
                 checkpoint_id=created.checkpoint_id,
+                target_path=target,
+                user_approved=True,
             )
         )
-        assert restored.status is CapabilityStatus.UNSUPPORTED
-        assert restored.reason_code == "REAL_RESTORE_OUT_OF_SCOPE_P6"
-        assert target.read_bytes() == before
+        assert restored.status is CapabilityStatus.AVAILABLE
+        assert restored.reason_code == "RECOVERY_RESTORED_AND_VERIFIED"
+        assert target.read_text() == "safe=true"
 
         event_types = [
             row[0]
@@ -87,7 +89,8 @@ def test_snapshot_verify_and_restore_route_through_adapter_and_ledger(tmp_path):
             "CHECKPOINT_CREATED",
             "MANIFEST_VERIFIED",
             "MANIFEST_VERIFIED",
-            "RESTORE_FAILED",
+            "FILE_RESTORED",
+            "VALIDATOR_PASSED",
         ]
         assert verify_ledger(database._conn) == []
     finally:
@@ -218,7 +221,9 @@ def test_service_rejects_cross_domain_adapter_success(tmp_path):
 
         assert outcome.status is CapabilityStatus.ERROR
         assert outcome.reason_code == "RECOVERY_ADAPTER_RESULT_INVALID"
-        assert database._conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone() == (0,)
+        assert database._conn.execute(
+            "SELECT COUNT(*) FROM checkpoints"
+        ).fetchone() == (0,)
     finally:
         database.close()
 
@@ -257,12 +262,14 @@ def test_service_rejects_adapter_manifest_digest_mismatch(tmp_path):
 
         assert outcome.status is CapabilityStatus.ERROR
         assert outcome.reason_code == "RECOVERY_ADAPTER_RESULT_INVALID"
-        assert database._conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone() == (0,)
+        assert database._conn.execute(
+            "SELECT COUNT(*) FROM checkpoints"
+        ).fetchone() == (0,)
     finally:
         database.close()
 
 
-def test_service_overrides_adapter_restore_success_in_p6(tmp_path):
+def test_service_rejects_adapter_restore_success_without_a_valid_checkpoint(tmp_path):
     fake_success = RecoveryOperationResult(
         operation=RecoveryOperation.RESTORE,
         status=CapabilityStatus.AVAILABLE,
@@ -285,8 +292,8 @@ def test_service_overrides_adapter_restore_success_in_p6(tmp_path):
             )
         )
 
-        assert outcome.status is CapabilityStatus.UNSUPPORTED
-        assert outcome.reason_code == "REAL_RESTORE_OUT_OF_SCOPE_P6"
+        assert outcome.status is CapabilityStatus.NOT_PRESENT
+        assert outcome.reason_code == "RECOVERY_CHECKPOINT_NOT_FOUND"
     finally:
         database.close()
 
@@ -330,7 +337,9 @@ def test_corrupt_v3_blob_is_not_misclassified_as_legacy(tmp_path):
         database.close()
 
 
-def test_ledger_failure_rolls_back_checkpoint_and_removes_artifact(tmp_path, monkeypatch):
+def test_ledger_failure_rolls_back_checkpoint_and_removes_artifact(
+    tmp_path, monkeypatch
+):
     target = tmp_path / "config.toml"
     target.write_text("safe=true")
     service, database = _service(
@@ -343,7 +352,9 @@ def test_ledger_failure_rolls_back_checkpoint_and_removes_artifact(tmp_path, mon
     monkeypatch.setattr(
         service._ledger,
         "append",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(sqlite3.IntegrityError("raw-secret")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            sqlite3.IntegrityError("raw-secret")
+        ),
     )
     try:
         outcome = service.snapshot(
@@ -357,20 +368,28 @@ def test_ledger_failure_rolls_back_checkpoint_and_removes_artifact(tmp_path, mon
 
         assert outcome.status is CapabilityStatus.ERROR
         assert outcome.reason_code == "RECOVERY_PERSISTENCE_FAILED"
-        assert database._conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone() == (0,)
-        assert database._conn.execute("SELECT COUNT(*) FROM evidence_ledger_events").fetchone() == (0,)
+        assert database._conn.execute(
+            "SELECT COUNT(*) FROM checkpoints"
+        ).fetchone() == (0,)
+        assert database._conn.execute(
+            "SELECT COUNT(*) FROM evidence_ledger_events"
+        ).fetchone() == (0,)
         assert list((tmp_path / "snapshots").glob("snapshot-*.dat")) == []
         assert "raw-secret" not in str(outcome)
     finally:
         database.close()
 
 
-def test_failure_ledger_fault_does_not_replace_stable_operation_result(tmp_path, monkeypatch):
+def test_failure_ledger_fault_does_not_replace_stable_operation_result(
+    tmp_path, monkeypatch
+):
     service, database = _service(tmp_path, RestorePolicy())
     monkeypatch.setattr(
         service._ledger,
         "append",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(sqlite3.IntegrityError("raw-secret")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            sqlite3.IntegrityError("raw-secret")
+        ),
     )
     try:
         outcome = service.snapshot(
@@ -399,7 +418,9 @@ def test_snapshot_path_uses_actual_autoincrement_checkpoint_id(tmp_path):
         ),
     )
     try:
-        discarded = database.insert_checkpoint("discarded", "none", "0" * 64, 0, {}, None, None)
+        discarded = database.insert_checkpoint(
+            "discarded", "none", "0" * 64, 0, {}, None, None
+        )
         database._conn.execute("DELETE FROM checkpoints WHERE id = ?", (discarded,))
         database._conn.commit()
 
@@ -414,6 +435,9 @@ def test_snapshot_path_uses_actual_autoincrement_checkpoint_id(tmp_path):
 
         assert outcome.status is CapabilityStatus.AVAILABLE
         checkpoint = database.get_checkpoint(int(outcome.checkpoint_id))
-        assert checkpoint["snapshot_path"] == f"snapshots/snapshot-{int(outcome.checkpoint_id):06d}.dat"
+        assert (
+            checkpoint["snapshot_path"]
+            == f"snapshots/snapshot-{int(outcome.checkpoint_id):06d}.dat"
+        )
     finally:
         database.close()
