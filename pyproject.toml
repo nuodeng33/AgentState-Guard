@@ -13,7 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 yaml = ["pyyaml"]
-dev = ["cryptography>=41.0", "pytest", "ruff", "mypy"]
+dev = ["cryptography>=41.0", "pytest", "httpx2>=2,<3", "ruff", "mypy"]
 
 [project.scripts]
 agentguard = "agentguard.cli:main"

@@ -23,7 +23,7 @@ class QrPayloadTest {
         assertNotNull(payload)
         assertEquals("192.168.1.21", payload?.endpoint?.host)
         assertEquals("d".repeat(64), payload?.ticket)
-        assertEquals("a".repeat(64), payload?.desktopSigningFingerprint)
+        assertEquals(signingFingerprint, payload?.desktopSigningFingerprint)
     }
 
     @Test fun rejectsExpired() = assertNull(QrPayload.parse(uri(expiry = 999), 1_000))

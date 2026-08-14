@@ -57,7 +57,10 @@ def test_test_restore_writes_and_verifies_an_isolated_copy(tmp_path):
         assert result.status is CapabilityStatus.AVAILABLE
         assert result.reason_code == "TEST_RESTORE_VERIFIED"
         sandbox = Path(result.details["sandbox_path"])
-        restored = sandbox / target.as_posix().lstrip("/")
+        restored_files = [path for path in sandbox.rglob("*") if path.is_file()]
+        assert len(restored_files) == 1
+        restored = restored_files[0]
+        assert sandbox in restored.resolve().parents
         assert restored.read_text() == "safe=true\n"
         assert target.read_text() == "safe=true\n"
         assert result.details["verified_targets"] == 1
@@ -204,7 +207,7 @@ def test_test_restore_never_verifies_against_a_corrupt_ledger(tmp_path):
         database.close()
 
 
-def test_test_restore_keeps_production_restore_hard_rejected(tmp_path):
+def test_production_restore_fails_closed_without_target_and_approval(tmp_path):
     _target, database, _snapshots, service, created = _setup(tmp_path)
     try:
         result = service.restore(
@@ -214,8 +217,8 @@ def test_test_restore_keeps_production_restore_hard_rejected(tmp_path):
                 checkpoint_id=created.checkpoint_id,
             )
         )
-        assert result.status is CapabilityStatus.UNSUPPORTED
-        assert result.reason_code == "REAL_RESTORE_OUT_OF_SCOPE_P6"
+        assert result.status is CapabilityStatus.ERROR
+        assert result.reason_code == "RECOVERY_TARGET_SCOPE_INVALID"
     finally:
         database.close()
 
