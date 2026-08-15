@@ -9,6 +9,7 @@ import { useR4View } from '../api/useR4View';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceRefs } from '../components/EvidenceRefs';
 import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
+import { SectionHeader } from '../components/SectionHeader';
 import {
   baselineTone,
   recoveryCoverageTone,
@@ -17,11 +18,13 @@ import {
   viewStatusTone,
 } from '../components/StateBadge';
 import { ViewGate } from '../components/ViewGate';
+import { useT } from '../i18n/I18nProvider';
 
 export default function RecoveryPage({ client = apiClient }: { client?: ApiClient }) {
   const state = useR4View<RecoveryView>('recovery', client);
+  const t = useT();
   return (
-    <ViewGate state={state} label="Recovery">
+    <ViewGate state={state} label={t('nav.recovery')}>
       {(data) => <RecoveryViewBody data={data} />}
     </ViewGate>
   );
@@ -47,7 +50,9 @@ function percent(ratio: number | null): string {
 }
 
 export function RecoveryViewBody({ data }: { data: RecoveryView }) {
+  const t = useT();
   const levelTone = recoveryLevelTone(data.recovery_level);
+  const yesNo = (value: boolean) => (value ? t('common.yes') : t('common.no'));
 
   return (
     <div>
@@ -60,50 +65,41 @@ export function RecoveryViewBody({ data }: { data: RecoveryView }) {
 
       {data.status === 'EMPTY' && (
         <EmptyState
-          title="No recovery checkpoints"
-          detail="The backend holds no checkpoint records. Recovery level is R0."
+          title={t('recovery.empty.title')}
+          detail={t('recovery.empty.detail')}
           reasonCode={data.reason_code}
         />
       )}
       {data.status === 'DEGRADED' && (
         <div className="panel panel-bad" role="alert">
-          <p className="panel-title">Recovery view degraded — fail closed</p>
-          <p>
-            The backend could not project authoritative recovery state (
-            <code>{data.reason_code}</code>). Recoverability cannot be confirmed.
-          </p>
+          <p className="panel-title">{t('recovery.degraded.title')}</p>
+          <p>{t('recovery.degraded.body', { reasonCode: data.reason_code })}</p>
         </div>
       )}
       {data.status === 'UNKNOWN' && (
         <div className="panel panel-warn" role="alert">
-          <p className="panel-title">Recovery state unknown — fail closed</p>
-          <p>
-            The backend reports this view as UNKNOWN (<code>{data.reason_code}</code>).
-            Recoverability cannot be confirmed.
-          </p>
+          <p className="panel-title">{t('recovery.unknown.title')}</p>
+          <p>{t('recovery.unknown.body', { reasonCode: data.reason_code })}</p>
         </div>
       )}
       {data.status === 'AVAILABLE' && data.recovery_level === 'R0' && (
         <div className="panel panel-bad" role="alert">
-          <p className="panel-title">No verified recovery (R0) — fail closed</p>
-          <p>
-            No checkpoint currently meets a verified recovery level. Treat restore capability as
-            unavailable.
-          </p>
+          <p className="panel-title">{t('recovery.r0.title')}</p>
+          <p>{t('recovery.r0.body')}</p>
         </div>
       )}
 
-      <h2 className="section-title">Recovery level</h2>
-      <div className="recovery-chain" aria-label="Recovery level chain R0 to R3">
+      <SectionHeader title={t('recovery.section.level')} />
+      <div className="recovery-chain" aria-label={t('recovery.chain.ariaLabel')}>
         {CHAIN_LEVELS.map((level) => {
           const isCurrent = level === data.recovery_level;
           const verified = verifiedFor(data, level);
           const stateText =
             verified === null
               ? isCurrent
-                ? 'current level'
+                ? t('recovery.chain.current')
                 : '—'
-              : `${verified ? 'verified' : 'not verified'}${isCurrent ? ' · current' : ''}`;
+              : `${verified ? t('recovery.chain.verified') : t('recovery.chain.notVerified')}${isCurrent ? t('recovery.chain.currentSuffix') : ''}`;
           return (
             <div
               key={level}
@@ -122,18 +118,18 @@ export function RecoveryViewBody({ data }: { data: RecoveryView }) {
         })}
       </div>
       <KeyValueGrid>
-        <KeyValue k="Test restore status" v={<code>{data.test_restore_status}</code>} />
+        <KeyValue k={t('kv.testRestoreStatus')} v={<code>{data.test_restore_status}</code>} />
       </KeyValueGrid>
 
-      <h2 className="section-title">Trusted Baseline</h2>
+      <SectionHeader title={t('recovery.section.baseline')} />
       <TrustedBaselinePanel
         status={data.trusted_baseline_status}
         baselineId={data.trusted_baseline_id}
       />
 
-      {data.items.length > 0 && <h2 className="section-title">Checkpoints</h2>}
+      {data.items.length > 0 && <SectionHeader title={t('recovery.section.checkpoints')} />}
       {data.items.map((item) => (
-        <RecoveryCard key={item.checkpoint_id} item={item} />
+        <RecoveryCard key={item.checkpoint_id} item={item} yesNo={yesNo} />
       ))}
 
       <EvidenceRefs refs={data.evidence_refs} />
@@ -152,6 +148,7 @@ function TrustedBaselinePanel({
   status: TrustedBaselineStatus;
   baselineId: string | null;
 }) {
+  const t = useT();
   const panelClass =
     status === 'TRUSTED'
       ? 'is-trusted'
@@ -163,20 +160,25 @@ function TrustedBaselinePanel({
   return (
     <section className={`baseline-panel ${panelClass}`}>
       <div className="card-head">
-        <span className="card-title">Trusted Baseline</span>
+        <span className="card-title">{t('recovery.section.baseline')}</span>
         <StateBadge label={status} tone={baselineTone(status)} />
       </div>
       <KeyValueGrid>
-        <KeyValue k="Baseline ID" v={orDash(baselineId)} />
+        <KeyValue k={t('kv.baselineId')} v={orDash(baselineId)} />
       </KeyValueGrid>
-      <p className="baseline-note">
-        Trusted Baseline is an independent trust state. Recovery level R3 does not imply TRUSTED.
-      </p>
+      <p className="baseline-note">{t('recovery.baseline.note')}</p>
     </section>
   );
 }
 
-function RecoveryCard({ item }: { item: RecoveryItem }) {
+function RecoveryCard({
+  item,
+  yesNo,
+}: {
+  item: RecoveryItem;
+  yesNo: (value: boolean) => string;
+}) {
+  const t = useT();
   const itemFailClosed =
     item.recovery_level === 'R0' ||
     item.status === 'EVIDENCE_INSUFFICIENT' ||
@@ -185,7 +187,7 @@ function RecoveryCard({ item }: { item: RecoveryItem }) {
   return (
     <section className="card">
       <div className="card-head">
-        <span className="card-title">checkpoint {item.checkpoint_id}</span>
+        <span className="card-title">{t('recovery.card.title', { id: item.checkpoint_id })}</span>
         <span className="card-badges">
           <StateBadge label={item.status} tone={recoveryCoverageTone(item.status)} />
           <StateBadge label={item.recovery_level} tone={recoveryLevelTone(item.recovery_level)} />
@@ -193,36 +195,33 @@ function RecoveryCard({ item }: { item: RecoveryItem }) {
       </div>
       {itemFailClosed && (
         <div className="panel panel-bad" role="alert">
-          <p>
-            Fail closed: this checkpoint has no verified recovery level (
-            <code>{item.reason_code}</code>). Do not treat it as restorable.
-          </p>
+          <p>{t('recovery.card.failClosed', { reasonCode: item.reason_code })}</p>
         </div>
       )}
       <KeyValueGrid>
-        <KeyValue k="Execution domain" v={orDash(item.execution_domain_id)} />
-        <KeyValue k="R1 verified" v={item.r1_verified ? 'Yes' : 'No'} />
-        <KeyValue k="R2 verified" v={item.r2_verified ? 'Yes' : 'No'} />
-        <KeyValue k="R3 verified" v={item.r3_verified ? 'Yes' : 'No'} />
-        <KeyValue k="Requested targets" v={String(item.requested_targets)} />
+        <KeyValue k={t('kv.executionDomain')} v={orDash(item.execution_domain_id)} />
+        <KeyValue k={t('kv.r1Verified')} v={yesNo(item.r1_verified)} />
+        <KeyValue k={t('kv.r2Verified')} v={yesNo(item.r2_verified)} />
+        <KeyValue k={t('kv.r3Verified')} v={yesNo(item.r3_verified)} />
+        <KeyValue k={t('kv.requestedTargets')} v={String(item.requested_targets)} />
         <KeyValue
-          k="Authorized snapshot targets"
+          k={t('kv.authorizedSnapshotTargets')}
           v={`${item.authorized_snapshot_targets} (${percent(item.authorized_snapshot_coverage)})`}
         />
         <KeyValue
-          k="Intact manifest blobs"
+          k={t('kv.intactManifestBlobs')}
           v={`${item.intact_manifest_blob_targets} (${percent(item.manifest_blob_coverage)})`}
         />
-        <KeyValue k="Test restore status" v={<code>{item.test_restore_status}</code>} />
+        <KeyValue k={t('kv.testRestoreStatus')} v={<code>{item.test_restore_status}</code>} />
         <KeyValue
-          k="Test-restore verified targets"
+          k={t('kv.testRestoreVerifiedTargets')}
           v={item.test_restore_verified_targets === null ? '—' : String(item.test_restore_verified_targets)}
         />
         <KeyValue
-          k="Trusted baseline"
+          k={t('kv.trustedBaseline')}
           v={<StateBadge label={item.trusted_baseline_status} tone={baselineTone(item.trusted_baseline_status)} />}
         />
-        <KeyValue k="Trusted baseline ID" v={orDash(item.trusted_baseline_id)} />
+        <KeyValue k={t('kv.trustedBaselineId')} v={orDash(item.trusted_baseline_id)} />
         <KeyValue k="reason_code" v={<code>{item.reason_code}</code>} />
       </KeyValueGrid>
       <EvidenceRefs refs={item.evidence_refs} />

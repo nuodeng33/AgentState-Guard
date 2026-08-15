@@ -1,39 +1,55 @@
 package com.agentstate.guard.ui.screens
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.agentstate.guard.R
+import com.agentstate.guard.ui.components.DataStateHost
+import com.agentstate.guard.ui.state.ChangesUiState
+import com.agentstate.guard.ui.theme.Spacing
+import com.agentstate.guard.ui.theme.Surface as SurfaceColor
+import com.agentstate.guard.ui.theme.TextSecondary
 
-data class Change(val file: String, val type: String, val before: String?, val after: String?)
-
+/** Changes: adapter-supplied list plus an honest empty state. */
 @Composable
-fun ChangesScreen(items: List<Change> = emptyList()) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+fun ChangesScreen(state: ChangesUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(Spacing.l),
+        verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
-        item { Text("Changes", style = MaterialTheme.typography.headlineSmall) }
-        if (items.isEmpty()) {
-            item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text("No changes detected", modifier = Modifier.padding(16.dp))
-                }
-            }
-        }
-        items(items) { change ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(change.file, style = MaterialTheme.typography.titleSmall)
-                    Text("Type: ${change.type}", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (change.before != null && change.after != null) {
-                        Text("Before: ${change.before}", style = MaterialTheme.typography.bodySmall)
-                        Text("After: ${change.after}", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary)
+        Text(
+            stringResource(R.string.nav_changes),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        DataStateHost(
+            phase = state.phase,
+            loadingText = stringResource(R.string.state_loading),
+            emptyText = stringResource(R.string.empty_changes),
+        ) {
+            state.items.forEach { change ->
+                Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(Spacing.l),
+                    ) {
+                        Text(change.file, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "${change.changeType} · ${change.whenText}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
                     }
                 }
             }

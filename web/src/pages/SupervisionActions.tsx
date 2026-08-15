@@ -6,12 +6,13 @@
  *   from the latest GET /api/v1/supervision item. The client never generates,
  *   persists, or reuses it across sessions.
  * - A mutation is sent exactly once per click; the shared client applies at
- *   most one 401 session re-bootstrap. 409/503 are never retried.
+ *   most one 401 re-bootstrap. 409/503 are never retried.
  * - No optimistic authority update: after every attempt the supervision view
  *   is re-read and only the refreshed server state is displayed. Approving
  *   never activates operations, creates checkpoints, or shows ALLOW.
  * - Feedback is stable and display-safe: HTTP status class plus the backend's
  *   allowlisted reason_code only. Raw server/exception text never renders.
+ *   reason_code values are machine tokens and render verbatim in every locale.
  */
 
 import { useRef, useState } from 'react';
@@ -22,6 +23,8 @@ import {
   type ApiClient,
 } from '../api/client';
 import type { SupervisionItem } from '../api/types';
+import { useT } from '../i18n/I18nProvider';
+import type { MessageKey } from '../i18n/messages';
 
 export type SupervisionActionKind = 'approve' | 'reject';
 
@@ -41,45 +44,30 @@ export function isActionable(item: SupervisionItem): boolean {
 }
 
 interface Feedback {
-  text: string;
+  messageKey: MessageKey;
   reasonCode: string | null;
 }
 
 /** Map failures to stable, display-safe feedback keyed by the frozen error mapping. */
 function feedbackFor(err: unknown): Feedback {
   if (err instanceof SessionUnavailableError) {
-    return {
-      text: 'Session unavailable — the action was not confirmed.',
-      reasonCode: 'SESSION_UNAVAILABLE',
-    };
+    return { messageKey: 'feedback.sessionUnavailable', reasonCode: 'SESSION_UNAVAILABLE' };
   }
   if (err instanceof ApiActionError) {
     switch (err.status) {
       case 404:
-        return { text: 'This supervision session no longer exists.', reasonCode: err.reasonCode };
+        return { messageKey: 'feedback.notFound', reasonCode: err.reasonCode };
       case 409:
-        return {
-          text: 'Action not applied: the authoritative state has moved on. The latest state has been reloaded.',
-          reasonCode: err.reasonCode,
-        };
+        return { messageKey: 'feedback.conflict', reasonCode: err.reasonCode };
       case 422:
-        return { text: 'The action request was rejected as invalid.', reasonCode: err.reasonCode };
+        return { messageKey: 'feedback.invalid', reasonCode: err.reasonCode };
       case 503:
-        return {
-          text: 'Authoritative state is temporarily unavailable. The latest readable state has been reloaded.',
-          reasonCode: err.reasonCode,
-        };
+        return { messageKey: 'feedback.unavailable', reasonCode: err.reasonCode };
       default:
-        return {
-          text: 'The action was not confirmed. The latest authoritative state has been reloaded.',
-          reasonCode: err.reasonCode,
-        };
+        return { messageKey: 'feedback.unconfirmed', reasonCode: err.reasonCode };
     }
   }
-  return {
-    text: 'The action result is unknown. The latest authoritative state has been reloaded.',
-    reasonCode: null,
-  };
+  return { messageKey: 'feedback.unknown', reasonCode: null };
 }
 
 export function SupervisionActions({
@@ -97,6 +85,7 @@ export function SupervisionActions({
   /** True while the view is already re-reading; keeps actions disabled. */
   busy?: boolean;
 }) {
+  const t = useT();
   const [pending, setPending] = useState<SupervisionActionKind | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   // Synchronous guard against double-click before the state flush lands.
@@ -133,7 +122,7 @@ export function SupervisionActions({
           disabled={disabled}
           onClick={() => run('approve')}
         >
-          {pending === 'approve' ? 'Approving…' : 'Approve Once'}
+          {pending === 'approve' ? t('action.approving') : t('action.approveOnce')}
         </button>
         <button
           type="button"
@@ -141,17 +130,17 @@ export function SupervisionActions({
           disabled={disabled}
           onClick={() => run('reject')}
         >
-          {pending === 'reject' ? 'Rejecting…' : 'Reject'}
+          {pending === 'reject' ? t('action.rejecting') : t('action.reject')}
         </button>
         {pending !== null && (
           <span className="action-pending" role="status">
-            Sending {pending === 'approve' ? 'approval' : 'rejection'}…
+            {pending === 'approve' ? t('action.sendingApproval') : t('action.sendingRejection')}
           </span>
         )}
       </div>
       {feedback && (
         <p className="action-feedback" role="alert">
-          {feedback.text}
+          {t(feedback.messageKey)}
           {feedback.reasonCode !== null && (
             <>
               {' '}
@@ -160,11 +149,7 @@ export function SupervisionActions({
           )}
         </p>
       )}
-      <p className="action-note">
-        One-time action bound to the latest authoritative read. Approval never activates
-        operations, creates checkpoints, or changes policy; rejection is terminal. The view
-        always re-reads the server state afterwards.
-      </p>
+      <p className="action-note">{t('action.note')}</p>
     </div>
   );
 }

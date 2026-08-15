@@ -1,37 +1,81 @@
-/* AgentState Guard R4-P8 console theme.
-   Professional desktop security console: quiet, dense enough, explicit hierarchy.
+/* AgentState Guard product console theme — dark security operations console.
+   Shared visual language with the Android app (same token names and values).
    Color is a secondary channel; labels always carry the meaning. */
 
 :root {
-  --bg: #f3f4f6;
-  --surface: #ffffff;
-  --border: #d8dce2;
-  --border-strong: #aeb6c1;
-  --text: #1b2430;
-  --text-secondary: #59636f;
-  --accent: #1f5fd6;
-  --accent-quiet: #e9effb;
+  /* ---- surfaces ---- */
+  --background: #0f172a;
+  --surface: #1e293b;
+  --surface-elevated: #24324a;
+  --surface-muted: #16233c;
 
-  --ok: #177245;
-  --ok-bg: #e4f3ea;
-  --ok-border: #b7d9c6;
-  --warn: #8a6100;
-  --warn-bg: #faf0d2;
-  --warn-border: #e2cd8f;
-  --bad: #b4232a;
-  --bad-bg: #fbe7e8;
-  --bad-border: #ecb9bc;
-  --neutral: #59636f;
-  --neutral-bg: #eceef1;
-  --neutral-border: #d3d8de;
-  --info: #1f5fd6;
-  --info-bg: #e9effb;
-  --info-border: #bfd2f2;
-  --unknown: #6d5d0e;
-  --unknown-bg: #f7f3de;
-  --unknown-border: #c9bd7a;
+  /* ---- text ---- */
+  --text-primary: #e7edf7;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  /* ---- brand / accents ---- */
+  --primary: #6366f1;
+  --secondary: #8b5cf6;
+  --primary-quiet: rgba(99, 102, 241, 0.16);
+
+  /* ---- status tones (the label is authoritative; color only supports it) ---- */
+  --success: #34d399;
+  --success-bg: rgba(16, 185, 129, 0.13);
+  --success-border: rgba(16, 185, 129, 0.38);
+  --warning: #fbbf24;
+  --warning-bg: rgba(245, 158, 11, 0.13);
+  --warning-border: rgba(245, 158, 11, 0.38);
+  --danger: #f87171;
+  --danger-bg: rgba(239, 68, 68, 0.13);
+  --danger-border: rgba(239, 68, 68, 0.4);
+  --unknown: #94a3b8;
+  --unknown-bg: rgba(100, 116, 139, 0.16);
+  --unknown-border: rgba(100, 116, 139, 0.45);
+  --neutral: #94a3b8;
+  --neutral-bg: rgba(148, 163, 184, 0.1);
+  --neutral-border: rgba(148, 163, 184, 0.3);
+  --info: #818cf8;
+  --info-bg: rgba(99, 102, 241, 0.16);
+  --info-border: rgba(99, 102, 241, 0.42);
+
+  /* ---- lines / focus ---- */
+  --border: #263449;
+  --border-strong: #35486b;
+  --focus: #818cf8;
+
+  /* ---- spacing: 4 / 8 / 12 / 16 / 24 / 32 ---- */
+  --sp-4: 4px;
+  --sp-8: 8px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-24: 24px;
+  --sp-32: 32px;
+
+  /* ---- radius ---- */
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+
+  /* ---- elevation ---- */
+  --shadow-card: 0 1px 2px rgba(2, 6, 23, 0.55), 0 6px 20px rgba(2, 6, 23, 0.35);
 
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* ---- compatibility aliases (existing class rules keep working) ---- */
+  --bg: var(--background);
+  --text: var(--text-primary);
+  --accent: var(--primary);
+  --accent-quiet: var(--primary-quiet);
+  --ok: var(--success);
+  --ok-bg: var(--success-bg);
+  --ok-border: var(--success-border);
+  --warn: var(--warning);
+  --warn-bg: var(--warning-bg);
+  --warn-border: var(--warning-border);
+  --bad: var(--danger);
+  --bad-bg: var(--danger-bg);
+  --bad-border: var(--danger-border);
 }
 
 * {
@@ -56,6 +100,12 @@ body {
 code {
   font-family: var(--mono);
   font-size: 0.92em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
 }
 
 .muted {
@@ -236,7 +286,8 @@ code {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-card);
   padding: 14px 18px;
   margin-bottom: 14px;
 }
@@ -292,8 +343,9 @@ code {
 .panel {
   border: 1px solid var(--border);
   border-left-width: 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   background: var(--surface);
+  box-shadow: var(--shadow-card);
   padding: 14px 18px;
   margin-bottom: 14px;
 }
@@ -327,7 +379,7 @@ code {
 
 .empty-state {
   border: 1px dashed var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   background: var(--surface);
   padding: 22px;
   text-align: center;
@@ -367,7 +419,7 @@ code {
   appearance: none;
   border: none;
   background: transparent;
-  color: var(--accent);
+  color: var(--info);
   font: inherit;
   font-size: 12.5px;
   font-weight: 600;
@@ -407,7 +459,8 @@ code {
 .view-state {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-card);
   padding: 34px 22px;
   text-align: center;
   color: var(--text-secondary);
@@ -551,8 +604,9 @@ code {
 .baseline-panel {
   border: 1px solid var(--border);
   border-left: 4px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   background: var(--surface);
+  box-shadow: var(--shadow-card);
   padding: 14px 18px;
   margin-bottom: 18px;
 }
@@ -710,4 +764,184 @@ code {
   .kv-grid {
     grid-template-columns: minmax(110px, 40%) 1fr;
   }
+}
+
+/* ---- Language selector ---- */
+
+.language-selector {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+
+.language-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary);
+  padding: 0;
+  margin-bottom: var(--sp-4);
+}
+
+.language-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.language-option input {
+  accent-color: var(--primary);
+}
+
+.language-note {
+  margin: var(--sp-4) 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ---- Product shell: nav icons, status cards, home, settings ---- */
+
+.app-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-nav-icon {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.status-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-12);
+  margin-bottom: var(--sp-16);
+}
+
+.status-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+}
+
+.status-card-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.status-card-badge {
+  margin: 0 0 6px;
+}
+
+.status-card-meta {
+  margin: 2px 0;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+
+.home-subtitle {
+  margin: 4px 0 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.settings-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ---- Devices / pairing shell ---- */
+
+.device-note {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin: 10px 0 0;
+}
+
+.device-id {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.pairing-card {
+  max-width: 560px;
+}
+
+.qr-placeholder {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface-muted);
+  padding: var(--sp-24);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-8);
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-12);
+}
+
+.qr-icon {
+  color: var(--text-muted);
+}
+
+.qr-note {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.sas-card {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: var(--sp-16);
+  text-align: center;
+  margin-bottom: var(--sp-12);
+}
+
+.sas-prompt {
+  margin: 0 0 var(--sp-8);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.sas-code {
+  margin: 0 0 var(--sp-8);
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-primary);
+}
+
+.sas-meta {
+  margin: 2px 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.pairing-ok-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--success);
+}
+
+.pairing-terminal-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--warning);
 }

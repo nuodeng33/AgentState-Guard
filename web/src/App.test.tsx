@@ -55,16 +55,22 @@ function smokeFetch(input: RequestInfo | URL): Promise<Response> {
   return Promise.resolve(new Response('not found', { status: 404 }));
 }
 
-describe('App smoke (four P8 views)', () => {
+describe('App smoke (product IA)', () => {
   beforeEach(() => {
     fetchCalls.length = 0;
     vi.stubGlobal('fetch', smokeFetch);
   });
 
-  it('navigates all four views without a white screen and never persists the token', async () => {
+  it('navigates the nine-surface IA without a white screen and never persists the token', async () => {
     render(<App />);
 
-    // Runtime is the default landing view.
+    // Home is the landing view and summarizes the four authoritative views.
+    expect(await screen.findByText('Overview')).toBeTruthy();
+    for (const label of ['Runtime', 'Agents', 'Supervision', 'Recovery']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Runtime' }));
     expect(await screen.findByText('No runtime records')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
@@ -76,6 +82,16 @@ describe('App smoke (four P8 views)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Recovery' }));
     expect(await screen.findByText('No recovery checkpoints')).toBeTruthy();
     expect(screen.getAllByText('Trusted Baseline').length).toBeGreaterThan(0);
+
+    // The new shells render honest empty states instead of fabricating data.
+    fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
+    expect(await screen.findByText('No authoritative changes feed')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI Monitor' }));
+    expect(await screen.findByText('AI Monitor is not configured')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(await screen.findByText('System Default')).toBeTruthy();
 
     // Session bootstrap happened first; the wide legacy /api/status is never used.
     expect(fetchCalls[0]).toBe('/api/session');
