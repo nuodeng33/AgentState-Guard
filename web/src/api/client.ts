@@ -45,17 +45,22 @@ export class ApiRequestError extends Error {
 const STABLE_REASON_CODE = /^[A-Z0-9_]{1,64}$/;
 
 /**
- * Thrown for failed mutations (non-401 HTTP status). Carries only the HTTP
- * status and the backend's stable reason_code; raw response text is dropped.
+ * Thrown for failed mutations (non-401 HTTP status). Carries the HTTP status,
+ * the backend's stable reason_code, and optionally a sanitized failure DTO
+ * (e.g. the product-ai-advisory-1 body on analyze 503s). Raw response text is
+ * never retained.
  */
 export class ApiActionError extends Error {
   readonly status: number;
   readonly reasonCode: string | null;
-  constructor(status: number, reasonCode: string | null = null) {
+  /** Sanitized machine DTO when the failure body was parseable JSON; else null. */
+  readonly dto: unknown | null;
+  constructor(status: number, reasonCode: string | null = null, dto: unknown = null) {
     super(`Action failed (HTTP ${status})`);
     this.name = 'ApiActionError';
     this.status = status;
     this.reasonCode = reasonCode;
+    this.dto = dto;
   }
 }
 
@@ -163,10 +168,11 @@ export function createApiClient(
       }
     }
     if (!response.ok) {
+      const failure = await readFailureBody(response);
       throw new ApiRequestError(
         `API request failed (HTTP ${response.status})`,
         response.status,
-        await readFailureReasonCode(response),
+        failure.reasonCode,
       );
     }
     return (await response.json()) as T;
@@ -188,15 +194,25 @@ export function createApiClient(
     }
   }
 
-  /** Extract only the stable reason_code atom from a failure body; drop everything else. */
-  async function readFailureReasonCode(response: Response): Promise<string | null> {
+  /**
+   * Parse a failure body once: keep the JSON as an opaque DTO holder and
+   * extract the stable reason_code beside it. Callers that render DTO fields
+   * must stay on the same machine-token discipline as success; raw text is
+   * never surfaced by the client itself.
+   */
+  async function readFailureBody(response: Response): Promise<{ reasonCode: string | null; dto: unknown }> {
     try {
-      const body = (await response.json()) as { reason_code?: unknown };
-      const code = body?.reason_code;
-      return typeof code === 'string' && STABLE_REASON_CODE.test(code) ? code : null;
+      const body = (await response.json()) as unknown;
+      return { reasonCode: extractReasonCode(body), dto: body };
     } catch {
-      return null;
+      return { reasonCode: null, dto: null };
     }
+  }
+
+  /** Extract only the stable reason_code atom; arbitrary text is dropped. */
+  function extractReasonCode(body: unknown): string | null {
+    const code = (body as { reason_code?: unknown } | null)?.reason_code;
+    return typeof code === 'string' && STABLE_REASON_CODE.test(code) ? code : null;
   }
 
   async function post<T>(path: string, body: unknown): Promise<T> {
@@ -212,7 +228,8 @@ export function createApiClient(
       }
     }
     if (!response.ok) {
-      throw new ApiActionError(response.status, await readFailureReasonCode(response));
+      const failure = await readFailureBody(response);
+      throw new ApiActionError(response.status, failure.reasonCode, failure.dto);
     }
     return (await response.json()) as T;
   }

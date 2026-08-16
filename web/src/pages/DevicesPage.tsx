@@ -1,50 +1,53 @@
 /**
- * Devices page: mobile-device pairing UI shell.
+ * Devices page: real Device Link wiring (production default).
  *
- * UI and state model only. Every byte of pairing data comes from the
- * injected DeviceLinkAdapter; the default NullDeviceLinkAdapter performs no
- * I/O and reports pairing as unsupported, in which case the page says so
- * honestly. No Device Link gateway calls, no protocol fields, no crypto.
+ * - Link lifecycle (status/endpoint/identity/bound devices/revoke/enable/
+ *   disable/refresh) lives in DeviceLinkSection, which consumes GET
+ *   /api/v1/devices verbatim.
+ * - Pairing starts with POST /api/v1/device-link/pairings, renders the
+ *   canonical QR (QrCodeCard) and tracks the pairing state machine through
+ *   GET /pairings/{id}: created → first_connection → sas_pending →
+ *   confirmed_both/consumed, with expired/rejected/failed shown verbatim.
+ * - Desktop confirm sends {confirm:true|false}; the mobile shows the SAS
+ *   (the Core never exposes it to the desktop side) — the page compares by
+ *   state, presenting a confirm/reject UI only after the invitation moves on.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import { DeviceCard } from '../components/devices/DeviceCard';
-import { QrPlaceholderCard } from '../components/devices/QrPlaceholderCard';
-import { SasCodeCard } from '../components/devices/SasCodeCard';
-import { EmptyState } from '../components/EmptyState';
+import { apiClient, type ApiClient } from '../api/client';
+import { QrCodeCard } from '../components/devices/QrCodeCard';
 import { SectionHeader } from '../components/SectionHeader';
+import { BackendDeviceLinkAdapter } from '../devices/BackendDeviceLinkAdapter';
 import {
   DeviceLinkUnsupportedError,
-  nullDeviceLinkAdapter,
   type DeviceLinkAdapter,
 } from '../devices/DeviceLinkAdapter';
-import type { LinkedDevice, PairingViewState } from '../devices/types';
+import type { PairingViewState } from '../devices/types';
 import { useT } from '../i18n/I18nProvider';
+import { DeviceLinkSection } from './DeviceLinkSection';
 
-const IN_FLIGHT = new Set(['PAIRING_CREATED', 'WAITING_FOR_MOBILE', 'SAS_PENDING']);
+const IN_FLIGHT = new Set(['PAIRING_CREATED', 'WAITING_FOR_MOBILE', 'SAS_PENDING', 'CONFIRMING']);
 
 export default function DevicesPage({
-  adapter = nullDeviceLinkAdapter,
+  client = apiClient as ApiClient | undefined,
+  adapter,
   pollIntervalMs = 800,
 }: {
+  client?: ApiClient;
+  /** Test seam; production uses the backend adapter built from the client. */
   adapter?: DeviceLinkAdapter;
-  /** Test seam: how often in-flight pairing state is re-polled. */
+  /** Test seam: how often an in-flight pairing is re-polled. */
   pollIntervalMs?: number;
 }) {
   const t = useT();
-  const [devices, setDevices] = useState<LinkedDevice[] | null>(null);
-  const [unsupported, setUnsupported] = useState(false);
+  const resolved = useMemo<DeviceLinkAdapter>(
+    () => adapter ?? new BackendDeviceLinkAdapter(client as ApiClient),
+    [adapter, client],
+  );
   const [pairing, setPairing] = useState<PairingViewState | null>(null);
   const [now, setNow] = useState(() => Date.now());
-
-  const refreshDevices = useCallback(() => {
-    adapter.listDevices().then(setDevices, () => setDevices([]));
-  }, [adapter]);
-
-  useEffect(() => {
-    refreshDevices();
-  }, [refreshDevices]);
+  const [unsupported, setUnsupported] = useState(false);
 
   // Countdown display ticker (presentation only).
   useEffect(() => {
@@ -59,22 +62,22 @@ export default function DevicesPage({
     const id = pairing.pairingId;
     const timer = setTimeout(async () => {
       try {
-        setPairing(await adapter.pollPairing(id));
-      } catch {
-        setPairing({ phase: 'ERROR' });
+        setPairing(await resolved.pollPairing(id));
+      } catch (err) {
+        setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
       }
     }, pollIntervalMs);
     return () => clearTimeout(timer);
-  }, [pairing, adapter, pollIntervalMs]);
+  }, [pairing, resolved, pollIntervalMs]);
 
   async function startPairing() {
     try {
-      setPairing(await adapter.startPairing());
+      setPairing(await resolved.startPairing());
     } catch (err) {
       if (err instanceof DeviceLinkUnsupportedError) {
         setUnsupported(true);
       } else {
-        setPairing({ phase: 'ERROR' });
+        setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
       }
     }
   }
@@ -84,11 +87,9 @@ export default function DevicesPage({
     const id = pairing.pairingId;
     setPairing({ ...pairing, phase: 'CONFIRMING' });
     try {
-      const next = await adapter.confirmSas(id);
-      setPairing(next);
-      if (next.phase === 'PAIRED') refreshDevices();
-    } catch {
-      setPairing({ phase: 'ERROR' });
+      setPairing(await resolved.confirmSas(id));
+    } catch (err) {
+      setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
     }
   }
 
@@ -96,18 +97,18 @@ export default function DevicesPage({
     if (!pairing?.pairingId) return;
     const id = pairing.pairingId;
     try {
-      setPairing(await adapter.rejectSas(id));
-    } catch {
-      setPairing({ phase: 'ERROR' });
+      setPairing(await resolved.rejectSas(id));
+    } catch (err) {
+      setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
     }
   }
 
   async function cancelPairing() {
     if (pairing?.pairingId) {
       try {
-        await adapter.cancelPairing(pairing.pairingId);
+        await resolved.cancelPairing(pairing.pairingId);
       } catch {
-        // Cancellation is best-effort; the shell returns to IDLE either way.
+        // Cancellation is best-effort; the shell returns directly.
       }
     }
     setPairing(null);
@@ -119,22 +120,9 @@ export default function DevicesPage({
 
   return (
     <div>
+      {adapter === undefined && client && <DeviceLinkSection client={client} />}
+
       <SectionHeader title={t('devices.section.mobile')} />
-
-      {devices !== null && devices.length > 0 && (
-        <div>
-          {devices.map((device) => (
-            <DeviceCard key={device.id} device={device} />
-          ))}
-        </div>
-      )}
-
-      {devices !== null && devices.length === 0 && pairing === null && (
-        <EmptyState
-          title={t('devices.unpaired.title')}
-          detail={t('devices.unpaired.detail')}
-        />
-      )}
 
       {pairing === null && (
         <div className="action-row">
@@ -146,7 +134,13 @@ export default function DevicesPage({
       {unsupported && pairing === null && (
         <p className="device-note">{t('devices.unavailable')}</p>
       )}
-      {pairing === null && <p className="device-note">{t('devices.firstHint')}</p>}
+      {pairing === null && (
+        <div>
+          <p className="device-note">{t('devices.unpaired.title')}</p>
+          <p className="device-note">{t('devices.unpaired.detail')}</p>
+          <p className="device-note">{t('devices.firstHint')}</p>
+        </div>
+      )}
 
       {pairing && (
         <section className="card pairing-card">
@@ -156,7 +150,11 @@ export default function DevicesPage({
 
           {(pairing.phase === 'PAIRING_CREATED' || pairing.phase === 'WAITING_FOR_MOBILE') && (
             <div>
-              <QrPlaceholderCard hasPayload={pairing.qrPayload !== undefined} />
+              {pairing.qrPayload ? (
+                <QrCodeCard payload={pairing.qrPayload} />
+              ) : (
+                <p className="device-note">{t('devices.qr.awaiting')}</p>
+              )}
               <p className="sas-meta">
                 {t('devices.identity')}: <code>{pairing.desktopName ?? '—'}</code>
               </p>
@@ -174,19 +172,22 @@ export default function DevicesPage({
             </div>
           )}
 
-          {pairing.phase === 'SAS_PENDING' && pairing.sasCode && (
+          {pairing.phase === 'SAS_PENDING' && (
             <div>
-              <SasCodeCard
-                sasCode={pairing.sasCode}
-                desktopName={pairing.desktopName}
-                secondsLeft={secondsLeft}
-              />
+              <p className="sas-prompt">{t('devices.sas.prompt')}</p>
+              <p className="device-note">{t('devices.sasWaiting')}</p>
+              {secondsLeft !== null && (
+                <p className="sas-meta">{t('devices.expires', { seconds: secondsLeft })}</p>
+              )}
               <div className="action-row">
                 <button type="button" className="btn btn-primary" onClick={confirmSas}>
                   {t('devices.sas.confirm')}
                 </button>
                 <button type="button" className="btn btn-danger" onClick={rejectSas}>
                   {t('devices.sas.reject')}
+                </button>
+                <button type="button" className="btn" onClick={cancelPairing}>
+                  {t('devices.cancel')}
                 </button>
               </div>
             </div>
@@ -235,4 +236,10 @@ export default function DevicesPage({
       )}
     </div>
   );
+}
+
+function reasonCodeOf(err: unknown): string {
+  if (err instanceof DeviceLinkUnsupportedError) return 'DEVICE_LINK_UNSUPPORTED';
+  const errAny = err as { reasonCode?: unknown };
+  return typeof errAny.reasonCode === 'string' ? errAny.reasonCode : 'DEVICE_LINK_ACTION_FAILED';
 }

@@ -16,6 +16,7 @@ import { apiClient, ApiRequestError, SessionUnavailableError, type ApiClient } f
 import { getEvidence } from '../api/product';
 import type { ChangeItem, EvidenceDetail, SupervisionItem, SupervisionView } from '../api/types';
 import { useR4View } from '../api/useR4View';
+import { AnalyzeSection } from '../components/AnalyzeSection';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceDetailPanel } from '../components/EvidenceDetailPanel';
 import { EvidenceRefs } from '../components/EvidenceRefs';
@@ -201,6 +202,13 @@ export function SupervisionViewBody({
       )}
 
       {client && onChanged && <ControlledChangePanel client={client} onChanged={onChanged} />}
+
+      {client && (
+        <div>
+          <p className="card-sub">{t('supervision.section.analyze')}</p>
+          <AnalyzeSection client={client} />
+        </div>
+      )}
 
       <p className="readonly-note">{t('supervision.note')}</p>
     </div>

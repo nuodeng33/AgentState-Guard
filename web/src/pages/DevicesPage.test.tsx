@@ -64,29 +64,49 @@ describe('DevicesPage unpaired state', () => {
     expect(screen.getByText(/6-digit security code/)).toBeTruthy();
   });
 
-  it('reports honestly when no Device Link adapter is wired in', async () => {
-    render(<DevicesPage />); // default NullDeviceLinkAdapter
+  it('shows the disabled-state note when the backend reports pairing as disabled/unavailable', async () => {
+    const { adapter } = scriptedAdapter({ reject: { phase: 'ERROR' } });
+    const erring = {
+      ...adapter,
+      startPairing: async () => {
+        const { DeviceLinkUnsupportedError } = await import('../devices/DeviceLinkAdapter');
+        throw new DeviceLinkUnsupportedError();
+      },
+    };
+    render(<DevicesPage adapter={erring} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
-    expect(await screen.findByText(/not wired into this build/)).toBeTruthy();
+    expect(await screen.findByText(/cannot start until the link is enabled/)).toBeTruthy();
     expect(screen.queryByText('Waiting for the mobile device…')).toBeNull();
   });
 });
 
 describe('DevicesPage pairing flow', () => {
-  it('shows QR placeholder, identity, expiry and waiting state after start', async () => {
+  it('renders the QR SVG (not placeholder text), identity, expiry and waiting state', async () => {
     const { adapter } = scriptedAdapter({ start: BASE });
     render(<DevicesPage adapter={adapter} pollIntervalMs={10_000} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
 
     expect(await screen.findByText('Pair a mobile device')).toBeTruthy();
-    expect(screen.getByText('The pairing QR code will appear here.')).toBeTruthy();
+    // Real QR SVG rendered from the canonical payload; no placeholder copy.
+    expect(document.querySelector('.qr-card svg')).not.toBeNull();
+    expect(screen.queryByText(/will appear here/)).toBeNull();
     expect(screen.getByText('DESKTOP-K3')).toBeTruthy();
     expect(screen.getByText(/expires in/)).toBeTruthy();
     expect(screen.getByText('Waiting for the mobile device…')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
   });
 
-  it('moves to SAS_PENDING via polling and shows the grouped code verbatim', async () => {
+  it('shows "QR payload pending" honestly when no payload arrived yet', async () => {
+    const { adapter } = scriptedAdapter({
+      start: { phase: 'WAITING_FOR_MOBILE', pairingId: 'p-0' },
+    });
+    render(<DevicesPage adapter={adapter} pollIntervalMs={10_000} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
+    expect(await screen.findByText('QR payload pending…')).toBeTruthy();
+    expect(document.querySelector('.qr-card svg')).toBeNull();
+  });
+
+  it('moves to SAS_PENDING via polling and shows confirm controls, never inventing a desktop-side code', async () => {
     const { adapter } = scriptedAdapter({
       start: BASE,
       polls: [{ ...BASE, phase: 'SAS_PENDING', sasCode: '123456' }],
@@ -94,10 +114,12 @@ describe('DevicesPage pairing flow', () => {
     render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
 
-    expect(await screen.findByText('123 456')).toBeTruthy();
-    expect(screen.getByText(/Confirm both devices/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Codes match' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Codes do not match — cancel' })).toBeTruthy();
+    // The desktop side must NOT display any SAS code — only the pairing state
+    // and the confirm/reject affordances, since the Core never returns SAS here.
+    expect(await screen.findByRole('button', { name: 'Codes match' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /cancel|Codes do not match/ })).toBeTruthy();
+    expect(screen.queryByText('123 456')).toBeNull();
+    expect(screen.getByText(/shown on the mobile/i)).toBeTruthy();
   });
 
   it('confirm leads to PAIRED and refreshes the device list', async () => {

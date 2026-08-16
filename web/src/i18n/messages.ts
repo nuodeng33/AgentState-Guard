@@ -129,7 +129,6 @@ export type MessageKey =
   | 'devices.unavailable'
   | 'devices.firstHint'
   | 'devices.pairing.title'
-  | 'devices.qr.placeholder'
   | 'devices.qr.awaiting'
   | 'devices.identity'
   | 'devices.expires'
@@ -266,19 +265,8 @@ export type MessageKey =
   | 'devices.revoke'
   | 'devices.revoking'
   | 'devices.revoked'
-  | 'devices.qrGenerate'
-  | 'devices.qrGenerating'
   | 'devices.qrHint'
-  | 'devices.state'
-  | 'devices.stateCreated'
-  | 'devices.stateWaiting'
-  | 'devices.stateSas'
-  | 'devices.stateConfirmed'
-  | 'devices.stateError'
-  | 'devices.sasShow'
   | 'devices.sasWaiting'
-  | 'devices.confirmBoth'
-  | 'devices.poll'
   | 'kv.observedAt'
   | 'kv.lastSeenAt'
   | 'kv.expiresAt'
@@ -297,13 +285,31 @@ export type MessageKey =
   | 'settings.provider.failed'
   | 'settings.provider.modelCount'
   | 'settings.provider.note'
-  | 'settings.provider.saved'
   | 'ai.advisory.none'
   /* ---- supervised analyze surface ---- */
   | 'supervision.section.analyze'
   | 'env.section.analyze'
   | 'home.deviceLink'
-  | 'home.section.advisory';
+  | 'home.section.advisory'
+  /* ---- recovery actions ---- */
+  | 'recovery.create'
+  | 'recovery.create.running'
+  | 'recovery.create.done'
+  | 'recovery.test'
+  | 'recovery.test.running'
+  | 'recovery.restore'
+  | 'recovery.restore.running'
+  | 'recovery.restore.confirmTitle'
+  | 'recovery.restore.confirmBody'
+  | 'recovery.restore.confirmType'
+  | 'recovery.action.receipt'
+  | 'recovery.action.failed'
+  /* ---- device link lifecycle ---- */
+  | 'devices.disableNote'
+  | 'devices.actionFailed'
+  | 'devices.enableRunning'
+  | 'devices.disableRunning'
+  | 'devices.refreshRunning';
 
 export type Messages = Record<MessageKey, string>;
 
@@ -433,21 +439,21 @@ const enUS: Messages = {
     'The action was not confirmed. The latest authoritative state has been reloaded.',
   'feedback.unknown':
     'The action result is unknown. The latest authoritative state has been reloaded.',
-  'devices.section.mobile': 'Mobile Devices',
   'devices.unpaired.title': 'No mobile device connected',
   'devices.unpaired.detail': 'Pair a phone to link it with this desktop.',
+  'devices.section.mobile': 'Mobile Devices',
   'devices.addDevice': 'Add mobile device',
   'devices.unavailable':
-    'Device linking is not wired into this build yet. The pairing interface is ready for the Device Link adapter.',
+    'Device Link is disabled or its authority is unavailable — pairing cannot start until the link is enabled above.',
   'devices.firstHint':
-    'On first connection, both devices show the same 6-digit security code.',
+    'The mobile shows a 6-digit security code during pairing; confirm the same code appears here.',
   'devices.pairing.title': 'Pair a mobile device',
-  'devices.qr.placeholder': 'The pairing QR code will appear here.',
   'devices.qr.awaiting': 'QR payload pending…',
   'devices.identity': 'Desktop identity',
   'devices.expires': 'Pairing offer expires in {seconds}s',
   'devices.waiting': 'Waiting for the mobile device…',
-  'devices.sas.prompt': 'Confirm both devices show the same security code.',
+  'devices.sas.prompt':
+    'Both devices must confirm the same security code. The code is shown on the mobile (the Core never returns it here).',
   'devices.sas.confirm': 'Codes match',
   'devices.sas.reject': 'Codes do not match — cancel',
   'devices.confirming': 'Confirming…',
@@ -575,19 +581,8 @@ const enUS: Messages = {
   'devices.revoke': 'Revoke',
   'devices.revoking': 'Revoking…',
   'devices.revoked': 'Revoked.',
-  'devices.qrGenerate': 'Generate pairing QR',
-  'devices.qrGenerating': 'Generating…',
   'devices.qrHint': 'Scan with the Android app. The QR contains the full canonical invitation.',
-  'devices.state': 'pairing state',
-  'devices.stateCreated': 'created',
-  'devices.stateWaiting': 'waiting for mobile',
-  'devices.stateSas': 'SAS pending',
-  'devices.stateConfirmed': 'confirmed by both',
-  'devices.stateError': 'error',
-  'devices.sasShow': 'security code shown on mobile',
   'devices.sasWaiting': 'Waiting for the code to appear on the mobile…',
-  'devices.confirmBoth': 'The code is confirmed correctly on both devices',
-  'devices.poll': 'Refreshing…',
   'kv.observedAt': 'observed_at',
   'kv.lastSeenAt': 'last_seen',
   'kv.expiresAt': 'expires_at',
@@ -606,12 +601,30 @@ const enUS: Messages = {
   'settings.provider.modelCount': '{count} models found',
   'settings.provider.note':
     'The API key is held in memory only. It is never written to disk, never echoed back, and never sent to the Android app.',
-  'settings.provider.saved': 'Provider settings are ready. Run Analyze Current Environment on Environment or Supervision.',
   'ai.advisory.none': 'No advisory yet.',
   'supervision.section.analyze': 'AI Advisory',
   'env.section.analyze': 'AI Advisory',
   'home.deviceLink': 'Device Link',
   'home.section.advisory': 'Latest advisory',
+  'recovery.create': 'Create Checkpoint',
+  'recovery.create.running': 'Creating…',
+  'recovery.create.done': 'Created ({status}) · checkpoint {id} — created ≠ recoverable',
+  'recovery.test': 'Test Restore',
+  'recovery.test.running': 'Testing…',
+  'recovery.restore': 'Restore',
+  'recovery.restore.running': 'Restoring…',
+  'recovery.restore.confirmTitle': 'Confirm restore',
+  'recovery.restore.confirmBody':
+    'Restore writes the server-owned product config target of checkpoint {id}. This is the only restore scope.',
+  'recovery.restore.confirmType': 'Type {word} to confirm',
+  'recovery.action.receipt': 'Action receipt:',
+  'recovery.action.failed': 'Action failed ({reasonCode}); the authoritative state shown was left unchanged.',
+  'devices.disableNote':
+    'Disable removes exposure but keeps the durable binding; it is not unpair. Revoke removes the binding.',
+  'devices.actionFailed': 'Action failed ({reasonCode})',
+  'devices.enableRunning': 'Enabling…',
+  'devices.disableRunning': 'Disabling…',
+  'devices.refreshRunning': 'Refreshing…',
 };
 
 const zhCN: Messages = {
@@ -729,19 +742,19 @@ const zhCN: Messages = {
   'feedback.unavailable': '权威状态暂时不可用，已重新加载可读取的最新状态。',
   'feedback.unconfirmed': '操作未被确认，已重新加载最新权威状态。',
   'feedback.unknown': '操作结果未知，已重新加载最新权威状态。',
-  'devices.section.mobile': '移动设备',
   'devices.unpaired.title': '尚未连接手机',
   'devices.unpaired.detail': '配对手机后，即可与此桌面端连接。',
+  'devices.section.mobile': '移动设备',
   'devices.addDevice': '添加移动设备',
-  'devices.unavailable': '此构建尚未接入设备连接；配对界面已就绪，等待 Device Link 适配器接入。',
-  'devices.firstHint': '首次连接时，两台设备将显示相同的 6 位安全码。',
+  'devices.unavailable': 'Device Link 未启用或其权威不可用——请先在上方启用连接后再开始配对。',
+  'devices.firstHint': '配对时手机端会显示 6 位安全码；确认此界面出现相同的安全码。',
+
   'devices.pairing.title': '配对移动设备',
-  'devices.qr.placeholder': '配对二维码将显示在此处。',
   'devices.qr.awaiting': '正在生成二维码…',
   'devices.identity': '桌面端标识',
   'devices.expires': '配对请求将在 {seconds} 秒后过期',
   'devices.waiting': '等待移动设备连接…',
-  'devices.sas.prompt': '请确认两台设备显示相同的安全码。',
+  'devices.sas.prompt': '两台设备必须确认相同的安全码。安全码在手机端显示（Core 不会把它返回到这里）。',
   'devices.sas.confirm': '确认一致',
   'devices.sas.reject': '不一致，取消',
   'devices.confirming': '正在确认…',
@@ -869,19 +882,8 @@ const zhCN: Messages = {
   'devices.revoke': '解除绑定',
   'devices.revoking': '解除中…',
   'devices.revoked': '已解除。',
-  'devices.qrGenerate': '生成配对二维码',
-  'devices.qrGenerating': '生成中…',
   'devices.qrHint': '使用 Android 应用扫描。二维码包含完整 canonical 邀请。',
-  'devices.state': '配对状态',
-  'devices.stateCreated': '已创建',
-  'devices.stateWaiting': '等待手机端',
-  'devices.stateSas': '等待 SAS 确认',
-  'devices.stateConfirmed': '双方已确认',
-  'devices.stateError': '错误',
-  'devices.sasShow': '手机端显示的安全码',
   'devices.sasWaiting': '等待手机端显示安全码…',
-  'devices.confirmBoth': '两台设备显示的安全码一致',
-  'devices.poll': '刷新中…',
   'kv.observedAt': 'observed_at',
   'kv.lastSeenAt': 'last_seen',
   'kv.expiresAt': 'expires_at',
@@ -899,12 +901,28 @@ const zhCN: Messages = {
   'settings.provider.failed': '测试失败：{error}',
   'settings.provider.modelCount': '发现 {count} 个模型',
   'settings.provider.note': 'API key 仅存内存，不落盘、不回显、不会发送到 Android 应用。',
-  'settings.provider.saved': '提供方设置已就绪。请在环境或监管页运行“分析当前环境”。',
   'ai.advisory.none': '暂无建议。',
   'supervision.section.analyze': 'AI 建议',
   'env.section.analyze': 'AI 建议',
   'home.deviceLink': '设备连接',
   'home.section.advisory': '最新建议',
+  'recovery.create': '创建检查点',
+  'recovery.create.running': '正在创建…',
+  'recovery.create.done': '已创建（{status}）· 检查点 {id} —— 已创建 ≠ 可恢复',
+  'recovery.test': '测试恢复',
+  'recovery.test.running': '正在测试…',
+  'recovery.restore': '恢复',
+  'recovery.restore.running': '正在恢复…',
+  'recovery.restore.confirmTitle': '确认恢复',
+  'recovery.restore.confirmBody': '恢复只会写回服务端拥有的产品配置目标（检查点 {id}），这是唯一的恢复范围。',
+  'recovery.restore.confirmType': '输入 {word} 以确认',
+  'recovery.action.receipt': '操作回执：',
+  'recovery.action.failed': '操作失败（{reasonCode}），显示中的权威状态保持不变。',
+  'devices.disableNote': '停用会移除网络暴露但保留持久绑定，不等于解除配对；解除绑定需使用 Revoke。',
+  'devices.actionFailed': '操作失败（{reasonCode}）',
+  'devices.enableRunning': '正在启用…',
+  'devices.disableRunning': '正在停用…',
+  'devices.refreshRunning': '正在刷新…',
 };
 
 export const MESSAGES: Record<Locale, Messages> = {

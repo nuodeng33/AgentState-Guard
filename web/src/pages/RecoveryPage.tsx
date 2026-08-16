@@ -19,13 +19,21 @@ import {
 } from '../components/StateBadge';
 import { ViewGate } from '../components/ViewGate';
 import { useT } from '../i18n/I18nProvider';
+import { CreateCheckpointAction, RecoveryItemActions } from './RecoveryActions';
 
 export default function RecoveryPage({ client = apiClient }: { client?: ApiClient }) {
   const state = useR4View<RecoveryView>('recovery', client);
   const t = useT();
   return (
     <ViewGate state={state} label={t('nav.recovery')}>
-      {(data) => <RecoveryViewBody data={data} />}
+      {(data) => (
+        <div>
+          {client && data.capabilities?.create_checkpoint && (
+            <CreateCheckpointAction client={client} onChanged={state.reload} />
+          )}
+          <RecoveryViewBody data={data} actions={{ client, reload: state.reload }} />
+        </div>
+      )}
     </ViewGate>
   );
 }
@@ -49,7 +57,14 @@ function percent(ratio: number | null): string {
   return ratio === null ? '—' : `${(ratio * 100).toFixed(1)}%`;
 }
 
-export function RecoveryViewBody({ data }: { data: RecoveryView }) {
+export function RecoveryViewBody({
+  data,
+  actions,
+}: {
+  data: RecoveryView;
+  /** Optional mutation seam; page-scope tests render read-only by default. */
+  actions?: { client: ApiClient; reload: () => void };
+}) {
   const t = useT();
   const levelTone = recoveryLevelTone(data.recovery_level);
   const yesNo = (value: boolean) => (value ? t('common.yes') : t('common.no'));
@@ -129,7 +144,7 @@ export function RecoveryViewBody({ data }: { data: RecoveryView }) {
 
       {data.items.length > 0 && <SectionHeader title={t('recovery.section.checkpoints')} />}
       {data.items.map((item) => (
-        <RecoveryCard key={item.checkpoint_id} item={item} yesNo={yesNo} />
+        <RecoveryCard key={item.checkpoint_id} item={item} yesNo={yesNo} actions={actions} />
       ))}
 
       <EvidenceRefs refs={data.evidence_refs} />
@@ -174,9 +189,11 @@ function TrustedBaselinePanel({
 function RecoveryCard({
   item,
   yesNo,
+  actions,
 }: {
   item: RecoveryItem;
   yesNo: (value: boolean) => string;
+  actions?: { client: ApiClient; reload: () => void };
 }) {
   const t = useT();
   const itemFailClosed =
@@ -224,6 +241,14 @@ function RecoveryCard({
         <KeyValue k={t('kv.trustedBaselineId')} v={orDash(item.trusted_baseline_id)} />
         <KeyValue k="reason_code" v={<code>{item.reason_code}</code>} />
       </KeyValueGrid>
+      {actions && (
+        <RecoveryItemActions
+          checkpointId={item.checkpoint_id}
+          client={actions.client}
+          onChanged={actions.reload}
+          disabled={itemFailClosed}
+        />
+      )}
       <EvidenceRefs refs={item.evidence_refs} />
     </section>
   );

@@ -452,6 +452,44 @@ describe('api client mutation POST', () => {
     expect(rendered).not.toContain('/etc/passwd');
   });
 
+  it('retains the failure DTO as an opaque holder; reason_code still whitelisted', async () => {
+    const advisory503 = {
+      schema_version: 'product-ai-advisory-1',
+      status: 'UNAVAILABLE',
+      reason_code: 'AI_PROVIDER_UNAVAILABLE',
+      summary: 'AI provider is unavailable.',
+      uncertainties: [],
+      recommended_checks: [],
+      evidence_refs: [],
+      provider: null,
+      model: null,
+      analyzed_at: null,
+    };
+    const { fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () => jsonResponse(advisory503, 503),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const failure = await client.post('/api/ai/analyze', {}).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(ApiActionError);
+    expect((failure as ApiActionError).status).toBe(503);
+    expect((failure as ApiActionError).reasonCode).toBe('AI_PROVIDER_UNAVAILABLE');
+    expect((failure as ApiActionError).dto).toEqual(advisory503);
+  });
+
+  it('dto is null when the failure body is not JSON', async () => {
+    const { fetchImpl } = mockPostFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () => Promise.resolve(new Response('oops plain text', { status: 500 })),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const failure = await client.post('/api/ai/analyze', {}).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(ApiActionError);
+    expect((failure as ApiActionError).dto).toBeNull();
+  });
+
   it('maps network failures during mutation to a display-safe message', async () => {
     const fetchImpl = (async () => {
       throw new TypeError('fetch failed: connect ECONNREFUSED 127.0.0.1:8787');

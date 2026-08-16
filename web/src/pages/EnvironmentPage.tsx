@@ -21,6 +21,7 @@ import { getDoctor, getStatus, refreshDiscovery } from '../api/product';
 import type { AgentsView, RuntimeView } from '../api/types';
 import { useAsync } from '../api/useAsync';
 import { useR4View } from '../api/useR4View';
+import { AnalyzeSection } from '../components/AnalyzeSection';
 import { SectionHeader } from '../components/SectionHeader';
 import { ViewGate } from '../components/ViewGate';
 import { useT, type Translate } from '../i18n/I18nProvider';
@@ -128,6 +129,9 @@ export default function EnvironmentPage({ client = apiClient }: { client?: ApiCl
       <ViewGate state={agents} label={t('nav.agents')}>
         {(data) => <AgentsViewBody data={data} />}
       </ViewGate>
+
+      <SectionHeader title={t('env.section.analyze')} />
+      {client && <AnalyzeSection client={client} />}
     </div>
   );
 }
