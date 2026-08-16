@@ -16,13 +16,13 @@ export type MessageKey =
   | 'app.brand.sub'
   | 'app.nav.primary'
   | 'nav.home'
+  | 'nav.environment'
   | 'nav.runtime'
   | 'nav.agents'
   | 'nav.supervision'
   | 'nav.changes'
   | 'nav.recovery'
   | 'nav.devices'
-  | 'nav.aiMonitor'
   | 'nav.settings'
   | 'view.loading'
   | 'view.unavailable'
@@ -44,16 +44,13 @@ export type MessageKey =
   | 'common.yes'
   | 'common.no'
   | 'common.items'
+  | 'common.close'
   | 'state.degraded.title'
   | 'state.degraded.body'
   | 'state.unknown.title'
   | 'state.unknown.body'
   | 'home.subtitle'
   | 'home.section.overview'
-  | 'changes.unavailable.title'
-  | 'changes.unavailable.detail'
-  | 'aiMonitor.unavailable.title'
-  | 'aiMonitor.unavailable.detail'
   | 'runtime.empty.title'
   | 'runtime.empty.detail'
   | 'runtime.unknownType'
@@ -148,7 +145,165 @@ export type MessageKey =
   | 'devices.error.title'
   | 'devices.cancel'
   | 'devices.done'
-  | 'devices.startOver';
+  | 'devices.startOver'
+  /* ---- environment / doctor / analyze ---- */
+  | 'env.title'
+  | 'env.section.runtimeAgents'
+  | 'env.section.doctor'
+  | 'env.section.status'
+  | 'env.section.runtime'
+  | 'env.section.agents'
+  | 'env.status.versions'
+  | 'env.status.checks'
+  | 'env.refreshFailed'
+  | 'env.observedAt'
+  | 'env.refresh'
+  | 'env.refreshing'
+  | 'env.refreshDone'
+  | 'analyze.action'
+  | 'analyze.running'
+  | 'analyze.notConfigured'
+  | 'analyze.failed'
+  | 'analyze.title'
+  | 'analyze.severity'
+  | 'analyze.uncertainties'
+  | 'analyze.checks'
+  | 'analyze.provider'
+  | 'analyze.model'
+  | 'analyze.analyzedAt'
+  /* ---- changes / evidence ---- */
+  | 'changes.section.recent'
+  | 'changes.empty.title'
+  | 'changes.empty.detail'
+  | 'changes.detail.title'
+  | 'changes.field.policy'
+  | 'changes.field.approval'
+  | 'changes.openEvidence'
+  | 'changes.col.time'
+  | 'changes.col.result'
+  | 'changes.col.actor'
+  | 'changes.col.subject'
+  | 'changes.col.checkpoint'
+  | 'evidence.detail.title'
+  | 'evidence.detail.empty'
+  | 'evidence.field.eventId'
+  | 'evidence.field.type'
+  | 'evidence.field.result'
+  | 'evidence.field.actor'
+  | 'evidence.field.subject'
+  | 'evidence.field.checkpoint'
+  | 'evidence.field.change'
+  | 'evidence.field.session'
+  | 'evidence.field.verification'
+  | 'evidence.field.status'
+  | 'evidence.field.recordedAt'
+  | 'evidence.field.source'
+  | 'evidence.field.chainRef'
+  | 'evidence.field.affectedObjects'
+  | 'evidence.related'
+  /* ---- controlled change ---- */
+  | 'cc.title'
+  | 'cc.load'
+  | 'cc.loadHint'
+  | 'cc.loading'
+  | 'cc.containerTitle'
+  | 'cc.intentTitle'
+  | 'cc.intent'
+  | 'cc.decisionTitle'
+  | 'cc.decision'
+  | 'cc.reasonCode'
+  | 'cc.requiresApproval'
+  | 'cc.requiresCheckpoint'
+  | 'cc.actionRef'
+  | 'cc.applyTitle'
+  | 'cc.apply'
+  | 'cc.applyDisabledHint'
+  | 'cc.approving'
+  | 'cc.applyRunning'
+  | 'cc.resultTitle'
+  | 'cc.changed'
+  | 'cc.verification'
+  | 'cc.rolledBack'
+  | 'cc.checkpointId'
+  | 'cc.beforeDigest'
+  | 'cc.afterDigest'
+  | 'cc.statusTitle'
+  | 'cc.cancel'
+  | 'cc.startOver'
+  | 'cc.contentPlaceholder'
+  | 'cc.section'
+  | 'cc.prepare'
+  | 'cc.preparing'
+  | 'cc.preparedTitle'
+  | 'cc.applyApprovedHint'
+  | 'cc.applyDoneTitle'
+  | 'cc.reset'
+  | 'supervision.field.pendingApproval'
+  | 'supervision.field.blockedReason'
+  | 'supervision.field.latestCheckpoint'
+  | 'supervision.field.confirmedResult'
+  | 'supervision.section.activity'
+  | 'supervision.field.createdAt'
+  | 'supervision.field.updatedAt'
+  | 'supervision.section.observedAgents'
+  /* ---- devices ---- */
+  | 'devices.section.binding'
+  | 'devices.enable'
+  | 'devices.disable'
+  | 'devices.refresh'
+  | 'devices.enabled'
+  | 'devices.disabled'
+  | 'devices.endpoint'
+  | 'devices.address'
+  | 'devices.subnet'
+  | 'devices.desktopUuid'
+  | 'devices.signFp'
+  | 'devices.tlsFp'
+  | 'devices.boundTitle'
+  | 'devices.noBound'
+  | 'devices.lastSeen'
+  | 'devices.activeSessions'
+  | 'devices.revoke'
+  | 'devices.revoking'
+  | 'devices.revoked'
+  | 'devices.qrGenerate'
+  | 'devices.qrGenerating'
+  | 'devices.qrHint'
+  | 'devices.state'
+  | 'devices.stateCreated'
+  | 'devices.stateWaiting'
+  | 'devices.stateSas'
+  | 'devices.stateConfirmed'
+  | 'devices.stateError'
+  | 'devices.sasShow'
+  | 'devices.sasWaiting'
+  | 'devices.confirmBoth'
+  | 'devices.poll'
+  | 'kv.observedAt'
+  | 'kv.lastSeenAt'
+  | 'kv.expiresAt'
+  | 'kv.agentCount'
+  | 'kv.runtimeCount'
+  /* ---- settings / AI ---- */
+  | 'settings.section.ai'
+  | 'settings.provider.baseUrl'
+  | 'settings.provider.apiKey'
+  | 'settings.provider.model'
+  | 'settings.provider.fetchModels'
+  | 'settings.provider.fetching'
+  | 'settings.provider.test'
+  | 'settings.provider.testing'
+  | 'settings.provider.ok'
+  | 'settings.provider.failed'
+  | 'settings.provider.modelCount'
+  | 'settings.provider.note'
+  | 'settings.provider.saved'
+  | 'ai.advisory.none'
+  /* ---- supervised analyze surface ---- */
+  | 'supervision.section.analyze'
+  | 'env.section.analyze'
+  | 'home.deviceLink'
+  | 'home.section.advisory';
 
 export type Messages = Record<MessageKey, string>;
 
@@ -157,13 +312,13 @@ const enUS: Messages = {
   'app.brand.sub': 'R4 Operations Console',
   'app.nav.primary': 'Primary',
   'nav.home': 'Home',
+  'nav.environment': 'Environment',
   'nav.runtime': 'Runtime',
   'nav.agents': 'Agents',
   'nav.supervision': 'Supervision',
   'nav.changes': 'Changes',
   'nav.recovery': 'Recovery',
   'nav.devices': 'Devices',
-  'nav.aiMonitor': 'AI Monitor',
   'nav.settings': 'Settings',
   'view.loading': 'Loading {label}…',
   'view.unavailable': '{label} unavailable',
@@ -187,6 +342,7 @@ const enUS: Messages = {
   'common.yes': 'Yes',
   'common.no': 'No',
   'common.items': '{count} items',
+  'common.close': 'Close',
   'state.degraded.title': '{label} view degraded',
   'state.degraded.body':
     'The backend could not project authoritative {label} state ({reasonCode}). Nothing below is projected authority.',
@@ -195,12 +351,6 @@ const enUS: Messages = {
     'The backend reports this view as UNKNOWN ({reasonCode}). Do not treat it as healthy.',
   'home.subtitle': 'Authoritative state across the four read views.',
   'home.section.overview': 'Overview',
-  'changes.unavailable.title': 'No authoritative changes feed',
-  'changes.unavailable.detail':
-    'This build exposes no authoritative changes projection. Nothing is shown rather than guessed.',
-  'aiMonitor.unavailable.title': 'AI Monitor is not configured',
-  'aiMonitor.unavailable.detail':
-    'No AI provider is configured on this desktop. Nothing is analyzed, and no authority is inferred.',
   'runtime.empty.title': 'No runtime records',
   'runtime.empty.detail': 'The backend holds no verified runtime facts for this view.',
   'runtime.unknownType': 'Unknown runtime',
@@ -309,6 +459,159 @@ const enUS: Messages = {
   'devices.cancel': 'Cancel',
   'devices.done': 'Done',
   'devices.startOver': 'Start over',
+  'env.title': 'Environment',
+  'env.section.runtimeAgents': 'Runtime & Agents',
+  'env.section.doctor': 'Doctor',
+  'env.section.status': 'Status',
+  'env.section.runtime': 'Runtime',
+  'env.section.agents': 'Agents',
+  'env.status.versions': 'Versions',
+  'env.status.checks': 'Checks',
+  'env.refreshFailed': 'Discovery refresh failed; the currently shown state is unchanged.',
+  'env.observedAt': 'observed at {time}',
+  'env.refresh': 'Refresh discovery',
+  'env.refreshing': 'Refreshing…',
+  'env.refreshDone': 'Refreshed.',
+  'analyze.action': 'Analyze Current Environment',
+  'analyze.running': 'Analyzing…',
+  'analyze.notConfigured': 'AI provider is not configured. Configure and test one in Settings.',
+  'analyze.failed': 'Analysis failed ({reasonCode})',
+  'analyze.title': 'AI Advisory',
+  'analyze.severity': 'severity',
+  'analyze.uncertainties': 'Uncertainties',
+  'analyze.checks': 'Recommended checks',
+  'analyze.provider': 'provider',
+  'analyze.model': 'model',
+  'analyze.analyzedAt': 'analyzed at {time}',
+  'changes.section.recent': 'Verified activity',
+  'changes.empty.title': 'No verified activity',
+  'changes.empty.detail': 'The verified Ledger holds no activity entries for this feed.',
+  'changes.detail.title': 'Selected activity',
+  'changes.field.policy': 'Policy summary',
+  'changes.field.approval': 'Approval summary',
+  'changes.openEvidence': 'Evidence',
+  'changes.col.time': 'Time',
+  'changes.col.result': 'Result',
+  'changes.col.actor': 'Actor',
+  'changes.col.subject': 'Subject',
+  'changes.col.checkpoint': 'Checkpoint',
+  'evidence.detail.title': 'Evidence detail',
+  'evidence.detail.empty': 'Select an evidence reference to inspect its sanitized detail.',
+  'evidence.field.eventId': 'Event ID',
+  'evidence.field.type': 'Type',
+  'evidence.field.result': 'Result',
+  'evidence.field.actor': 'Actor',
+  'evidence.field.subject': 'Subject',
+  'evidence.field.checkpoint': 'Checkpoint',
+  'evidence.field.change': 'Change',
+  'evidence.field.session': 'Session',
+  'evidence.field.verification': 'Verification',
+  'evidence.field.status': 'Status',
+  'evidence.field.recordedAt': 'recorded_at',
+  'evidence.field.source': 'Source',
+  'evidence.field.chainRef': 'chain_ref',
+  'evidence.field.affectedObjects': 'Affected objects',
+  'evidence.related': 'Related evidence',
+  'cc.title': 'Controlled Change',
+  'cc.load': 'Load config',
+  'cc.loadHint': 'Load the current TOML from the backend (read-only fetch).',
+  'cc.loading': 'Loading…',
+  'cc.containerTitle': 'Edit TOML',
+  'cc.intentTitle': 'Prepare',
+  'cc.intent': 'How the backend judged this content (decision is authoritative).',
+  'cc.decisionTitle': 'Backend decision',
+  'cc.decision': 'Decision',
+  'cc.reasonCode': 'reason_code',
+  'cc.requiresApproval': 'Requires manual approval',
+  'cc.requiresCheckpoint': 'Requires checkpoint',
+  'cc.actionRef': 'action_ref',
+  'cc.applyTitle': 'Apply',
+  'cc.apply': 'Apply controlled change',
+  'cc.applyDisabledHint': 'Apply is enabled only when the backend issued action_ref and manual approval is required.',
+  'cc.approving': 'Approving…',
+  'cc.applyRunning': 'Applying…',
+  'cc.resultTitle': 'Apply result (authoritative)',
+  'cc.changed': 'changed',
+  'cc.verification': 'Verification',
+  'cc.rolledBack': 'rolled_back',
+  'cc.checkpointId': 'checkpoint_id',
+  'cc.beforeDigest': 'before digest',
+  'cc.afterDigest': 'after digest',
+  'cc.statusTitle': 'Status',
+  'cc.cancel': 'Cancel',
+  'cc.startOver': 'Start over',
+  'cc.contentPlaceholder': '# TOML content to prepare/apply',
+  'cc.section': 'Controlled Change',
+  'cc.prepare': 'Prepare change',
+  'cc.preparing': 'Preparing…',
+  'cc.preparedTitle': 'Prepared session (backend verdict)',
+  'cc.applyApprovedHint': 'Approve once above, then apply the identical content.',
+  'cc.applyDoneTitle': 'Apply result (authoritative)',
+  'cc.reset': 'Start over',
+  'supervision.field.pendingApproval': 'Pending approval',
+  'supervision.field.blockedReason': 'Blocked/failed reason',
+  'supervision.field.latestCheckpoint': 'Latest checkpoint',
+  'supervision.field.confirmedResult': 'Latest confirmed result',
+  'supervision.section.activity': 'Recent verified activity',
+  'supervision.field.createdAt': 'created_at',
+  'supervision.field.updatedAt': 'updated_at',
+  'supervision.section.observedAgents': 'Observed agents (backend projection)',
+  'devices.section.binding': 'Device Link',
+  'devices.enable': 'Enable',
+  'devices.disable': 'Disable',
+  'devices.refresh': 'Refresh network',
+  'devices.enabled': 'ENABLED',
+  'devices.disabled': 'DISABLED',
+  'devices.endpoint': 'Endpoint',
+  'devices.address': 'Address',
+  'devices.subnet': 'Subnet',
+  'devices.desktopUuid': 'Desktop UUID',
+  'devices.signFp': 'Signing fingerprint',
+  'devices.tlsFp': 'TLS SPKI fingerprint',
+  'devices.boundTitle': 'Bound devices',
+  'devices.noBound': 'No mobile device is currently bound.',
+  'devices.lastSeen': 'last seen {time}',
+  'devices.activeSessions': 'active pair sessions',
+  'devices.revoke': 'Revoke',
+  'devices.revoking': 'Revoking…',
+  'devices.revoked': 'Revoked.',
+  'devices.qrGenerate': 'Generate pairing QR',
+  'devices.qrGenerating': 'Generating…',
+  'devices.qrHint': 'Scan with the Android app. The QR contains the full canonical invitation.',
+  'devices.state': 'pairing state',
+  'devices.stateCreated': 'created',
+  'devices.stateWaiting': 'waiting for mobile',
+  'devices.stateSas': 'SAS pending',
+  'devices.stateConfirmed': 'confirmed by both',
+  'devices.stateError': 'error',
+  'devices.sasShow': 'security code shown on mobile',
+  'devices.sasWaiting': 'Waiting for the code to appear on the mobile…',
+  'devices.confirmBoth': 'The code is confirmed correctly on both devices',
+  'devices.poll': 'Refreshing…',
+  'kv.observedAt': 'observed_at',
+  'kv.lastSeenAt': 'last_seen',
+  'kv.expiresAt': 'expires_at',
+  'kv.agentCount': 'agents',
+  'kv.runtimeCount': 'runtime',
+  'settings.section.ai': 'AI Provider',
+  'settings.provider.baseUrl': 'Base URL',
+  'settings.provider.apiKey': 'API key',
+  'settings.provider.model': 'Model',
+  'settings.provider.fetchModels': 'Fetch models',
+  'settings.provider.fetching': 'Fetching…',
+  'settings.provider.test': 'Test connection',
+  'settings.provider.testing': 'Testing…',
+  'settings.provider.ok': 'Connected ({models} models, {latency}ms)',
+  'settings.provider.failed': 'Test failed: {error}',
+  'settings.provider.modelCount': '{count} models found',
+  'settings.provider.note':
+    'The API key is held in memory only. It is never written to disk, never echoed back, and never sent to the Android app.',
+  'settings.provider.saved': 'Provider settings are ready. Run Analyze Current Environment on Environment or Supervision.',
+  'ai.advisory.none': 'No advisory yet.',
+  'supervision.section.analyze': 'AI Advisory',
+  'env.section.analyze': 'AI Advisory',
+  'home.deviceLink': 'Device Link',
+  'home.section.advisory': 'Latest advisory',
 };
 
 const zhCN: Messages = {
@@ -316,13 +619,13 @@ const zhCN: Messages = {
   'app.brand.sub': 'R4 运营控制台',
   'app.nav.primary': '主导航',
   'nav.home': '首页',
+  'nav.environment': '环境',
   'nav.runtime': '运行环境',
   'nav.agents': '智能体',
   'nav.supervision': '监管',
   'nav.changes': '变更',
   'nav.recovery': '恢复',
   'nav.devices': '设备',
-  'nav.aiMonitor': 'AI 监管',
   'nav.settings': '设置',
   'view.loading': '正在加载{label}…',
   'view.unavailable': '{label}暂不可用',
@@ -344,6 +647,7 @@ const zhCN: Messages = {
   'common.yes': '是',
   'common.no': '否',
   'common.items': '{count} 条记录',
+  'common.close': '关闭',
   'state.degraded.title': '{label}视图已降级',
   'state.degraded.body':
     '后端无法投影权威的{label}状态（{reasonCode}）。下方内容均非权威投影。',
@@ -351,10 +655,6 @@ const zhCN: Messages = {
   'state.unknown.body': '后端报告该视图为 UNKNOWN（{reasonCode}），请勿视为健康。',
   'home.subtitle': '四个只读视图的权威状态总览。',
   'home.section.overview': '总览',
-  'changes.unavailable.title': '暂无权威变更数据源',
-  'changes.unavailable.detail': '此构建未提供权威变更投影，宁可留空也不猜测。',
-  'aiMonitor.unavailable.title': 'AI 监管未配置',
-  'aiMonitor.unavailable.detail': '此桌面端未配置 AI 提供方；不执行任何分析，也不推断任何权限。',
   'runtime.empty.title': '暂无运行环境记录',
   'runtime.empty.detail': '后端没有此视图的已验证运行环境事实。',
   'runtime.unknownType': '未知运行环境',
@@ -453,6 +753,158 @@ const zhCN: Messages = {
   'devices.cancel': '取消',
   'devices.done': '完成',
   'devices.startOver': '重新开始',
+  'evidence.field.eventId': '事件 ID',
+  'evidence.field.type': '类型',
+  'evidence.field.result': '结果',
+  'evidence.field.actor': '操作者',
+  'evidence.field.subject': '对象',
+  'evidence.field.checkpoint': '检查点',
+  'evidence.field.change': '变更',
+  'evidence.field.session': '会话',
+  'evidence.field.verification': '验证摘要',
+  'evidence.field.status': '状态',
+  'evidence.field.recordedAt': 'recorded_at',
+  'evidence.field.source': '来源',
+  'evidence.field.chainRef': 'chain_ref',
+  'evidence.field.affectedObjects': '受影响对象',
+  'evidence.related': '相关证据',
+  'evidence.detail.title': '证据详情',
+  'evidence.detail.empty': '选择一个证据引用查看其受限详情。',
+  'env.title': '环境',
+  'env.section.runtimeAgents': '运行环境与智能体',
+  'env.section.doctor': 'Doctor',
+  'env.section.status': '状态',
+  'env.section.runtime': '运行环境',
+  'env.section.agents': '智能体',
+  'env.status.versions': '版本',
+  'env.status.checks': '检查项',
+  'env.refreshFailed': '发现刷新失败；当前显示状态保持不变。',
+  'env.observedAt': '观测于 {time}',
+  'env.refresh': '刷新发现',
+  'env.refreshing': '刷新中…',
+  'env.refreshDone': '已刷新。',
+  'analyze.action': '分析当前环境',
+  'analyze.running': '分析中…',
+  'analyze.notConfigured': 'AI provider 未配置。请先在“设置”中配置并测试。',
+  'analyze.failed': '分析失败（{reasonCode}）',
+  'analyze.title': 'AI 建议',
+  'analyze.severity': '严重度',
+  'analyze.uncertainties': '不确定项',
+  'analyze.checks': '建议检查',
+  'analyze.provider': 'provider',
+  'analyze.model': 'model',
+  'analyze.analyzedAt': '分析于 {time}',
+  'changes.section.recent': '已验证活动',
+  'changes.empty.title': '暂无已验证活动',
+  'changes.empty.detail': '已验证账本中没有此数据流的活动记录。',
+  'changes.detail.title': '选中的活动',
+  'changes.field.policy': '策略摘要',
+  'changes.field.approval': '审批摘要',
+  'changes.openEvidence': '证据',
+  'changes.col.time': '时间',
+  'changes.col.result': '结果',
+  'changes.col.actor': '操作者',
+  'changes.col.subject': '对象',
+  'changes.col.checkpoint': '检查点',
+  'cc.title': '受控变更',
+  'cc.load': '加载配置',
+  'cc.loadHint': '从后端加载当前 TOML（只读抓取）。',
+  'cc.loading': '加载中…',
+  'cc.containerTitle': '编辑 TOML',
+  'cc.intentTitle': '预备',
+  'cc.intent': '后端如何判定这份内容（decision 为权威语义）。',
+  'cc.decisionTitle': '后端决断',
+  'cc.decision': '决断',
+  'cc.reasonCode': 'reason_code',
+  'cc.requiresApproval': '需要人工审批',
+  'cc.requiresCheckpoint': '需要检查点',
+  'cc.actionRef': 'action_ref',
+  'cc.applyTitle': '应用',
+  'cc.apply': '应用受控变更',
+  'cc.applyDisabledHint': '仅当后端下发 action_ref 且需要人工审批时才可应用。',
+  'cc.approving': '正在批准…',
+  'cc.applyRunning': '正在应用…',
+  'cc.resultTitle': '应用结果（权威）',
+  'cc.changed': '已变更',
+  'cc.verification': '验证',
+  'cc.rolledBack': '已回滚',
+  'cc.checkpointId': 'checkpoint_id',
+  'cc.beforeDigest': 'before digest',
+  'cc.afterDigest': 'after digest',
+  'cc.statusTitle': '状态',
+  'cc.cancel': '取消',
+  'cc.startOver': '重新开始',
+  'cc.contentPlaceholder': '# 填写要 prepare/apply 的 TOML 内容',
+  'cc.section': '受控变更',
+  'cc.prepare': '预备变更',
+  'cc.preparing': '预备中…',
+  'cc.preparedTitle': '已预备会话（后端裁决）',
+  'cc.applyApprovedHint': '在上方批准后，再提交相同内容执行应用。',
+  'cc.applyDoneTitle': '应用结果（权威）',
+  'cc.reset': '重新开始',
+  'supervision.field.pendingApproval': '待审批',
+  'supervision.field.blockedReason': '阻断/失败原因',
+  'supervision.field.latestCheckpoint': '最新检查点',
+  'supervision.field.confirmedResult': '最近确认结果',
+  'supervision.section.activity': '最近已验证活动',
+  'supervision.field.createdAt': 'created_at',
+  'supervision.field.updatedAt': 'updated_at',
+  'supervision.section.observedAgents': '后端投影的已观测智能体',
+  'devices.section.binding': '设备连接',
+  'devices.enable': '启用',
+  'devices.disable': '停用',
+  'devices.refresh': '刷新网络',
+  'devices.enabled': '已启用',
+  'devices.disabled': '已停用',
+  'devices.endpoint': 'Endpoint',
+  'devices.address': '地址',
+  'devices.subnet': '子网',
+  'devices.desktopUuid': '桌面端 UUID',
+  'devices.signFp': '签名指纹',
+  'devices.tlsFp': 'TLS SPKI 指纹',
+  'devices.boundTitle': '已绑定设备',
+  'devices.noBound': '当前没有绑定的移动设备。',
+  'devices.lastSeen': '上次在线 {time}',
+  'devices.activeSessions': '活动配对会话数',
+  'devices.revoke': '解除绑定',
+  'devices.revoking': '解除中…',
+  'devices.revoked': '已解除。',
+  'devices.qrGenerate': '生成配对二维码',
+  'devices.qrGenerating': '生成中…',
+  'devices.qrHint': '使用 Android 应用扫描。二维码包含完整 canonical 邀请。',
+  'devices.state': '配对状态',
+  'devices.stateCreated': '已创建',
+  'devices.stateWaiting': '等待手机端',
+  'devices.stateSas': '等待 SAS 确认',
+  'devices.stateConfirmed': '双方已确认',
+  'devices.stateError': '错误',
+  'devices.sasShow': '手机端显示的安全码',
+  'devices.sasWaiting': '等待手机端显示安全码…',
+  'devices.confirmBoth': '两台设备显示的安全码一致',
+  'devices.poll': '刷新中…',
+  'kv.observedAt': 'observed_at',
+  'kv.lastSeenAt': 'last_seen',
+  'kv.expiresAt': 'expires_at',
+  'kv.agentCount': 'agents',
+  'kv.runtimeCount': 'runtime',
+  'settings.section.ai': 'AI 提供方',
+  'settings.provider.baseUrl': 'Base URL',
+  'settings.provider.apiKey': 'API key',
+  'settings.provider.model': 'Model',
+  'settings.provider.fetchModels': '获取模型列表',
+  'settings.provider.fetching': '获取中…',
+  'settings.provider.test': '测试连接',
+  'settings.provider.testing': '测试中…',
+  'settings.provider.ok': '已连接（{models} 个模型，{latency}ms）',
+  'settings.provider.failed': '测试失败：{error}',
+  'settings.provider.modelCount': '发现 {count} 个模型',
+  'settings.provider.note': 'API key 仅存内存，不落盘、不回显、不会发送到 Android 应用。',
+  'settings.provider.saved': '提供方设置已就绪。请在环境或监管页运行“分析当前环境”。',
+  'ai.advisory.none': '暂无建议。',
+  'supervision.section.analyze': 'AI 建议',
+  'env.section.analyze': 'AI 建议',
+  'home.deviceLink': '设备连接',
+  'home.section.advisory': '最新建议',
 };
 
 export const MESSAGES: Record<Locale, Messages> = {

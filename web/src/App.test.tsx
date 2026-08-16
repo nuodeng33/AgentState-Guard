@@ -1,6 +1,9 @@
 /**
  * Full-app smoke through the real production wiring: App shell, navigation,
- * session bootstrap, and all four P8 views against a mocked r4-p8-1 backend.
+ * session bootstrap, and the V1 surfaces against a mocked r4-p8-1 backend.
+ * Runtime and Agents are no longer primary nav items; Environment folds them
+ * together with the bounded /api/status and /api/doctor projections, and
+ * Changes is the real evidence-backed verified-activity feed.
  */
 
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -50,8 +53,22 @@ function smokeFetch(input: RequestInfo | URL): Promise<Response> {
       json({ status: 'ready', database: 'available', reason_code: 'RUNTIME_READY' }),
     );
   }
-  const match = path.match(/^\/api\/v1\/(runtime|agents|supervision|recovery)$/);
+  const match = path.match(/^\/api\/v1\/(runtime|agents|supervision|recovery|changes)$/);
   if (match) return Promise.resolve(json(emptyView(match[1])));
+  if (path === '/api/status') {
+    return Promise.resolve(
+      json({
+        timestamp_utc: '2025-05-17T14:00:00Z',
+        checks: { docker: false, port_3001: true },
+        versions: { node: 'v22.3.1' },
+      }),
+    );
+  }
+  if (path === '/api/doctor') {
+    return Promise.resolve(
+      json([{ check: 'docker-cli', status: 'UNREACHABLE', message: 'Container is isolated.' }]),
+    );
+  }
   return Promise.resolve(new Response('not found', { status: 404 }));
 }
 
@@ -61,7 +78,7 @@ describe('App smoke (product IA)', () => {
     vi.stubGlobal('fetch', smokeFetch);
   });
 
-  it('navigates the nine-surface IA without a white screen and never persists the token', async () => {
+  it('navigates the seven-surface IA without a white screen and never persists the token', async () => {
     render(<App />);
 
     // Home is the landing view and summarizes the four authoritative views.
@@ -70,11 +87,15 @@ describe('App smoke (product IA)', () => {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
 
-    fireEvent.click(screen.getByRole('button', { name: 'Runtime' }));
+    // Runtime/Agents are no longer primary nav items; Environment folds both.
+    expect(screen.queryByRole('button', { name: 'Agents' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Environment' }));
     expect(await screen.findByText('No runtime records')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
-    expect(await screen.findByText('No agents detected')).toBeTruthy();
+    expect(screen.getByText('No agents detected')).toBeTruthy();
+    // The bounded host projections render verbatim on the same surface.
+    expect(screen.getByText('2025-05-17T14:00:00Z')).toBeTruthy();
+    expect(screen.getByText('docker-cli')).toBeTruthy();
+    expect(screen.getByText('UNREACHABLE')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Supervision' }));
     expect(await screen.findByText('No supervision sessions')).toBeTruthy();
@@ -83,19 +104,24 @@ describe('App smoke (product IA)', () => {
     expect(await screen.findByText('No recovery checkpoints')).toBeTruthy();
     expect(screen.getAllByText('Trusted Baseline').length).toBeGreaterThan(0);
 
-    // The new shells render honest empty states instead of fabricating data.
+    // Changes is the real verified-activity feed; an empty ledger shows the
+    // honest empty state with the backend reason_code.
     fireEvent.click(screen.getByRole('button', { name: 'Changes' }));
-    expect(await screen.findByText('No authoritative changes feed')).toBeTruthy();
+    expect(await screen.findByText('No verified activity')).toBeTruthy();
+    expect(screen.getAllByText('R4_STATE_EMPTY').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'AI Monitor' }));
-    expect(await screen.findByText('AI Monitor is not configured')).toBeTruthy();
+    // AI Monitor is no longer a primary surface; AI capability has no dead nav.
+    expect(screen.queryByRole('button', { name: 'AI Monitor' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(await screen.findByText('System Default')).toBeTruthy();
 
-    // Session bootstrap happened first; the wide legacy /api/status is never used.
+    // Session bootstrap happened first; /api/status and /api/doctor are used
+    // only by the Environment surface (fetched during that navigation above).
     expect(fetchCalls[0]).toBe('/api/session');
-    expect(fetchCalls).not.toContain('/api/status');
+    expect(fetchCalls).toContain('/api/status');
+    expect(fetchCalls).toContain('/api/doctor');
+    expect(fetchCalls.filter((p) => p === '/api/v1/discovery/refresh')).toHaveLength(0);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });

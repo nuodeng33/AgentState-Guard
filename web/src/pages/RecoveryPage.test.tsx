@@ -42,33 +42,44 @@ const R3_UNTRUSTED: RecoveryView = {
   test_restore_status: 'VERIFIED_R2',
   trusted_baseline_status: 'NONE',
   trusted_baseline_id: null,
+  checkpoint_count: 1,
+  latest_checkpoint: item({}),
+  actual_restore_status: 'NOT_RUN',
+  recovery_verified: false,
+  verified_at: null,
+  capabilities: { create_checkpoint: true, test_restore: true, restore: true },
+  limitations: [],
 };
+
+const R0_BROKEN_ITEM = item({
+  checkpoint_id: 'cp-broken',
+  status: 'EVIDENCE_INSUFFICIENT',
+  reason_code: 'RECOVERY_ARTIFACT_NOT_FOUND',
+  requested_targets: 0,
+  authorized_snapshot_targets: 0,
+  intact_manifest_blob_targets: 0,
+  authorized_snapshot_coverage: null,
+  manifest_blob_coverage: null,
+  test_restore_verified_targets: null,
+  test_restore_status: 'NOT_RUN_P6',
+  recovery_level: 'R0',
+  r1_verified: false,
+  r2_verified: false,
+  r3_verified: false,
+});
 
 const R0_FAIL_CLOSED: RecoveryView = {
   ...R3_UNTRUSTED,
-  items: [
-    item({
-      checkpoint_id: 'cp-broken',
-      status: 'EVIDENCE_INSUFFICIENT',
-      reason_code: 'RECOVERY_ARTIFACT_NOT_FOUND',
-      requested_targets: 0,
-      authorized_snapshot_targets: 0,
-      intact_manifest_blob_targets: 0,
-      authorized_snapshot_coverage: null,
-      manifest_blob_coverage: null,
-      test_restore_verified_targets: null,
-      test_restore_status: 'NOT_RUN_P6',
-      recovery_level: 'R0',
-      r1_verified: false,
-      r2_verified: false,
-      r3_verified: false,
-    }),
-  ],
+  items: [R0_BROKEN_ITEM],
   recovery_level: 'R0',
   r1_verified: false,
   r2_verified: false,
   r3_verified: false,
   test_restore_status: 'NOT_RUN_P6',
+  latest_checkpoint: R0_BROKEN_ITEM,
+  actual_restore_status: 'NOT_RUN',
+  recovery_verified: false,
+  verified_at: null,
 };
 
 const DEGRADED: RecoveryView = {
@@ -84,6 +95,11 @@ const DEGRADED: RecoveryView = {
   test_restore_status: 'NOT_RUN_P6',
   trusted_baseline_status: 'NONE',
   trusted_baseline_id: null,
+  checkpoint_count: 0,
+  latest_checkpoint: null,
+  actual_restore_status: 'NOT_RUN',
+  recovery_verified: false,
+  verified_at: null,
 };
 
 describe('RecoveryPage R3 vs Trusted Baseline separation', () => {

@@ -7,24 +7,20 @@ import { StatusBanner } from './StatusBanner';
 
 export type PageKey =
   | 'home'
-  | 'runtime'
-  | 'agents'
-  | 'supervision'
+  | 'environment'
   | 'changes'
+  | 'supervision'
   | 'recovery'
   | 'devices'
-  | 'aiMonitor'
   | 'settings';
 
 const NAV_ITEMS: Array<{ key: PageKey; labelKey: MessageKey; icon: IconName }> = [
   { key: 'home', labelKey: 'nav.home', icon: 'home' },
-  { key: 'runtime', labelKey: 'nav.runtime', icon: 'runtime' },
-  { key: 'agents', labelKey: 'nav.agents', icon: 'agents' },
-  { key: 'supervision', labelKey: 'nav.supervision', icon: 'supervision' },
+  { key: 'environment', labelKey: 'nav.environment', icon: 'environment' },
   { key: 'changes', labelKey: 'nav.changes', icon: 'changes' },
+  { key: 'supervision', labelKey: 'nav.supervision', icon: 'supervision' },
   { key: 'recovery', labelKey: 'nav.recovery', icon: 'recovery' },
   { key: 'devices', labelKey: 'nav.devices', icon: 'devices' },
-  { key: 'aiMonitor', labelKey: 'nav.aiMonitor', icon: 'aiMonitor' },
   { key: 'settings', labelKey: 'nav.settings', icon: 'settings' },
 ];
 
@@ -115,13 +111,11 @@ function ShieldNodesMark() {
 
 type IconName =
   | 'home'
-  | 'runtime'
-  | 'agents'
-  | 'supervision'
+  | 'environment'
   | 'changes'
+  | 'supervision'
   | 'recovery'
   | 'devices'
-  | 'aiMonitor'
   | 'settings';
 
 /** Minimal geometric nav icons; stroke-only, currentColor, no emoji. */
@@ -146,18 +140,12 @@ function NavIcon({ name }: { name: IconName }) {
           <path d="M6 10v9h12v-9" />
         </svg>
       );
-    case 'runtime':
+    case 'environment':
       return (
         <svg {...common}>
           <rect x="5" y="5" width="14" height="14" rx="2" />
           <path d="M9 9h6v6H9z" />
-        </svg>
-      );
-    case 'agents':
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="8" r="3.2" />
-          <path d="M5.5 19c1.2-3.2 3.6-4.8 6.5-4.8s5.3 1.6 6.5 4.8" />
+          <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
         </svg>
       );
     case 'supervision':
@@ -186,12 +174,6 @@ function NavIcon({ name }: { name: IconName }) {
         <svg {...common}>
           <rect x="8" y="3.5" width="8" height="17" rx="2" />
           <path d="M11 17.5h2" />
-        </svg>
-      );
-    case 'aiMonitor':
-      return (
-        <svg {...common}>
-          <path d="M3 13h4l2.5-6 3.5 10 2.5-6H21" />
         </svg>
       );
     case 'settings':

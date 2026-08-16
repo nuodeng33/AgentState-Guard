@@ -945,3 +945,88 @@ code {
   font-weight: 650;
   color: var(--warning);
 }
+
+/* ---- Environment surface ---- */
+
+.env-actions {
+  margin-bottom: 16px;
+}
+
+.env-refresh-summary code {
+  margin: 0 2px;
+}
+
+.env-observed {
+  margin: -6px 0 10px;
+  font-size: 12.5px;
+}
+
+.env-doctor-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.env-doctor-row {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 220px) 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.env-doctor-row:last-child {
+  border-bottom: none;
+}
+
+.env-doctor-check {
+  font-weight: 600;
+}
+
+.env-doctor-message {
+  font-size: 12.5px;
+}
+
+.card-sub {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.btn-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0 0 0 8px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.supervision-activity-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.supervision-activity-list li:last-child {
+  border-bottom: none;
+}
+
+.cc-content {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+  padding: 8px;
+  background: var(--background);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12.5px;
+}

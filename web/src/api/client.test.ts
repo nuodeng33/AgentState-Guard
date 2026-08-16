@@ -215,6 +215,68 @@ describe('api client error safety', () => {
     expect((failure as ApiRequestError).message).toBe('API request failed (HTTP 500)');
     expect((failure as ApiRequestError).message).not.toContain('state.db');
   });
+
+  it('captures a backend reason_code from a failed GET only when it is a stable machine token', async () => {
+    const { fetchImpl } = mockFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () =>
+        jsonResponse(
+          {
+            schema_version: 'r4-product-evidence-1',
+            status: 'NOT_FOUND',
+            reason_code: 'EVIDENCE_EVENT_NOT_FOUND',
+            event_id: 'evt-missing',
+          },
+          404,
+        ),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const failure = await client.get('/api/v1/evidence/evt-missing').catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(ApiRequestError);
+    expect((failure as ApiRequestError).status).toBe(404);
+    expect((failure as ApiRequestError).reasonCode).toBe('EVIDENCE_EVENT_NOT_FOUND');
+  });
+
+  it('drops non-machine reason_code values from a failed GET, and never passes the raw body through', async () => {
+    const { fetchImpl } = mockFetch([
+      () => jsonResponse({ token: 'token-a' }),
+      () =>
+        jsonResponse(
+          {
+            detail: 'sqlite3.OperationalError: /secret/dir/state.db token=deadbeef',
+            reason_code: '../../etc/passwd',
+          },
+          503,
+        ),
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const failure = await client.get('/api/v1/runtime').catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(ApiRequestError);
+    expect((failure as ApiRequestError).reasonCode).toBeNull();
+    const rendered = `${(failure as ApiRequestError).message} ${(failure as ApiRequestError).reasonCode}`;
+    expect(rendered).not.toContain('state.db');
+    expect(rendered).not.toContain('sqlite3');
+    expect(rendered).not.toContain('deadbeef');
+    expect(rendered).not.toContain('/etc/passwd');
+  });
+
+  it('keeps the 401 contract for GET even when capturing failure bodies: one re-bootstrap, second 401 is SESSION_UNAVAILABLE', async () => {
+    const { calls, fetchImpl } = mockFetch([
+      () => jsonResponse({ token: 'token-a' }), // initial session
+      () => jsonResponse({}, 401), // first protected request → 401
+      () => jsonResponse({ token: 'token-b' }), // re-bootstrap
+      () => jsonResponse({}, 401), // retry → 401 again
+    ]);
+    const client = createApiClient(fetchImpl);
+
+    const failure = await client.get('/api/v1/evidence/evt-x').catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(SessionUnavailableError);
+    // session + 401 + re-bootstrap + 401 — never a third request.
+    expect(calls).toHaveLength(4);
+    expect(calls[3].token).toBe('token-b');
+  });
 });
 
 describe('api client mutation POST', () => {

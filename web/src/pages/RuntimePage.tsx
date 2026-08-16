@@ -1,23 +1,10 @@
-import { apiClient, type ApiClient } from '../api/client';
 import type { RuntimeItem, RuntimeView } from '../api/types';
-import { useR4View } from '../api/useR4View';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceRefs } from '../components/EvidenceRefs';
 import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { availabilityTone, StateBadge, viewStatusTone } from '../components/StateBadge';
 import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
-import { ViewGate } from '../components/ViewGate';
 import { useT } from '../i18n/I18nProvider';
-
-export default function RuntimePage({ client = apiClient }: { client?: ApiClient }) {
-  const state = useR4View<RuntimeView>('runtime', client);
-  const t = useT();
-  return (
-    <ViewGate state={state} label={t('nav.runtime')}>
-      {(data) => <RuntimeViewBody data={data} />}
-    </ViewGate>
-  );
-}
 
 export function RuntimeViewBody({ data }: { data: RuntimeView }) {
   const t = useT();

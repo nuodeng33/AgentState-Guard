@@ -1,23 +1,10 @@
-import { apiClient, type ApiClient } from '../api/client';
 import type { AgentItem, AgentsView } from '../api/types';
-import { useR4View } from '../api/useR4View';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceRefs } from '../components/EvidenceRefs';
 import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { StateBadge, viewStatusTone, type BadgeTone } from '../components/StateBadge';
 import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
-import { ViewGate } from '../components/ViewGate';
 import { useT } from '../i18n/I18nProvider';
-
-export default function AgentsPage({ client = apiClient }: { client?: ApiClient }) {
-  const state = useR4View<AgentsView>('agents', client);
-  const t = useT();
-  return (
-    <ViewGate state={state} label={t('nav.agents')}>
-      {(data) => <AgentsViewBody data={data} />}
-    </ViewGate>
-  );
-}
 
 /**
  * Lifecycle is rendered verbatim from the backend. The UI never upgrades a
@@ -71,7 +58,7 @@ export function AgentsViewBody({ data }: { data: AgentsView }) {
   );
 }
 
-function AgentCard({ item }: { item: AgentItem }) {
+export function AgentCard({ item }: { item: AgentItem }) {
   const t = useT();
   return (
     <section className="card">

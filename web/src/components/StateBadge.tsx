@@ -23,6 +23,7 @@ export function viewStatusTone(status: ViewStatus): BadgeTone {
       return 'neutral';
     case 'UNKNOWN':
       return 'unknown';
+    case 'UNREACHABLE':
     case 'DEGRADED':
       return 'bad';
   }

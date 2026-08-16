@@ -28,10 +28,16 @@ export class SessionUnavailableError extends Error {
 /** Thrown for network failures and non-401 HTTP errors. Message is display-safe. */
 export class ApiRequestError extends Error {
   readonly status: number | null;
-  constructor(message: string, status: number | null = null) {
+  /**
+   * Safe reason_code atom captured from the failure body when present
+   * (same allowlist as mutations). Never raw server text.
+   */
+  readonly reasonCode: string | null;
+  constructor(message: string, status: number | null = null, reasonCode: string | null = null) {
     super(message);
     this.name = 'ApiRequestError';
     this.status = status;
+    this.reasonCode = reasonCode;
   }
 }
 
@@ -157,7 +163,11 @@ export function createApiClient(
       }
     }
     if (!response.ok) {
-      throw new ApiRequestError(`API request failed (HTTP ${response.status})`, response.status);
+      throw new ApiRequestError(
+        `API request failed (HTTP ${response.status})`,
+        response.status,
+        await readFailureReasonCode(response),
+      );
     }
     return (await response.json()) as T;
   }

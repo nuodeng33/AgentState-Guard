@@ -75,6 +75,7 @@ export function SupervisionActions({
   actionRef,
   client,
   onChanged,
+  onSettled,
   busy = false,
 }: {
   sessionId: string;
@@ -82,6 +83,12 @@ export function SupervisionActions({
   client: ApiClient;
   /** Re-read GET /api/v1/supervision; invoked after every settled attempt. */
   onChanged: () => void;
+  /**
+   * Reports whether the mutation was acknowledged. The acknowledgement is
+   * still not authority — only the re-read view is; consumers may use it
+   * only to advance a local wizard step (e.g. enable Apply once).
+   */
+  onSettled?: (ok: boolean) => void;
   /** True while the view is already re-reading; keeps actions disabled. */
   busy?: boolean;
 }) {
@@ -103,8 +110,10 @@ export function SupervisionActions({
       });
       // Success is acknowledged but never applied locally; the refetch below
       // is the only source of truth.
+      onSettled?.(true);
     } catch (err: unknown) {
       setFeedback(feedbackFor(err));
+      onSettled?.(false);
     } finally {
       inFlight.current = false;
       setPending(null);

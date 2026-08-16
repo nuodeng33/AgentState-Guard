@@ -1,10 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import type { ApiClient } from '../api/client';
-import { SessionUnavailableError } from '../api/client';
 import type { RuntimeView } from '../api/types';
-import RuntimePage, { RuntimeViewBody } from './RuntimePage';
+import { RuntimeViewBody } from './RuntimePage';
 
 const EMPTY: RuntimeView = {
   schema_version: 'r4-p8-1',
@@ -78,39 +76,5 @@ describe('RuntimePage AVAILABLE state', () => {
     expect(screen.getByText('local-exec')).toBeTruthy();
     expect(screen.getByText('DISCOVERY_PROBE_UNREACHABLE')).toBeTruthy();
     expect(screen.getByText('uncertain')).toBeTruthy();
-  });
-});
-
-describe('RuntimePage transport handling', () => {
-  it('shows a display-safe error and never leaks raw exception text', async () => {
-    const failingClient: ApiClient = {
-      bootstrap: async () => {},
-      get: async () => {
-        throw new Error('sqlite3.OperationalError: /secret/dir/state.db is corrupt');
-      },
-      post: async () => {
-        throw new Error('unused in this test');
-      },
-    };
-    render(<RuntimePage client={failingClient} />);
-    const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('API request failed');
-    expect(alert.textContent).not.toContain('state.db');
-    expect(alert.textContent).not.toContain('sqlite3');
-  });
-
-  it('shows SESSION_UNAVAILABLE when the session cannot be established', async () => {
-    const failingClient: ApiClient = {
-      bootstrap: async () => {},
-      get: async () => {
-        throw new SessionUnavailableError();
-      },
-      post: async () => {
-        throw new Error('unused in this test');
-      },
-    };
-    render(<RuntimePage client={failingClient} />);
-    const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('SESSION_UNAVAILABLE');
   });
 });
