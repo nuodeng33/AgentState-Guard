@@ -1,9 +1,8 @@
 """Tests for ASDL/1 pairing state machine."""
 
-import time as _time
-
 import pytest
-from agentguard.device_link.pairing import PairingSession, PairingManager, PairState
+
+from agentguard.device_link.pairing import PairingManager, PairingSession, PairState
 
 
 class TestPairingStateMachine:
@@ -32,6 +31,7 @@ class TestPairingStateMachine:
         s.set_android_pubkey(b"android-pubkey-der-bytes")
         sas = s.start_sas()
         assert s.state == PairState.SAS_PENDING
+        assert s.sas_for_projection() == sas
         assert len(sas) == 7  # "482 913" format
         assert " " in sas
 
@@ -45,9 +45,10 @@ class TestPairingStateMachine:
         s.consume()
         assert s.state == PairState.CONSUMED
         assert s.is_terminal
+        assert s.sas_for_projection() is None
 
     def test_expired_immediate(self):
-        from agentguard.device_link.crypto import FakeClock, DeterministicRandom
+        from agentguard.device_link.crypto import DeterministicRandom, FakeClock
         c=FakeClock(0); r=DeterministicRandom(42)
         s = PairingSession("sid","duuid",b"pk","fp", expiry_seconds=120, clock=c, rng=r)
         c.advance(121)

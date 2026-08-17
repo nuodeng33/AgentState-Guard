@@ -5,6 +5,11 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from agentguard.api.server import create_app
+from agentguard.device_link.crypto import (
+    generate_ecdsa_p256_keypair,
+    public_key_to_der,
+)
+from agentguard.device_link.gateway import DeviceLinkGateway
 
 
 class _Gateway:
@@ -136,3 +141,61 @@ def test_core_device_link_control_requires_loopback_session_token(tmp_path):
     assert client.get("/api/v1/devices").status_code == 401
     assert client.post("/api/v1/device-link/enable", json={}).status_code == 401
     assert client.get("/device/v1/status").status_code == 404
+
+
+def test_desktop_pairing_projection_uses_the_same_server_owned_sas_as_android(
+    tmp_path,
+):
+    desktop_private, desktop_public = generate_ecdsa_p256_keypair()
+    gateway = DeviceLinkGateway(
+        "desktop-a",
+        public_key_to_der(desktop_public),
+        desktop_private,
+        "a" * 64,
+    )
+    controller = _Controller()
+    controller.gateway = gateway
+    client = TestClient(
+        create_app(
+            state_db_path=tmp_path / "state.db",
+            config={"base_dir": str(tmp_path)},
+            device_link_controller=controller,
+        )
+    )
+    token = client.get("/api/session").json()["token"]
+    headers = {"X-Session-Token": token}
+    invitation = gateway.create_pairing_invitation("192.168.1.10", 8788)
+    session_id = invitation["session_id"]
+    connected = gateway.accept_pairing_ticket(
+        session_id,
+        invitation["ticket"],
+        "android-a",
+        "ab" * 32,
+    )
+    _android_private, android_public = generate_ecdsa_p256_keypair()
+
+    android = gateway.pair_start_sas_scoped(
+        session_id,
+        connected["pairing_token"],
+        public_key_to_der(android_public).hex(),
+    )
+    desktop = client.get(
+        f"/api/v1/device-link/pairings/{session_id}", headers=headers
+    )
+
+    assert desktop.status_code == 200
+    assert desktop.json()["state"] == "sas_pending"
+    assert desktop.json()["sas"] == android["sas"]
+    assert len(desktop.json()["sas"]) == 7
+
+    gateway.pair_android_confirm(session_id, connected["pairing_token"], True)
+    still_pending = client.get(
+        f"/api/v1/device-link/pairings/{session_id}", headers=headers
+    ).json()
+    assert still_pending["sas"] == android["sas"]
+    gateway.pair_desktop_confirm(session_id, True)
+    terminal_projection = client.get(
+        f"/api/v1/device-link/pairings/{session_id}", headers=headers
+    ).json()
+    assert terminal_projection["state"] == "confirmed_both"
+    assert "sas" not in terminal_projection

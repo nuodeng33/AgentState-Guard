@@ -102,6 +102,7 @@ class PairingSession:
         self.expiry_seconds = expiry_seconds
         self._expiry_abs = self._created_at + expiry_seconds
         self.state = PairState.CREATED
+        self._sas: str | None = None
         self.sas_attempts = 0
         self.max_sas_attempts = max_sas_attempts
 
@@ -116,6 +117,7 @@ class PairingSession:
     def _clear_secret_if_terminal(self) -> None:
         if self.state in TERMINAL_STATES:
             self.pairing_secret = b""
+            self._sas = None
 
     def expire_if_needed(self) -> bool:
         """Enter the absorbing expiry state and clear secret material once due."""
@@ -187,8 +189,14 @@ class PairingSession:
             int(self._expiry_abs),
         )
         sas = derive_sas(self.pairing_secret, transcript)
+        self._sas = format_sas(sas)
         self.state = PairState.SAS_PENDING
-        return format_sas(sas)
+        return self._sas
+
+    def sas_for_projection(self) -> str | None:
+        """Return the server-owned SAS only while comparison is actionable."""
+        self.expire_if_needed()
+        return self._sas if self.state is PairState.SAS_PENDING else None
 
     def confirm(self) -> None:
         self._transition(PairState.CONFIRMED_BOTH)

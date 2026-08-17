@@ -339,7 +339,11 @@ class DeviceLinkGateway:
             return {"error": "Session not found", "code": 404}
         if session.is_expired and not session.is_terminal:
             session.expire_if_needed()
-        return {"session_id": session.session_id, "state": session.state.value}
+        result = {"session_id": session.session_id, "state": session.state.value}
+        sas = session.sas_for_projection()
+        if sas is not None:
+            result["sas"] = sas
+        return result
 
     def pair_first_connection(
         self, session_id: str, android_uuid: str, nonce_hex: str
