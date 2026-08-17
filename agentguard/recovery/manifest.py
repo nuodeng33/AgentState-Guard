@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import re
-from pathlib import PurePath
+from pathlib import PurePath, PurePosixPath
 from typing import Any
 
 from agentguard.evidence.canonical import canonical_json
 
 
 def manifest_digest(snapshot: dict[str, Any]) -> str:
-    """Return the canonical digest of a Snapshot V3 manifest only."""
+    """Return the legacy digest or a workspace-bound extension digest."""
     manifest = snapshot.get("manifest")
-    return hashlib.sha256(canonical_json(manifest).encode("utf-8")).hexdigest()
+    authority = (
+        manifest
+        if "workspace" not in snapshot
+        else {"manifest": manifest, "workspace": snapshot.get("workspace")}
+    )
+    return hashlib.sha256(canonical_json(authority).encode("utf-8")).hexdigest()
 
 
 _ENTRY_FIELDS = frozenset(
@@ -41,8 +46,36 @@ _AUDIT_STATUSES = frozenset(
         "USER_APPROVAL_REQUIRED",
         "SIZE_LIMIT_EXCEEDED",
         "VALIDATOR_UNDEFINED",
+        "WORKSPACE_RESTORABLE",
     }
 )
+_WORKSPACE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "workspace_id",
+        "scope_observation_id",
+        "execution_domain_id",
+        "root_digest",
+        "coverage",
+        "coverage_counts",
+        "coverage_digest",
+        "scan_complete",
+        "scan_reason_code",
+    }
+)
+_COVERAGE_FIELDS = frozenset(
+    {
+        "relative_path",
+        "object_kind",
+        "category",
+        "reason_code",
+        "size",
+        "content_digest",
+        "observation_digest",
+        "permission_proof",
+    }
+)
+_SAFE_ID = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 
 
 def validate_snapshot_v3(
@@ -55,9 +88,12 @@ def validate_snapshot_v3(
         return False, "LEGACY_SNAPSHOT_READ_ONLY", None
     manifest = snapshot.get("manifest")
     blobs = snapshot.get("blobs")
+    workspace = snapshot.get("workspace")
     if not isinstance(manifest, list) or not isinstance(blobs, dict):
         return False, "RECOVERY_MANIFEST_INVALID", None
-    if not manifest:
+    if "workspace" in snapshot and not isinstance(workspace, dict):
+        return False, "RECOVERY_WORKSPACE_EXTENSION_INVALID", None
+    if not manifest and workspace is None:
         return False, "RECOVERY_MANIFEST_EMPTY", None
 
     paths: set[str] = set()
@@ -110,7 +146,9 @@ def validate_snapshot_v3(
         ):
             return False, "RECOVERY_MANIFEST_INVALID", None
         if classification == "audit_only" and (
-            blob_sha256 is not None or validator is not None
+            blob_sha256 is not None
+            or validator is not None
+            or status == "WORKSPACE_RESTORABLE"
         ):
             return False, "RECOVERY_MANIFEST_INVALID", None
         if classification == "restorable":
@@ -134,4 +172,143 @@ def validate_snapshot_v3(
             referenced_blobs.add(blob_sha256)
     if set(blobs) != referenced_blobs:
         return False, "RECOVERY_MANIFEST_INVALID", None
+    if workspace is not None and not _validate_workspace_extension(
+        workspace,
+        manifest=manifest,
+        expected_domain=expected_domain,
+    ):
+        return False, "RECOVERY_WORKSPACE_EXTENSION_INVALID", None
     return True, "RECOVERY_MANIFEST_VERIFIED", manifest_digest(snapshot)
+
+
+def _validate_workspace_extension(
+    workspace: object,
+    *,
+    manifest: list[dict[str, Any]],
+    expected_domain: str | None,
+) -> bool:
+    from .workspace_permissions import PermissionProof
+
+    if not isinstance(workspace, dict) or set(workspace) != _WORKSPACE_FIELDS:
+        return False
+    workspace_id = workspace.get("workspace_id")
+    observation_id = workspace.get("scope_observation_id")
+    execution_domain_id = workspace.get("execution_domain_id")
+    root_digest = workspace.get("root_digest")
+    coverage = workspace.get("coverage")
+    counts = workspace.get("coverage_counts")
+    coverage_digest = workspace.get("coverage_digest")
+    complete = workspace.get("scan_complete")
+    scan_reason = workspace.get("scan_reason_code")
+    if (
+        not isinstance(workspace_id, str)
+        or _SAFE_ID.fullmatch(workspace_id) is None
+        or not isinstance(observation_id, str)
+        or _SAFE_ID.fullmatch(observation_id) is None
+        or not isinstance(execution_domain_id, str)
+        or _SAFE_ID.fullmatch(execution_domain_id) is None
+        or (
+            expected_domain is not None
+            and execution_domain_id != expected_domain
+        )
+        or not isinstance(root_digest, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", root_digest) is None
+        or not isinstance(coverage, list)
+        or not isinstance(counts, dict)
+        or set(counts) != {"restorable", "audit_only", "excluded", "unreachable"}
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in counts.values()
+        )
+        or not isinstance(coverage_digest, str)
+        or _SHA256.fullmatch(coverage_digest) is None
+        or not isinstance(complete, bool)
+        or not isinstance(scan_reason, str)
+        or not scan_reason
+    ):
+        return False
+    if hashlib.sha256(canonical_json(coverage).encode()).hexdigest() != coverage_digest:
+        return False
+
+    seen: set[str] = set()
+    relative_order: list[tuple[str, str]] = []
+    actual_counts = {name: 0 for name in counts}
+    restorable: dict[str, dict[str, Any]] = {}
+    for entry in coverage:
+        if not isinstance(entry, dict) or set(entry) != _COVERAGE_FIELDS:
+            return False
+        relative = entry.get("relative_path")
+        category = entry.get("category")
+        kind = entry.get("object_kind")
+        reason = entry.get("reason_code")
+        size = entry.get("size")
+        content_digest = entry.get("content_digest")
+        observation_digest = entry.get("observation_digest")
+        proof = entry.get("permission_proof")
+        if (
+            not isinstance(relative, str)
+            or not relative
+            or "\\" in relative
+            or PurePosixPath(relative).is_absolute()
+            or relative in {".", ".."}
+            or ".." in PurePosixPath(relative).parts
+            or PurePosixPath(relative).as_posix() != relative
+            or relative.casefold() in seen
+            or category not in actual_counts
+            or kind not in {"FILE", "DIRECTORY", "SPECIAL"}
+            or not isinstance(reason, str)
+            or not reason
+            or isinstance(size, bool)
+            or not isinstance(size, int)
+            or size < 0
+            or (
+                content_digest is not None
+                and (
+                    not isinstance(content_digest, str)
+                    or _SHA256.fullmatch(content_digest) is None
+                )
+            )
+            or not isinstance(observation_digest, str)
+            or _SHA256.fullmatch(observation_digest) is None
+        ):
+            return False
+        seen.add(relative.casefold())
+        relative_order.append((relative.casefold(), relative))
+        actual_counts[category] += 1
+        if category == "restorable":
+            if kind != "FILE" or content_digest is None or proof is None:
+                return False
+            try:
+                PermissionProof.from_dict(proof)
+            except ValueError:
+                return False
+            restorable[relative] = entry
+        elif proof is not None:
+            return False
+    if actual_counts != counts:
+        return False
+    if relative_order != sorted(relative_order):
+        return False
+
+    expected_manifest_paths = {
+        f"/workspace/{workspace_id}/{relative}": entry
+        for relative, entry in restorable.items()
+    }
+    if len(manifest) != len(expected_manifest_paths):
+        return False
+    for manifest_entry in manifest:
+        coverage_entry = expected_manifest_paths.get(manifest_entry.get("logical_path"))
+        if coverage_entry is None:
+            return False
+        if (
+            manifest_entry.get("classification") != "restorable"
+            or manifest_entry.get("status") != "WORKSPACE_RESTORABLE"
+            or manifest_entry.get("validator") != "workspace-hash-permission-v1"
+            or manifest_entry.get("sha256") != coverage_entry.get("content_digest")
+            or manifest_entry.get("blob_sha256")
+            != coverage_entry.get("content_digest")
+            or manifest_entry.get("size") != coverage_entry.get("size")
+            or manifest_entry.get("domain") != execution_domain_id
+        ):
+            return False
+    return True
