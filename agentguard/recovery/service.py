@@ -306,11 +306,34 @@ class RecoveryService:
             outcome = self._result(
                 request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID"
             )
+        quarantine_records = outcome.details.get("_quarantine_records", [])
+        if not self._valid_quarantine_records(
+            quarantine_records,
+            checkpoint_id=str(checkpoint["id"]),
+        ):
+            outcome = self._result(
+                request, CapabilityStatus.ERROR, "RECOVERY_ADAPTER_RESULT_INVALID"
+            )
+            quarantine_records = []
         if not outcome.ok or outcome.manifest_digest != digest:
+            if quarantine_records and not self._record_quarantine_records(
+                outcome, quarantine_records
+            ):
+                outcome = self._result(
+                    request,
+                    CapabilityStatus.ERROR,
+                    "WORKSPACE_RESTORE_EXTERNAL_EFFECT_UNKNOWN",
+                )
             self._record_failure(outcome)
             return outcome
         try:
             with self._database.transaction() as connection:
+                for record in quarantine_records:
+                    self._append_quarantine_record(
+                        connection,
+                        record,
+                        execution_domain_id=outcome.execution_domain_id,
+                    )
                 count = outcome.details.get("verified_targets", 0)
                 self._append_event(
                     connection,
@@ -321,21 +344,40 @@ class RecoveryService:
                     count,
                     (),
                 )
-                self._append_event(
-                    connection,
-                    EventType.VALIDATOR_PASSED,
-                    outcome,
-                    str(checkpoint["id"]),
-                    digest,
-                    count,
-                    (),
-                )
+                if outcome.reason_code == "RESTORABLE_SET_RESTORED":
+                    self._append_event(
+                        connection,
+                        EventType.SCOPE_DRIFT,
+                        outcome,
+                        str(checkpoint["id"]),
+                        digest,
+                        count,
+                        tuple(outcome.details.get("_residue_target_refs", ())),
+                    )
+                else:
+                    self._append_event(
+                        connection,
+                        EventType.VALIDATOR_PASSED,
+                        outcome,
+                        str(checkpoint["id"]),
+                        digest,
+                        count,
+                        (),
+                    )
                 if verify_ledger(connection):
                     raise RuntimeError("RECOVERY_LEDGER_INVALID")
         except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
-            return self._result(
-                request, CapabilityStatus.ERROR, "RECOVERY_PERSISTENCE_FAILED"
+            failure = self._result(
+                request,
+                CapabilityStatus.ERROR,
+                (
+                    "WORKSPACE_RESTORE_EXTERNAL_EFFECT_UNKNOWN"
+                    if outcome.details.get("scope_kind") == "HOST_WORKSPACE"
+                    else "RECOVERY_PERSISTENCE_FAILED"
+                ),
             )
+            self._record_failure(failure)
+            return failure
         return outcome
 
     def test_restore(self, request: RecoveryRequest) -> RecoveryOperationResult:
@@ -1804,6 +1846,132 @@ class RecoveryService:
                 )
         except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
             return False
+        return True
+
+    def _record_quarantine_records(
+        self,
+        outcome: RecoveryOperationResult,
+        records: list[dict[str, object]],
+    ) -> bool:
+        try:
+            with self._database.transaction() as connection:
+                for record in records:
+                    self._append_quarantine_record(
+                        connection,
+                        record,
+                        execution_domain_id=outcome.execution_domain_id,
+                    )
+                if verify_ledger(connection):
+                    raise RuntimeError("RECOVERY_LEDGER_INVALID")
+        except (OSError, sqlite3.DatabaseError, RuntimeError, ValueError):
+            return False
+        return True
+
+    def _append_quarantine_record(
+        self,
+        connection: sqlite3.Connection,
+        record: dict[str, object],
+        *,
+        execution_domain_id: str,
+    ) -> None:
+        connection.execute(
+            """INSERT INTO workspace_quarantine_records (
+                   quarantine_id, workspace_id, checkpoint_id,
+                   relative_path_digest, quarantine_path, content_digest,
+                   size_bytes, status, reason_code, created_at, ledger_event_id
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record["quarantine_id"],
+                record["workspace_id"],
+                record["checkpoint_id"],
+                record["relative_path_digest"],
+                record["quarantine_path"],
+                record["content_digest"],
+                record["size_bytes"],
+                record["status"],
+                record["reason_code"],
+                record["created_at"],
+                record["ledger_event_id"],
+            ),
+        )
+        self._ledger.append(
+            connection,
+            EvidenceEvent(
+                schema_version=1,
+                event_id=str(record["ledger_event_id"]),
+                recorded_at=datetime.now(UTC),
+                observed_at=None,
+                event_family=EventFamily.RECOVERY,
+                event_type=EventType.FILE_QUARANTINED,
+                source="host-workspace-recovery",
+                result="AVAILABLE",
+                execution_domain_id=execution_domain_id,
+                supervision_session_id=None,
+                transaction_id=str(record["quarantine_id"]),
+                checkpoint_id=str(record["checkpoint_id"]),
+                subject_ref=str(record["workspace_id"]),
+                evidence_refs=(),
+                payload_safe={
+                    "quarantine_id": record["quarantine_id"],
+                    "reason_code": record["reason_code"],
+                    "size_bytes": record["size_bytes"],
+                    "target_ref_digest": record["relative_path_digest"],
+                    "workspace_id": record["workspace_id"],
+                },
+            ),
+        )
+
+    @staticmethod
+    def _valid_quarantine_records(
+        records: object,
+        *,
+        checkpoint_id: str,
+    ) -> bool:
+        if not isinstance(records, list):
+            return False
+        required = {
+            "quarantine_id",
+            "workspace_id",
+            "checkpoint_id",
+            "relative_path_digest",
+            "quarantine_path",
+            "content_digest",
+            "size_bytes",
+            "status",
+            "reason_code",
+            "created_at",
+            "ledger_event_id",
+        }
+        for record in records:
+            if not isinstance(record, dict) or set(record) != required:
+                return False
+            strings = [
+                record[key]
+                for key in required - {"size_bytes"}
+            ]
+            if any(not isinstance(value, str) or not value for value in strings):
+                return False
+            if (
+                record["checkpoint_id"] != checkpoint_id
+                or record["status"] != "QUARANTINED"
+                or record["reason_code"] != "POST_CHECKPOINT_FILE_QUARANTINED"
+                or not Path(str(record["quarantine_path"])).is_absolute()
+                or any(
+                    len(str(record[key])) != 64
+                    or any(character not in "0123456789abcdef" for character in str(record[key]))
+                    for key in ("relative_path_digest", "content_digest")
+                )
+                or isinstance(record["size_bytes"], bool)
+                or not isinstance(record["size_bytes"], int)
+                or record["size_bytes"] < 0
+            ):
+                return False
+            try:
+                created_at = datetime.fromisoformat(str(record["created_at"]))
+            except ValueError:
+                return False
+            if created_at.tzinfo is None or created_at.utcoffset() is None:
+                return False
         return True
 
     def _record_failure(self, outcome: RecoveryOperationResult) -> None:

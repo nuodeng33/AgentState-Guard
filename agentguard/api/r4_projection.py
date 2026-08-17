@@ -30,6 +30,7 @@ _ACTIVITY_TYPES = frozenset(
         "CHECKPOINT_CREATED",
         "MANIFEST_VERIFIED",
         "TEST_RESTORE_STARTED",
+        "FILE_QUARANTINED",
         "FILE_RESTORED",
         "VALIDATOR_PASSED",
         "RESTORE_FAILED",
@@ -898,7 +899,8 @@ def _actual_restore_summary(
         if (
             result == "AVAILABLE"
             and payload.get("manifest_digest") == manifest_digest
-            and payload.get("reason_code") == "RECOVERY_RESTORED_AND_VERIFIED"
+            and payload.get("reason_code")
+            in {"RECOVERY_RESTORED_AND_VERIFIED", "WORKSPACE_RESTORED_AND_VERIFIED"}
             and isinstance(payload.get("file_count"), int)
             and payload["file_count"] > 0
         ):
