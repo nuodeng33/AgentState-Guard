@@ -106,20 +106,48 @@ describe('DevicesPage pairing flow', () => {
     expect(document.querySelector('.qr-card svg')).toBeNull();
   });
 
-  it('moves to SAS_PENDING via polling and shows confirm controls, never inventing a desktop-side code', async () => {
+  it('moves to SAS_PENDING via polling, renders the backend-supplied SAS, and never invents one', async () => {
     const { adapter } = scriptedAdapter({
       start: BASE,
-      polls: [{ ...BASE, phase: 'SAS_PENDING', sasCode: '123456' }],
+      polls: [{ ...BASE, phase: 'SAS_PENDING', sasCode: '123 456' }],
     });
     render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
 
-    // The desktop side must NOT display any SAS code — only the pairing state
-    // and the confirm/reject affordances, since the Core never returns SAS here.
     expect(await screen.findByRole('button', { name: 'Codes match' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /cancel|Codes do not match/ })).toBeTruthy();
-    expect(screen.queryByText('123 456')).toBeNull();
-    expect(screen.getByText(/shown on the mobile/i)).toBeTruthy();
+    // The server-owned code is projected verbatim; the adapter never formats it.
+    expect(screen.getByText('123 456')).toBeTruthy();
+    const sasLabel = document.querySelector('.sas-code-label');
+    expect(sasLabel).not.toBeNull();
+    expect(sasLabel!.textContent).toContain('123 456');
+  });
+
+  it('fails closed silently when SAS_PENDING carries no SAS code (no placeholder)', async () => {
+    const { adapter } = scriptedAdapter({
+      start: BASE,
+      polls: [{ ...BASE, phase: 'SAS_PENDING' }],
+    });
+    render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
+
+    expect(await screen.findByRole('button', { name: 'Codes match' })).toBeTruthy();
+    // A missing SAS must show nothing — not a fake code and not a placeholder.
+    expect(screen.queryByRole('note')).toBeNull();
+    expect(screen.queryByText(/^\d{3} \d{3}$/)).toBeNull();
+  });
+
+  it('drops the SAS display immediately once a terminal phase arrives', async () => {
+    const { adapter } = scriptedAdapter({
+      start: { ...BASE, phase: 'SAS_PENDING', sasCode: '123 456' },
+      polls: [{ phase: 'REJECTED', pairingId: 'p-1', reasonCode: 'SAS_MISMATCH' }],
+    });
+    render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
+    expect(await screen.findByText('123 456')).toBeTruthy();
+
+    await waitFor(() => expect(screen.queryByText('123 456')).toBeNull());
+    expect(screen.getByText('Pairing rejected')).toBeTruthy();
   });
 
   it('confirm leads to PAIRED and refreshes the device list', async () => {

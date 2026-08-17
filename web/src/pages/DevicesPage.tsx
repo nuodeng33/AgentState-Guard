@@ -8,9 +8,10 @@
  *   canonical QR (QrCodeCard) and tracks the pairing state machine through
  *   GET /pairings/{id}: created → first_connection → sas_pending →
  *   confirmed_both/consumed, with expired/rejected/failed shown verbatim.
- * - Desktop confirm sends {confirm:true|false}; the mobile shows the SAS
- *   (the Core never exposes it to the desktop side) — the page compares by
- *   state, presenting a confirm/reject UI only after the invitation moves on.
+ * - Desktop confirm sends {confirm:true|false}. While sas_pending the Core
+ *   returns a server-owned formatted SAS (e.g. "123 456") via the status
+ *   poll; the page displays it verbatim and drops it the moment a terminal
+ *   phase arrives. An absent SAS fails closed — no placeholder is shown.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -175,6 +176,12 @@ export default function DevicesPage({
           {pairing.phase === 'SAS_PENDING' && (
             <div>
               <p className="sas-prompt">{t('devices.sas.prompt')}</p>
+              {pairing.sasCode !== undefined && (
+                <p className="sas-code-label">
+                  <span className="device-note">{t('devices.sas.label')}:</span>{' '}
+                  <span className="sas-code" role="note">{pairing.sasCode}</span>
+                </p>
+              )}
               <p className="device-note">{t('devices.sasWaiting')}</p>
               {secondsLeft !== null && (
                 <p className="sas-meta">{t('devices.expires', { seconds: secondsLeft })}</p>

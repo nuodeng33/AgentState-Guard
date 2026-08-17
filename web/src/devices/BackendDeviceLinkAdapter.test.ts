@@ -83,6 +83,42 @@ describe('BackendDeviceLinkAdapter', () => {
     await expect(adapter.startPairing()).rejects.toMatchObject({ code: 'DEVICE_LINK_UNSUPPORTED' });
   });
 
+  it('exposes the server-owned SAS only while the backend reports sas_pending', async () => {
+    const withSas = buildPairingFetch(
+      {
+        [`/api/v1/device-link/pairings/${INVITATION.session_id}`]: {
+          body: { session_id: INVITATION.session_id, state: 'sas_pending', sas: '123 456' },
+        },
+      },
+      [],
+    );
+    const exposed = await new BackendDeviceLinkAdapter(withSas).pollPairing(INVITATION.session_id);
+    expect(exposed.phase).toBe('SAS_PENDING');
+    expect(exposed.sasCode).toBe('123 456');
+
+    const withoutSas = buildPairingFetch(
+      {
+        [`/api/v1/device-link/pairings/${INVITATION.session_id}`]: {
+          body: { session_id: INVITATION.session_id, state: 'sas_pending' },
+        },
+      },
+      [],
+    );
+    const missing = await new BackendDeviceLinkAdapter(withoutSas).pollPairing(INVITATION.session_id);
+    expect(missing.sasCode).toBeUndefined();
+
+    const terminal = buildPairingFetch(
+      {
+        [`/api/v1/device-link/pairings/${INVITATION.session_id}`]: {
+          body: { session_id: INVITATION.session_id, state: 'confirmed_both' },
+        },
+      },
+      [],
+    );
+    const settled = await new BackendDeviceLinkAdapter(terminal).pollPairing(INVITATION.session_id);
+    expect(settled.sasCode).toBeUndefined();
+  });
+
   it('poll maps backend states verbatim; 404 maps to EXPIRED with PAIR_SESSION_NOT_FOUND', async () => {
     const posts: Recorded[] = [];
     const client = buildPairingFetch(

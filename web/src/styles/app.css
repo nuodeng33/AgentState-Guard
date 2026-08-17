@@ -926,6 +926,23 @@ code {
   color: var(--text-secondary);
 }
 
+/* Desktop SAS line inside the pairing card: the label stays secondary,
+   only the server-owned code gets the mono treatment. */
+.sas-code-label {
+  margin: 8px 0 var(--sp-8);
+  font-size: 13px;
+}
+
+.sas-code-label .sas-code {
+  margin: 0 0 0 var(--sp-8);
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  color: var(--text-primary);
+}
+
 .pairing-ok-title {
   margin: 0 0 4px;
   font-size: 14px;

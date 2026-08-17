@@ -266,6 +266,7 @@ export type MessageKey =
   | 'devices.revoking'
   | 'devices.revoked'
   | 'devices.qrHint'
+  | 'devices.sas.label'
   | 'devices.sasWaiting'
   | 'kv.observedAt'
   | 'kv.lastSeenAt'
@@ -453,7 +454,8 @@ const enUS: Messages = {
   'devices.expires': 'Pairing offer expires in {seconds}s',
   'devices.waiting': 'Waiting for the mobile device…',
   'devices.sas.prompt':
-    'Both devices must confirm the same security code. The code is shown on the mobile (the Core never returns it here).',
+    'Both devices must confirm the same security code. Verify that the code below is identical on the paired mobile device.',
+  'devices.sas.label': 'Security code',
   'devices.sas.confirm': 'Codes match',
   'devices.sas.reject': 'Codes do not match — cancel',
   'devices.confirming': 'Confirming…',
@@ -582,7 +584,7 @@ const enUS: Messages = {
   'devices.revoking': 'Revoking…',
   'devices.revoked': 'Revoked.',
   'devices.qrHint': 'Scan with the Android app. The QR contains the full canonical invitation.',
-  'devices.sasWaiting': 'Waiting for the code to appear on the mobile…',
+  'devices.sasWaiting': 'Waiting for the first connection from the mobile device…',
   'kv.observedAt': 'observed_at',
   'kv.lastSeenAt': 'last_seen',
   'kv.expiresAt': 'expires_at',
@@ -754,7 +756,8 @@ const zhCN: Messages = {
   'devices.identity': '桌面端标识',
   'devices.expires': '配对请求将在 {seconds} 秒后过期',
   'devices.waiting': '等待移动设备连接…',
-  'devices.sas.prompt': '两台设备必须确认相同的安全码。安全码在手机端显示（Core 不会把它返回到这里）。',
+  'devices.sas.prompt': '两台设备必须确认相同的安全码。请确认下方安全码与配对手机端显示的完全一致。',
+  'devices.sas.label': '安全码',
   'devices.sas.confirm': '确认一致',
   'devices.sas.reject': '不一致，取消',
   'devices.confirming': '正在确认…',
@@ -883,7 +886,7 @@ const zhCN: Messages = {
   'devices.revoking': '解除中…',
   'devices.revoked': '已解除。',
   'devices.qrHint': '使用 Android 应用扫描。二维码包含完整 canonical 邀请。',
-  'devices.sasWaiting': '等待手机端显示安全码…',
+  'devices.sasWaiting': '等待手机端首次连接…',
   'kv.observedAt': 'observed_at',
   'kv.lastSeenAt': 'last_seen',
   'kv.expiresAt': 'expires_at',

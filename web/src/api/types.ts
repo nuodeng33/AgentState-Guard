@@ -330,6 +330,11 @@ export interface PairingStateResult {
   session_id: string;
   state: 'created' | 'first_connection' | 'sas_pending' | 'confirmed_both' | 'consumed' | 'expired' | 'rejected' | 'failed' | 'cancelled';
   confirmed_by?: string[];
+  /**
+   * Server-owned, human-formatted six-digit SAS (e.g. "123 456"), projected
+   * exclusively while state is `sas_pending`. Terminal phases omit it.
+   */
+  sas?: string;
 }
 
 export interface DeviceLinkActionResult {
