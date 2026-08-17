@@ -21,7 +21,7 @@ def _in_container() -> bool:
     return False
 
 
-HOST_SERVICES = {"docker", "tailscale"}
+HOST_SERVICES = {"docker"}
 
 
 def doctor(config: dict) -> List[Dict[str, object]]:
@@ -137,31 +137,6 @@ def doctor(config: dict) -> List[Dict[str, object]]:
     _check_tool(results, "claude", ["claude", "--version"])
     _check_tool(results, "cloudcli", ["cloudcli", "--version"])
     _check_tool(results, "ccr", ["ccr", "--version"])
-
-    # Tailscale
-    if which("tailscale"):
-        try:
-            r = run_command(["tailscale", "status", "--json"], timeout=10)
-            if r.success:
-                if '"Online":true' in r.stdout or '"BackendState":"Running"' in r.stdout:
-                    results.append(_ok("tailscale", "Tailscale connected"))
-                else:
-                    results.append(_warn("tailscale", "Tailscale available but not connected"))
-            else:
-                if in_container:
-                    results.append(_unreachable("tailscale", "Tailscale runs on host, not in container"))
-                else:
-                    results.append(_warn("tailscale", f"Tailscale status unknown: {r.stderr}"))
-        except FileNotFoundError:
-            if in_container:
-                results.append(_unreachable("tailscale", "Tailscale not available in container (expected)"))
-            else:
-                results.append(_warn("tailscale", "Tailscale CLI not functional"))
-    else:
-        if in_container:
-            results.append(_unreachable("tailscale", "Tailscale runs on host, not in container"))
-        else:
-            results.append(_warn("tailscale", "Tailscale not installed"))
 
     _check_tool(results, "git", ["git", "--version"])
 

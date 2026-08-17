@@ -13,7 +13,6 @@ ALLOWED_HOST_FIELDS = {
     "docker_version", "docker_available",
     "containers",  # list of {name, running, status, privileged, cap_drop, security_opt, mounts}
     "ports",       # list of {port, listening}
-    "tailscale_running", "tailscale_ip", "tailscale_online",
     "timestamp_utc", "hostname", "os",
 }
 

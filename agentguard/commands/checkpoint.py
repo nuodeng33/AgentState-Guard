@@ -10,7 +10,6 @@ from ..core.snapshot import (
     create_snapshot, create_file_snapshot, classify_file, serialize_snapshot,
 )
 from ..core.docker import container_info
-from ..core.tailscale import tailscale_available
 from ..core.versions import all_versions
 from ..core.runner import run_command
 from ..storage.db import StateDB
@@ -27,10 +26,9 @@ def cmd_checkpoint(
     git_branch, git_commit = _git_info()
     versions = all_versions()
     container_state = container_info(config.get("container_name", "agent-dev"))
-    security_state = {
-        "docker_privileged": False,
-        "tailscale_available": tailscale_available(),
-    }
+    # No security facts are honestly derivable here; record none rather than
+    # inventing one. Docker reachability is not evidence of privilege mode.
+    security_state: Dict[str, bool] = {}
 
     # Build file snapshots
     restorable_paths = config.get("security", {}).get("restore_whitelist", [])

@@ -57,6 +57,5 @@ def all_versions() -> dict[str, str | None]:
         "claude": _get_version(["claude"]),
         "cloudcli": _get_version(["cloudcli"]),
         "ccr": _get_version(["ccr"]),
-        "tailscale": _get_version(["tailscale"]),
         "git": _get_version(["git"]),
     }

@@ -47,7 +47,7 @@ agentguard ui
 - **export/import**: Not implemented (removed from CLI; deferred to v1.1).
 - **Browser E2E and cross-platform CI**: Awaiting GitHub Actions setup.
 - **Web UI**: Serves on **127.0.0.1 only** by default. Remote access requires explicit `--allow-remote` flag.
-- **Not recommended for public network exposure.** Use SSH tunnel or Tailscale for remote access.
+- **Not recommended for public network exposure.** V1 transport is loopback-only; `--allow-remote` is an explicit diagnostic override outside the product network model.
 - **File monitoring**: Only tracks paths listed in restore whitelist.
 
 ## License

@@ -120,10 +120,6 @@ All endpoints except `/pair/*` require `Authorization: Bearer <session-token>` h
 
 ## WebSocket Events (WSS)
 ```
-{"type": "health_changed", "data": {"status": "PASS"}}
-{"type": "drift_detected", "data": {"changes": 3}}
-{"type": "checkpoint_created", "data": {"id": 5, "label": "..."}}
-{"type": "transaction_started", "data": {"txn_id": 1}}
-{"type": "transaction_finished", "data": {"txn_id": 1, "status": "committed"}}
-{"type": "device_revoked", "data": {}}
+(no WebSocket transport exists in the frozen backend; this section documented
+an unimplemented design and is retained only as history)
 ```

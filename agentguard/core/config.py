@@ -9,7 +9,7 @@ from ..core.sanitizer import sanitize_dict
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "checks": {
-        "commands": ["docker", "tailscale", "node", "python3", "git"],
+        "commands": ["docker", "node", "python3", "git"],
         "container_name": "agent-dev",
         "port": 3001,
     },
@@ -38,7 +38,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 PRODUCT_CONFIG_TEMPLATE = """# AgentState Guard product configuration
 
 [checks]
-commands = ["docker", "tailscale", "node", "python3", "git"]
+commands = ["docker", "node", "python3", "git"]
 container_name = "agent-dev"
 port = 3001
 

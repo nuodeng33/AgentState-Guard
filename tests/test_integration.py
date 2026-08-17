@@ -331,7 +331,7 @@ class TestIntegration:
             assert "message" in r
 
     def test_doctor_has_unreachable_in_container(self):
-        """In container mode, Docker/Tailscale should be UNREACHABLE."""
+        """In container mode, host services (Docker) should be UNREACHABLE."""
         from agentguard.commands.doctor import doctor
         import agentguard.commands.doctor as doc_mod
         original = doc_mod._in_container

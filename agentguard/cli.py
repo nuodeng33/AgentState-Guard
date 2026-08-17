@@ -479,7 +479,8 @@ def _dispatch(args: argparse.Namespace) -> Any:
         host = args.host or ("0.0.0.0" if args.allow_remote else "127.0.0.1")
         port = args.port
         if host == "0.0.0.0":
-            print("⚠️  Remote access enabled. Ensure Tailscale or SSH tunnel is active.")
+            print("⚠️  Remote access enabled. This exposes the API beyond loopback;")
+            print("    the V1 product transport is loopback only (Device Link is separate).")
         print(f"Starting AgentState Guard API at http://{host}:{port}")
         from .api.server import run_server
         run_server(host=host, port=port, allow_remote=args.allow_remote, config=cfg)
@@ -540,9 +541,6 @@ def _print_status(result: dict[str, Any]) -> None:
         for tool, ver in versions.items():
             v = ver or "N/A"
             print(f"  {tool}: {v}")
-
-    if result.get("drift_detected"):
-        print("\n⚠️  Drift detected — run 'agentguard diff' for details")
 
 
 def _print_checkpoints(cps: list) -> None:

@@ -40,7 +40,6 @@ agentstate-guard/
 │   │   ├── whitelist.py     # 路径白名单 + 穿越防护
 │   │   ├── runner.py        # 命令执行（超时）
 │   │   ├── docker.py        # Docker 状态检查
-│   │   ├── tailscale.py     # Tailscale 状态检查
 │   │   └── versions.py      # 版本检测
 │   ├── storage/
 │   │   ├── __init__.py

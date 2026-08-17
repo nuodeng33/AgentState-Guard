@@ -1,7 +1,7 @@
 # AgentState Guard v1.0 — Master Specification
 
 ## Product
-Local-first state guard for AI development environments: Claude Code, CCR, DeepSeek, Docker, WSL, CloudCLI, Tailscale.
+Local-first state guard for AI development environments: Claude Code, CCR, DeepSeek, Docker, WSL, CloudCLI.
 
 ## Core Principles
 1. Default read-only
