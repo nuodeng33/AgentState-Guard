@@ -1,7 +1,7 @@
 # V1 Host-native Backend / Authority Gap Closure 设计
 
-日期：2026-08-17  
-基线：`48f37448c3a9af546368fef3bc52bdfc39bc7633`  
+日期：2026-08-17
+基线：`48f37448c3a9af546368fef3bc52bdfc39bc7633`
 分支：`feat/v1-host-native-closure-sol`
 
 ## 1. 目标
