@@ -155,3 +155,91 @@ def test_workspace_checkpoint_rejects_caller_path_and_domain(tmp_path):
 
     assert response.status_code == 422
     assert response.json()["reason_code"] == "RECOVERY_REQUEST_INVALID"
+
+
+def test_refresh_records_checkpoint_diff_without_agent_attribution(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    modified = workspace / "modified.txt"
+    deleted = workspace / "deleted.txt"
+    modified.write_text("before", encoding="utf-8")
+    deleted.write_text("delete me", encoding="utf-8")
+    client, headers, _product_state = _client(tmp_path, workspace, workspace)
+    checkpoint = client.post(
+        "/api/v1/recovery/checkpoints", json={}, headers=headers
+    ).json()
+
+    modified.write_text("after", encoding="utf-8")
+    deleted.unlink()
+    (workspace / "created.txt").write_text("created", encoding="utf-8")
+
+    refresh = client.post("/api/v1/discovery/refresh", json={}, headers=headers)
+
+    assert refresh.status_code == 200
+    assert refresh.json()["workspace_change_status"] == "AVAILABLE"
+    assert refresh.json()["workspace_change_count"] == 3
+    changes = client.get("/api/v1/changes", headers=headers).json()
+    observed = [item for item in changes["items"] if item["type"] == "OBSERVED_CHANGE"]
+    assert len(observed) == 3
+    by_kind = {item["change_kind"]: item for item in observed}
+    assert set(by_kind) == {"CREATED", "MODIFIED", "DELETED"}
+    assert by_kind["CREATED"]["recovery_disposition"] == "NOT_IN_CHECKPOINT"
+    assert by_kind["MODIFIED"]["recovery_disposition"] == "RECOVERABLE"
+    assert by_kind["DELETED"]["recovery_disposition"] == "RECOVERABLE"
+    assert all(item["attribution"] == "UNATTRIBUTED" for item in observed)
+    assert all(item["checkpoint_id"] == checkpoint["checkpoint_id"] for item in observed)
+    assert all(item["affected_objects"] for item in observed)
+    serialized = json.dumps(observed)
+    assert str(workspace.resolve()) not in serialized
+    assert "agent-1" not in serialized
+    assert "agent-2" not in serialized
+
+    detail = client.get(
+        f"/api/v1/evidence/{by_kind['CREATED']['event_id']}", headers=headers
+    ).json()
+    assert detail["sanitized_detail"]["change_kind"] == "CREATED"
+    assert detail["sanitized_detail"]["attribution"] == "UNATTRIBUTED"
+    assert detail["sanitized_detail"]["recovery_disposition"] == "NOT_IN_CHECKPOINT"
+
+    repeated = client.post("/api/v1/discovery/refresh", json={}, headers=headers)
+    assert repeated.status_code == 200
+    repeated_changes = client.get("/api/v1/changes", headers=headers).json()
+    assert (
+        len(
+            [
+                item
+                for item in repeated_changes["items"]
+                if item["type"] == "OBSERVED_CHANGE"
+            ]
+        )
+        == 3
+    )
+
+
+def test_created_audit_and_excluded_objects_are_never_projected_recoverable(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "baseline.txt").write_text("baseline", encoding="utf-8")
+    client, headers, _product_state = _client(tmp_path, workspace)
+    response = client.post("/api/v1/recovery/checkpoints", json={}, headers=headers)
+    assert response.status_code == 200
+
+    (workspace / ".env").write_text("API_KEY=sensitive", encoding="utf-8")
+    dependency = workspace / "node_modules"
+    dependency.mkdir()
+    (dependency / "package.js").write_text("excluded", encoding="utf-8")
+
+    refresh = client.post("/api/v1/discovery/refresh", json={}, headers=headers)
+
+    assert refresh.status_code == 200
+    observed = [
+        item
+        for item in client.get("/api/v1/changes", headers=headers).json()["items"]
+        if item["type"] == "OBSERVED_CHANGE"
+    ]
+    assert {item["recovery_disposition"] for item in observed} == {
+        "AUDIT_ONLY",
+        "EXCLUDED",
+    }
+    assert all(item["change_kind"] == "CREATED" for item in observed)
+    assert all(item["recovery_disposition"] != "RECOVERABLE" for item in observed)

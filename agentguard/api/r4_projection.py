@@ -115,6 +115,12 @@ def _activity_detail(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "affected_objects": sorted(set(affected)),
         "verification": verification_result,
+        "attribution": _atom(payload.get("attribution")),
+        "change_kind": _atom(payload.get("change_kind")),
+        "coverage_after": _atom(payload.get("coverage_after")),
+        "coverage_before": _atom(payload.get("coverage_before")),
+        "recovery_disposition": _atom(payload.get("recovery_disposition")),
+        "workspace_id": _atom(payload.get("workspace_id")),
     }
 
 
@@ -133,7 +139,8 @@ def _verified_activities(
     rows = connection.execute(
         f"""SELECT event_id, recorded_at, observed_at, event_family, event_type,
                    source, result, supervision_session_id, transaction_id,
-                   checkpoint_id, subject_ref, evidence_refs_json, payload_safe_json
+                   checkpoint_id, subject_ref, evidence_refs_json, payload_safe_json,
+                   execution_domain_id
             FROM evidence_ledger_events
             WHERE {where}
             ORDER BY sequence DESC LIMIT ?""",
@@ -170,6 +177,13 @@ def _verified_activities(
                 ),
                 "verification_summary": detail["verification"],
                 "reason_code": reason_code or row[4],
+                "execution_domain_id": row[13],
+                "attribution": detail["attribution"],
+                "change_kind": detail["change_kind"],
+                "coverage_after": detail["coverage_after"],
+                "coverage_before": detail["coverage_before"],
+                "recovery_disposition": detail["recovery_disposition"],
+                "workspace_id": detail["workspace_id"],
                 "evidence_refs": sorted(
                     {
                         row[0],
@@ -612,7 +626,8 @@ class R4ReadProjectionService:
         row = connection.execute(
             """SELECT event_id, event_type, observed_at, recorded_at, source,
                       subject_ref, result, checkpoint_id, transaction_id,
-                      evidence_refs_json, payload_safe_json, curr_hash
+                      evidence_refs_json, payload_safe_json, curr_hash,
+                      execution_domain_id
                FROM evidence_ledger_events WHERE event_id = ?""",
             (event_id,),
         ).fetchone()
@@ -639,6 +654,16 @@ class R4ReadProjectionService:
         }
         if detail["verification"] is not None:
             sanitized_detail["verification"] = detail["verification"]
+        for key in (
+            "attribution",
+            "change_kind",
+            "coverage_after",
+            "coverage_before",
+            "recovery_disposition",
+            "workspace_id",
+        ):
+            if detail[key] is not None:
+                sanitized_detail[key] = detail[key]
         reason_code = (
             _atom(payload.get("reason_code")) if isinstance(payload, dict) else None
         )
@@ -657,6 +682,7 @@ class R4ReadProjectionService:
             "checkpoint_id": row[7],
             "change_id": row[8],
             "chain_ref": row[11],
+            "execution_domain_id": row[12],
             "sanitized_detail": sanitized_detail,
             "related_evidence_refs": sorted(
                 item for item in refs if isinstance(item, str) and item

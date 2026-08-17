@@ -102,6 +102,11 @@ def create_app(
         resolve_host_workspace,
     )
     from ..evidence.discovery_adapter import record_discovery_snapshot
+    from ..recovery.workspace_changes import WorkspaceChangeObserver
+    from ..recovery.workspace_permissions import (
+        PermissionCapabilityError,
+        current_user_permission_backend,
+    )
     from ..recovery.workspace_scope import WorkspaceScopeService
     from ..storage.db import StateDB
     from ..storage.snapshots import SnapshotStore
@@ -303,6 +308,7 @@ def create_app(
             snapshot = unavailable_product_snapshot()
             unavailable = True
         scope_result = None
+        change_result = None
         current_db = _get_db()
         try:
             receipts = record_discovery_snapshot(
@@ -319,11 +325,30 @@ def create_app(
                         reason_code="WORKSPACE_SCOPE_DISCOVERY_UNAVAILABLE",
                     )
                 )
-                scope_result = WorkspaceScopeService(current_db).bind(
+                scope_service = WorkspaceScopeService(current_db)
+                scope_result = scope_service.bind(
                     resolved_scope,
                     recorded_at=datetime.now(UTC),
                     discovery_snapshot_id=snapshot.snapshot_id,
                 )
+                if scope_result.status == "BOUND":
+                    active_scope = scope_service.active_scope()
+                    if active_scope is not None:
+                        try:
+                            permission_backend = current_user_permission_backend()
+                        except PermissionCapabilityError as exc:
+                            change_result = {
+                                "status": "UNREACHABLE",
+                                "reason_code": exc.reason_code,
+                                "change_count": 0,
+                                "evidence_refs": (),
+                            }
+                        else:
+                            change_result = WorkspaceChangeObserver(
+                                database=current_db,
+                                snapshots=SnapshotStore(snapshots_dir),
+                                permission_backend=permission_backend,
+                            ).observe(active_scope, observed_at=datetime.now(UTC))
         finally:
             current_db.close()
         affected_views = ["runtime", "agents", "supervision"]
@@ -332,6 +357,13 @@ def create_app(
             affected_views.extend(("changes", "recovery"))
             if scope_result.ledger_event_id is not None:
                 evidence_refs.append(scope_result.ledger_event_id)
+        if change_result is not None:
+            change_refs = (
+                change_result.get("evidence_refs", ())
+                if isinstance(change_result, dict)
+                else change_result.evidence_refs
+            )
+            evidence_refs.extend(change_refs)
         return {
             "schema_version": "product-discovery-1",
             "status": snapshot.status.value,
@@ -352,6 +384,27 @@ def create_app(
                 scope_result.reason_code
                 if scope_result is not None
                 else "WORKSPACE_SCOPE_NOT_OBSERVED"
+            ),
+            "workspace_change_status": (
+                change_result.get("status")
+                if isinstance(change_result, dict)
+                else change_result.status
+                if change_result is not None
+                else "NOT_RUN"
+            ),
+            "workspace_change_reason_code": (
+                change_result.get("reason_code")
+                if isinstance(change_result, dict)
+                else change_result.reason_code
+                if change_result is not None
+                else "WORKSPACE_CHANGE_NOT_RUN"
+            ),
+            "workspace_change_count": (
+                change_result.get("change_count", 0)
+                if isinstance(change_result, dict)
+                else change_result.change_count
+                if change_result is not None
+                else 0
             ),
             "evidence_refs": evidence_refs,
         }
