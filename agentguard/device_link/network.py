@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
+import os
 import subprocess
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from .errors import DeviceLinkError
 
@@ -121,10 +124,64 @@ class ScopedFirewall:
     TCP_RULE = "AgentState Guard Device Link TCP 8788"
     UDP_RULE = "AgentState Guard Device Link UDP 8788"
 
-    def __init__(self, runner=None) -> None:
+    def __init__(
+        self,
+        runner=None,
+        *,
+        elevation_runner=None,
+        platform_name: str | None = None,
+    ) -> None:
+        platform_name = platform_name or os.name
+        self._elevation = elevation_runner
+        if runner is None and self._elevation is None and platform_name == "nt":
+            from .windows_elevation import WindowsFirewallElevationRunner
+
+            self._elevation = WindowsFirewallElevationRunner()
         self._runner = runner or _run_checked
+        self._active_candidate: LanCandidate | None = None
+        self._last_result: dict[str, object] = {
+            "operation": "NONE",
+            "status": "NOT_RUN",
+            "reason_code": "DEVICE_FIREWALL_NOT_RUN",
+            "scope_digest": None,
+            "recorded_at": None,
+        }
+
+    def status(self) -> dict[str, object]:
+        return dict(self._last_result)
 
     def apply(self, candidate: LanCandidate) -> None:
+        if (
+            not candidate.private_profile
+            or not candidate.default_route
+            or not is_rfc1918_ipv4(candidate.address)
+            or not 1 <= candidate.prefix_length <= 30
+        ):
+            self._record("APPLY", "ERROR", "DEVICE_FIREWALL_SCOPE_INVALID", candidate)
+            raise DeviceLinkError(
+                409, "DEVICE_FIREWALL_SCOPE_INVALID", "Firewall scope is invalid"
+            )
+        if self._elevation is not None:
+            result = self._elevation.apply(
+                candidate.address,
+                candidate.prefix_length,
+            )
+            if not result.ok:
+                self._record("APPLY", "ERROR", result.reason_code, candidate)
+                raise DeviceLinkError(
+                    409
+                    if result.reason_code
+                    in {
+                        "DEVICE_FIREWALL_SCOPE_INVALID",
+                        "DEVICE_FIREWALL_ELEVATION_DECLINED",
+                    }
+                    else 503,
+                    result.reason_code,
+                    "Scoped firewall elevation failed",
+                )
+            self._active_candidate = candidate
+            self._record("APPLY", "AVAILABLE", result.reason_code, candidate)
+            return
         self.remove()
         try:
             for protocol, name in (("TCP", self.TCP_RULE), ("UDP", self.UDP_RULE)):
@@ -146,13 +203,37 @@ class ScopedFirewall:
                         "enable=yes",
                     ]
                 )
+            self._active_candidate = candidate
+            self._record("APPLY", "AVAILABLE", "DEVICE_FIREWALL_APPLIED", candidate)
         except (OSError, subprocess.SubprocessError) as error:
             self.remove()
+            self._record("APPLY", "ERROR", "DEVICE_FIREWALL_FAILED", candidate)
             raise DeviceLinkError(
                 503, "DEVICE_FIREWALL_FAILED", "Scoped firewall setup failed"
             ) from error
 
     def remove(self) -> None:
+        if self._elevation is not None:
+            candidate = self._active_candidate
+            if candidate is None:
+                return
+            result = self._elevation.remove(
+                candidate.address,
+                candidate.prefix_length,
+            )
+            if not result.ok:
+                self._record("REMOVE", "ERROR", result.reason_code, candidate)
+                raise DeviceLinkError(
+                    409
+                    if result.reason_code == "DEVICE_FIREWALL_ELEVATION_DECLINED"
+                    else 503,
+                    result.reason_code,
+                    "Scoped firewall removal failed",
+                )
+            self._active_candidate = None
+            self._record("REMOVE", "AVAILABLE", result.reason_code, candidate)
+            return
+        candidate = self._active_candidate
         for name in (self.TCP_RULE, self.UDP_RULE):
             try:
                 self._runner(
@@ -167,6 +248,25 @@ class ScopedFirewall:
                 )
             except (OSError, subprocess.SubprocessError):
                 continue
+        self._active_candidate = None
+        if candidate is not None:
+            self._record("REMOVE", "AVAILABLE", "DEVICE_FIREWALL_REMOVED", candidate)
+
+    def _record(
+        self,
+        operation: str,
+        status: str,
+        reason_code: str,
+        candidate: LanCandidate,
+    ) -> None:
+        scope = f"{candidate.address}/{candidate.prefix_length}:{candidate.subnet}:8788"
+        self._last_result = {
+            "operation": operation,
+            "status": status,
+            "reason_code": reason_code,
+            "scope_digest": hashlib.sha256(scope.encode()).hexdigest(),
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
 
 
 def _run_checked(args: list[str]) -> None:

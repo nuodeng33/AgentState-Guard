@@ -12,6 +12,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod firewall_helper;
 mod sidecar;
 
 use sidecar::SidecarProcess;
@@ -32,6 +33,9 @@ fn get_sidecar_state(state: tauri::State<SidecarProcess>) -> Result<sidecar::Sid
 }
 
 fn main() {
+    if let Some(exit_code) = firewall_helper::run_if_requested() {
+        std::process::exit(exit_code);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(SidecarProcess(Mutex::new(None)))

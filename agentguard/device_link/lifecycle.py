@@ -25,14 +25,21 @@ class DeviceLinkController:
         self._listener = listener
         self._candidate = None
         self._enabled = False
+        self._last_reason_code: str | None = None
         self.gateway = gateway
         self.identity = identity
 
     def status(self) -> dict[str, object]:
-        return {
+        result = {
             "schema_version": "device-link-lifecycle-1",
             "enabled": self._enabled,
-            "status": "ENABLED" if self._enabled else "DISABLED",
+            "status": (
+                "ENABLED"
+                if self._enabled
+                else "DEGRADED"
+                if self._last_reason_code is not None
+                else "DISABLED"
+            ),
             "endpoint": (
                 f"https://{self._candidate.address}:8788"
                 if self._enabled and self._candidate is not None
@@ -44,10 +51,25 @@ class DeviceLinkController:
             "subnet": self._candidate.subnet
             if self._enabled and self._candidate
             else None,
-            "reason_code": "DEVICE_LINK_ENABLED"
-            if self._enabled
-            else "DEVICE_LINK_DISABLED",
+            "reason_code": (
+                "DEVICE_LINK_ENABLED"
+                if self._enabled
+                else self._last_reason_code or "DEVICE_LINK_DISABLED"
+            ),
         }
+        firewall_status = getattr(self._firewall, "status", None)
+        result["firewall"] = (
+            firewall_status()
+            if callable(firewall_status)
+            else {
+                "operation": "UNKNOWN",
+                "status": "UNKNOWN",
+                "reason_code": "DEVICE_FIREWALL_STATUS_UNAVAILABLE",
+                "scope_digest": None,
+                "recorded_at": None,
+            }
+        )
+        return result
 
     def product_status(self) -> dict[str, object]:
         lifecycle = self.status()
@@ -88,22 +110,34 @@ class DeviceLinkController:
         try:
             self._firewall.apply(candidate)
             self._listener.start(candidate.address, 8788)
-        except DeviceLinkError:
+        except DeviceLinkError as error:
+            self._last_reason_code = error.code
             try:
                 self._listener.stop()
             finally:
-                self._firewall.remove()
+                try:
+                    self._firewall.remove()
+                except DeviceLinkError as cleanup_error:
+                    self._last_reason_code = cleanup_error.code
+                    raise cleanup_error from error
             raise
         except Exception as error:
+            failure = DeviceLinkError(
+                503, "DEVICE_LINK_ENABLE_FAILED", "Device Link enable failed"
+            )
+            self._last_reason_code = failure.code
             try:
                 self._listener.stop()
             finally:
-                self._firewall.remove()
-            raise DeviceLinkError(
-                503, "DEVICE_LINK_ENABLE_FAILED", "Device Link enable failed"
-            ) from error
+                try:
+                    self._firewall.remove()
+                except DeviceLinkError as cleanup_error:
+                    self._last_reason_code = cleanup_error.code
+                    raise cleanup_error from error
+            raise failure from error
         self._candidate = candidate
         self._enabled = True
+        self._last_reason_code = None
         return self.status()
 
     def refresh_network(self) -> dict[str, object]:
@@ -127,45 +161,67 @@ class DeviceLinkController:
             return self.status()
         try:
             self._listener.stop()
-        finally:
             self._firewall.remove()
-        self._enabled = False
-        self._candidate = None
+        except DeviceLinkError as error:
+            self._last_reason_code = error.code
+            raise
+        finally:
+            self._enabled = False
+            self._candidate = None
         return self.enable_with(candidate)
 
     def enable_with(self, candidate) -> dict[str, object]:
         try:
             self._firewall.apply(candidate)
             self._listener.start(candidate.address, 8788)
-        except DeviceLinkError:
+        except DeviceLinkError as error:
+            self._last_reason_code = error.code
             try:
                 self._listener.stop()
             finally:
-                self._firewall.remove()
+                try:
+                    self._firewall.remove()
+                except DeviceLinkError as cleanup_error:
+                    self._last_reason_code = cleanup_error.code
+                    raise cleanup_error from error
             raise
         except Exception as error:
+            failure = DeviceLinkError(
+                503, "DEVICE_LINK_REBIND_FAILED", "Device Link rebind failed"
+            )
+            self._last_reason_code = failure.code
             try:
                 self._listener.stop()
             finally:
-                self._firewall.remove()
-            raise DeviceLinkError(
-                503, "DEVICE_LINK_REBIND_FAILED", "Device Link rebind failed"
-            ) from error
+                try:
+                    self._firewall.remove()
+                except DeviceLinkError as cleanup_error:
+                    self._last_reason_code = cleanup_error.code
+                    raise cleanup_error from error
+            raise failure from error
         self._candidate = candidate
         self._enabled = True
+        self._last_reason_code = None
         return self.status()
 
     def disable(self) -> dict[str, object]:
+        firewall_error: DeviceLinkError | None = None
         try:
             self._listener.stop()
         finally:
             try:
                 self._firewall.remove()
+            except DeviceLinkError as error:
+                firewall_error = error
+                self._last_reason_code = error.code
             finally:
                 if self.gateway is not None:
                     self.gateway.invalidate_transient_authorizations()
                 self._candidate = None
                 self._enabled = False
+        if firewall_error is not None:
+            raise firewall_error
+        self._last_reason_code = None
         return self.status()
 
 

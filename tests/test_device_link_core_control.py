@@ -9,6 +9,7 @@ from agentguard.device_link.crypto import (
     generate_ecdsa_p256_keypair,
     public_key_to_der,
 )
+from agentguard.device_link.errors import DeviceLinkError
 from agentguard.device_link.gateway import DeviceLinkGateway
 
 
@@ -199,3 +200,32 @@ def test_desktop_pairing_projection_uses_the_same_server_owned_sas_as_android(
     ).json()
     assert terminal_projection["state"] == "confirmed_both"
     assert "sas" not in terminal_projection
+
+
+def test_core_disable_projects_firewall_removal_failure(tmp_path):
+    class _FailingDisableController(_Controller):
+        def disable(self):
+            raise DeviceLinkError(
+                503,
+                "DEVICE_FIREWALL_MUTATION_FAILED",
+                "Removal failed",
+            )
+
+    controller = _FailingDisableController()
+    client = TestClient(
+        create_app(
+            state_db_path=tmp_path / "state.db",
+            config={"base_dir": str(tmp_path)},
+            device_link_controller=controller,
+        )
+    )
+    token = client.get("/api/session").json()["token"]
+
+    response = client.post(
+        "/api/v1/device-link/disable",
+        json={},
+        headers={"X-Session-Token": token},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["reason_code"] == "DEVICE_FIREWALL_MUTATION_FAILED"

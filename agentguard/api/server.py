@@ -1018,7 +1018,12 @@ def create_app(
 
     @app.post("/api/v1/device-link/disable")
     async def api_device_link_disable(_body: DeviceLinkEmptyRequest):
-        return device_link_controller.disable()
+        from ..device_link.errors import DeviceLinkError
+
+        try:
+            return device_link_controller.disable()
+        except DeviceLinkError as error:
+            return _device_link_error(error)
 
     @app.post("/api/v1/device-link/network/refresh")
     async def api_device_link_network_refresh(_body: DeviceLinkEmptyRequest):

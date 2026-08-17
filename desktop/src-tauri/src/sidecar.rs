@@ -102,6 +102,9 @@ fn resolve_sidecar() -> Result<PathBuf, String> {
 /// CI smoke test (TcpClient check) — not by blocking inside setup().
 pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
     let sidecar_path = resolve_sidecar()?;
+    let desktop_executable = std::env::current_exe()
+        .and_then(|path| path.canonicalize())
+        .map_err(|e| format!("Failed to resolve desktop executable: {}", e))?;
     let (stdout, stderr) = open_sidecar_logs(data_dir)?;
     let mut command = Command::new(&sidecar_path);
     command
@@ -112,6 +115,7 @@ pub fn spawn(data_dir: &str) -> Result<(Child, u32), String> {
         .arg(SIDECAR_HOST)
         .arg("--port")
         .arg(SIDECAR_PORT.to_string())
+        .env("ASG_DESKTOP_EXECUTABLE", desktop_executable)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
     configure_no_window(&mut command);

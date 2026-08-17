@@ -1,5 +1,8 @@
 """Disabled-by-default Device Link lifecycle and rebind tests."""
 
+import pytest
+
+from agentguard.device_link.errors import DeviceLinkError
 from agentguard.device_link.lifecycle import (
     BoundRediscoveryResponder,
     DeviceLinkController,
@@ -90,3 +93,57 @@ def test_disable_invalidates_transient_authority_without_deleting_binding():
     controller.disable()
 
     assert gateway.invalidations == 1
+
+
+def test_firewall_failure_is_fail_closed_before_listener_start():
+    candidate = LanCandidate("Ethernet", "Intel", "192.168.1.8", 24, True, 10, 5)
+
+    class FailingFirewall(_Firewall):
+        def apply(self, candidate):
+            self.actions.append(("apply", candidate.address))
+            raise DeviceLinkError(
+                409,
+                "DEVICE_FIREWALL_ELEVATION_DECLINED",
+                "User declined elevation",
+            )
+
+    listener = _Listener()
+    controller = DeviceLinkController(
+        _Selector([candidate]), FailingFirewall(), listener
+    )
+
+    with pytest.raises(DeviceLinkError) as denied:
+        controller.enable()
+
+    assert denied.value.code == "DEVICE_FIREWALL_ELEVATION_DECLINED"
+    assert not any(action[0] == "start" for action in listener.actions)
+    assert controller.status()["status"] == "DEGRADED"
+    assert controller.status()["reason_code"] == "DEVICE_FIREWALL_ELEVATION_DECLINED"
+
+
+def test_firewall_remove_failure_stops_listener_and_reports_degraded():
+    candidate = LanCandidate("Ethernet", "Intel", "192.168.1.8", 24, True, 10, 5)
+
+    class RemoveFailFirewall(_Firewall):
+        def remove(self):
+            self.actions.append(("remove",))
+            raise DeviceLinkError(
+                503,
+                "DEVICE_FIREWALL_MUTATION_FAILED",
+                "Removal failed",
+            )
+
+    listener = _Listener()
+    controller = DeviceLinkController(
+        _Selector([candidate]), RemoveFailFirewall(), listener
+    )
+    controller.enable()
+
+    with pytest.raises(DeviceLinkError) as failed:
+        controller.disable()
+
+    assert failed.value.code == "DEVICE_FIREWALL_MUTATION_FAILED"
+    assert listener.actions[-1] == ("stop",)
+    assert controller.status()["enabled"] is False
+    assert controller.status()["status"] == "DEGRADED"
+    assert controller.status()["reason_code"] == "DEVICE_FIREWALL_MUTATION_FAILED"
