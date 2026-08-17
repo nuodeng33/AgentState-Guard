@@ -11,7 +11,7 @@ import com.agentstate.guard.network.DeviceLinkSnapshot
 import com.agentstate.guard.network.QrPayload
 import com.agentstate.guard.network.AndroidKeyStoreSigner
 import com.agentstate.guard.network.SharedPreferencesBindingStore
-import com.agentstate.guard.ui.state.AiMonitorUiState
+import com.agentstate.guard.ui.state.AiAdvisoryUiState
 import com.agentstate.guard.ui.state.ChangeUi
 import com.agentstate.guard.ui.state.ChangesUiState
 import com.agentstate.guard.ui.state.CheckpointUi
@@ -248,7 +248,9 @@ class RepositoryDeviceLinkUiAdapter(
         }.orEmpty()
         val agents = supervision.optJSONArraySafe("observed_agents")?.mapObjects { item ->
             SupervisionAgentUi(
-                identity = item.optStringOpt("detected_identity") ?: "UNKNOWN",
+                identity = item.optStringOpt("detected_identity")
+                    ?: item.optStringOpt("identity")
+                    ?: "UNKNOWN",
                 role = item.optStringOpt("role"),
                 lifecycle = item.optStringOpt("lifecycle"),
                 observedAt = item.optStringOpt("observed_at"),
@@ -331,16 +333,16 @@ class RepositoryDeviceLinkUiAdapter(
         )
     }
 
-    override suspend fun aiMonitorState(): AiMonitorUiState {
+    override suspend fun aiAdvisoryState(): AiAdvisoryUiState {
         val current = currentSnapshot()
-        val advisory = current.aiAdvisory ?: return AiMonitorUiState(
+        val advisory = current.aiAdvisory ?: return AiAdvisoryUiState(
             phase = phaseOf(current),
             configured = false,
             reasonCode = current.reasonCode,
             lastKnown = lastKnownOf(current),
             syncedAtEpochMs = syncedAtEpochMs,
         )
-        return AiMonitorUiState(
+        return AiAdvisoryUiState(
             phase = phaseOf(current),
             configured = advisory.optStringOpt("status") != "UNAVAILABLE",
             summary = advisory.optStringOpt("summary"),
@@ -354,10 +356,54 @@ class RepositoryDeviceLinkUiAdapter(
     }
 
     override suspend fun evidenceState(eventId: String): EvidenceUiState {
-        // Evidence drill-down sits behind a dedicated, bounded read that the
-        // Changes/Evidence surface wires in a later stage; no data is ever
-        // fabricated here.
-        return EvidenceUiState(phase = DataPhase.EMPTY)
+        // Canonical lookup key is exactly the Changes item's event_id; the UI
+        // surface never builds or guesses one. A failed detail read never
+        // mutates the parent projection and never falls back to raw data.
+        val dto = try {
+            blocking { repository.evidence(eventId) }
+        } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
+            return EvidenceUiState(
+                phase = DataPhase.ERROR,
+                status = "UNAVAILABLE",
+                reasonCode = evidenceFailureReasonCode(error),
+                eventId = eventId,
+            )
+        }
+        val detail = dto.optJSONObjectOpt("sanitized_detail")
+        val affectedObjects = detail?.optJSONArraySafe("affected_objects")
+            ?.let { array ->
+                (0 until array.length()).mapNotNull { index ->
+                    array.optString(index, null)
+                }
+            }
+            ?.filter { it.isNotBlank() }
+        val verification = dto.optStringOpt("verification_summary")
+            ?: detail?.optStringOpt("verification")
+        val related = dto.optJSONArraySafe("related_evidence_refs")
+            ?.let { array -> (0 until array.length()).mapNotNull { array.optString(it, null) } }
+            .orEmpty()
+        return EvidenceUiState(
+            phase = when (dto.optStringOpt("status")) {
+                "AVAILABLE" -> DataPhase.CONNECTED
+                "NOT_FOUND" -> DataPhase.EMPTY
+                else -> DataPhase.DEGRADED
+            },
+            status = dto.optStringOpt("status"),
+            reasonCode = dto.optStringOpt("reason_code"),
+            eventId = dto.optStringOpt("event_id") ?: eventId,
+            eventType = dto.optStringOpt("event_type"),
+            observedAt = dto.optStringOpt("observed_at"),
+            recordedAt = dto.optStringOpt("recorded_at"),
+            source = dto.optStringOpt("source"),
+            subject = dto.optStringOpt("subject"),
+            result = dto.optStringOpt("result"),
+            verificationSummary = verification?.let(::listOf),
+            affectedObjects = affectedObjects,
+            checkpointId = dto.optStringOpt("checkpoint_id"),
+            changeId = dto.optStringOpt("change_id"),
+            chainRef = dto.optStringOpt("chain_ref"),
+            relatedEvidenceRefs = related,
+        )
     }
 
     // ---- The only two Android mutations ---------------------------------------

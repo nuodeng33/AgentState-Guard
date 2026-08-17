@@ -2,9 +2,17 @@ package com.agentstate.guard.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -12,37 +20,258 @@ import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.components.DataStateHost
 import com.agentstate.guard.ui.components.EmptyStateCard
-import com.agentstate.guard.ui.state.DataPhase
+import com.agentstate.guard.ui.components.FreshnessCaption
+import com.agentstate.guard.ui.components.SectionHeader
+import com.agentstate.guard.ui.state.SupervisionSessionUi
 import com.agentstate.guard.ui.state.SupervisionUiState
+import com.agentstate.guard.ui.state.VerifiedActivityUi
 import com.agentstate.guard.ui.theme.Spacing
+import com.agentstate.guard.ui.theme.Surface as SurfaceColor
+import com.agentstate.guard.ui.theme.TextSecondary
 
 /**
- * Supervision: pending-count projection only. Sessions stay on the desktop;
- * this surface never invents pending work.
+ * Supervision — answers, in order:
+ *   1. Is an agent working?            (observed agents from the projection)
+ *   2. Is anything blocked / failed?   (session blocked_or_failed_reason)
+ *   3. Does it need your intervention? (pending approval with action buttons)
+ *   4. What is the current action?     (latest verified activity, verbatim)
+ *   5. What was recently confirmed?    (recent verified activities)
+ *   6. Sessions at a glance
+ *
+ * Statuses, reason codes and action references are backend tokens rendered
+ * verbatim; the screen never invents current work, never infers liveness
+ * from elapsed time, and never treats AI assessment as authority.
  */
 @Composable
-fun SupervisionScreen(state: SupervisionUiState) {
+fun SupervisionScreen(
+    state: SupervisionUiState,
+    modifier: Modifier = Modifier,
+    onApprove: (sessionId: String, actionRef: String) -> Unit = { _, _ -> },
+    onReject: (sessionId: String, actionRef: String) -> Unit = { _, _ -> },
+    actionInProgressSessionId: String? = null,
+    actionResultReasonCode: String? = null,
+) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .padding(Spacing.l),
+            .padding(Spacing.l)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
         Text(
             stringResource(R.string.nav_supervision),
             style = MaterialTheme.typography.headlineSmall,
         )
+        FreshnessCaption(
+            lastKnown = state.lastKnown,
+            observedAt = state.observedAt,
+            syncedAtEpochMs = state.syncedAtEpochMs,
+        )
         DataStateHost(
             phase = state.phase,
             loadingText = stringResource(R.string.state_loading),
             emptyText = stringResource(R.string.empty_supervision),
         ) {
-            if (state.phase == DataPhase.CONNECTED && state.pendingCount == 0) {
-                EmptyStateCard(title = stringResource(R.string.empty_supervision))
-            } else {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                // 1. Is an agent working?
+                SectionHeader(stringResource(R.string.supervision_q_agent_working))
+                if (state.observedAgents.isEmpty()) {
+                    Text(
+                        stringResource(R.string.supervision_status_idle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                } else {
+                    state.observedAgents.forEach { agent ->
+                        FactRow(
+                            primary = agent.identity,
+                            secondary = listOfNotNull(agent.role, agent.lifecycle)
+                                .filter { it.isNotBlank() }
+                                .takeIf { it.isNotEmpty() }
+                                ?.joinToString(" · "),
+                        )
+                    }
+                }
+
+                // 2. Blocked / failed sessions.
+                val blocked = state.sessions.filter { it.blockedOrFailedReason != null }
+                if (blocked.isNotEmpty()) {
+                    SectionHeader(stringResource(R.string.supervision_q_blocked))
+                    blocked.forEach { session ->
+                        FactRow(
+                            primary = session.sessionId,
+                            secondary = session.blockedOrFailedReason,
+                        )
+                    }
+                }
+
+                // 3. Pending approval with a server-issued action_ref: actionable.
+                val pending = state.sessions.filter { it.pendingApproval && it.actionRef != null }
+                if (pending.isNotEmpty()) {
+                    SectionHeader(stringResource(R.string.supervision_q_intervention))
+                    pending.forEach { session ->
+                        PendingApprovalCard(
+                            session = session,
+                            onApprove = onApprove,
+                            onReject = onReject,
+                            inProgress = actionInProgressSessionId == session.sessionId,
+                            resultReasonCode = if (actionInProgressSessionId == null) {
+                                actionResultReasonCode
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                }
+
+                // 4. What is the current action? (honest absence when no backend fact)
+                SectionHeader(stringResource(R.string.supervision_q_current_action))
+                val latest = state.sessions.mapNotNull { session ->
+                    session.latestVerifiedActivity?.let { it to session.sessionId }
+                }.maxByOrNull { it.first.timestamp ?: "" }
+                if (latest == null) {
+                    Text(
+                        stringResource(R.string.supervision_no_current_fact),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                } else {
+                    ActivityRow(latest.first, sessionContext = latest.second)
+                }
+
+                // 5. Recently confirmed activity.
+                if (state.recentActivities.isNotEmpty()) {
+                    SectionHeader(stringResource(R.string.supervision_q_recent_activities))
+                    state.recentActivities.forEach { activity ->
+                        ActivityRow(activity, sessionContext = null)
+                    }
+                }
+
+                // 6. Sessions at a glance.
+                SectionHeader(stringResource(R.string.supervision_session))
+                if (state.sessions.isEmpty()) {
+                    Text(
+                        stringResource(R.string.state_no_data),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                } else {
+                    state.sessions.forEach { session ->
+                        FactRow(
+                            primary = session.sessionId,
+                            secondary = listOfNotNull(session.status, session.policyDecision)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · "),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FactRow(primary: String, secondary: String?) {
+    Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.m),
+        ) {
+            Text(primary, style = MaterialTheme.typography.bodyMedium)
+            if (secondary != null) {
                 Text(
-                    "${stringResource(R.string.home_pending_supervision)}: ${state.pendingCount}",
-                    style = MaterialTheme.typography.bodyMedium,
+                    secondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+            }
+        }
+    }
+}
+
+/** Pending-approval card; actions are enabled only for a server action_ref. */
+@Composable
+private fun PendingApprovalCard(
+    session: SupervisionSessionUi,
+    onApprove: (String, String) -> Unit,
+    onReject: (String, String) -> Unit,
+    inProgress: Boolean,
+    resultReasonCode: String?,
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.m),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s),
+        ) {
+            FactRow(
+                primary = session.sessionId,
+                secondary = listOfNotNull(
+                    session.status,
+                    session.policyDecision,
+                    if (session.requiresCheckpoint) {
+                        stringResource(R.string.supervision_checkpoint_required)
+                    } else {
+                        null
+                    },
+                ).filter { it.isNotBlank() }.joinToString(" · "),
+            )
+            session.actionRef?.let { actionRef ->
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    OutlinedButton(
+                        onClick = { onReject(session.sessionId, actionRef) },
+                        enabled = !inProgress,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(stringResource(R.string.reject_action))
+                    }
+                    Button(
+                        onClick = { onApprove(session.sessionId, actionRef) },
+                        enabled = !inProgress,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(stringResource(R.string.approve_once_action))
+                    }
+                }
+            }
+            when {
+                inProgress -> Text(
+                    stringResource(R.string.state_loading),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+                resultReasonCode != null -> FactRow(
+                    primary = stringResource(R.string.action_failed),
+                    secondary = resultReasonCode,
+                )
+            }
+        }
+    }
+}
+
+/** One verified-activity row; timestamp/result/reason render verbatim. */
+@Composable
+private fun ActivityRow(activity: VerifiedActivityUi, sessionContext: String?) {
+    Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.m),
+        ) {
+            Text(activity.type, style = MaterialTheme.typography.bodyMedium)
+            val detail = listOfNotNull(
+                activity.timestamp,
+                activity.result,
+                activity.reasonCode,
+                sessionContext,
+            ).filter { it.isNotBlank() }.joinToString(" · ")
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
                 )
             }
         }

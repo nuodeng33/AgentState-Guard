@@ -33,13 +33,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.navigation.NavType
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.link.DeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.PairingPhase
 import com.agentstate.guard.ui.link.PairingUiState
 import com.agentstate.guard.ui.link.RepositoryDeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.pairingFailureReasonCode
-import com.agentstate.guard.ui.screens.AiMonitorScreen
+import com.agentstate.guard.ui.screens.AiAdvisoryCard
 import com.agentstate.guard.ui.screens.ChangesScreen
 import com.agentstate.guard.ui.screens.CheckpointsScreen
 import com.agentstate.guard.ui.screens.DevicesScreen
@@ -51,8 +53,9 @@ import com.agentstate.guard.ui.screens.RecoveryScreen
 import com.agentstate.guard.ui.screens.SasScreen
 import com.agentstate.guard.ui.screens.ScanConnectScreen
 import com.agentstate.guard.ui.screens.SettingsScreen
+import com.agentstate.guard.ui.screens.EvidenceScreen
 import com.agentstate.guard.ui.screens.SupervisionScreen
-import com.agentstate.guard.ui.state.AiMonitorUiState
+import com.agentstate.guard.ui.state.AiAdvisoryUiState
 import com.agentstate.guard.ui.state.ChangesUiState
 import com.agentstate.guard.ui.state.CheckpointsUiState
 import com.agentstate.guard.ui.state.ConnectionUiState
@@ -73,6 +76,7 @@ private enum class Tab(val route: String, val labelRes: Int) {
     More("more", R.string.nav_more),
 }
 
+/** Pairing phases where polling should keep the offer alive. */
 private val IN_FLIGHT_PHASES = setOf(
     PairingPhase.PAIRING_CREATED,
     PairingPhase.WAITING_FOR_DESKTOP,
@@ -80,12 +84,21 @@ private val IN_FLIGHT_PHASES = setOf(
     PairingPhase.CONFIRMING,
 )
 
+/** Terminal pairing phases: an open SAS shell dismisses itself on these. */
+private val SAS_TERMINAL_PHASES = setOf(
+    PairingPhase.PAIRED,
+    PairingPhase.EXPIRED,
+    PairingPhase.REJECTED,
+    PairingPhase.ERROR,
+)
+
 /**
  * Product shell: five bottom tabs (Home / Environment / Changes /
- * Supervision / More); More hosts Checkpoints, Recovery, AI Monitor,
- * Devices, and Settings. All data flows through the injected
- * DeviceLinkUiAdapter; production binds the real repository adapter, the
- * noop adapter stays reserved for previews and tests.
+ * Supervision / More); More hosts Checkpoints, Recovery, Devices, and
+ * Settings. All data flows through the injected DeviceLinkUiAdapter;
+ * production binds the real repository adapter, the noop adapter stays
+ * reserved for previews and tests. AI advice is rendered as context cards
+ * only — there is no standalone AI product surface on Android.
  */
 @Composable
 fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
@@ -143,16 +156,63 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
     val recoveryState by produceState(RecoveryUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.recoveryState()
     }
-    val aiState by produceState(AiMonitorUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
-        value = linkAdapter.aiMonitorState()
+    val aiState by produceState(AiAdvisoryUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
+        value = linkAdapter.aiAdvisoryState()
     }
     val connectionState by produceState<ConnectionUiState?>(null, linkAdapter, dataVersion) {
         value = linkAdapter.connectionState()
     }
 
+    // ---- supervision mutation machine -----------------------------------------
+    var unpairInProgress by remember { mutableStateOf(false) }
+    var actionBusy by remember { mutableStateOf<String?>(null) }
+    var actionResultReason by remember { mutableStateOf<String?>(null) }
+    fun runSupervisionAction(
+        sessionId: String,
+        actionRef: String,
+        approve: Boolean,
+    ) {
+        if (actionBusy != null) return
+        actionBusy = sessionId
+        actionResultReason = null
+        scope.launch {
+            val outcome = try {
+                if (approve) linkAdapter.approveOnce(sessionId, actionRef)
+                else linkAdapter.rejectSupervision(sessionId, actionRef)
+            } catch (unsupported: Exception) {
+                actionResultReason = pairingFailureReasonCode(unsupported)
+                null
+            }
+            // A null outcome can only come from the noop/preview adapter throwing
+            // before it finished the callback; map it to the generic suppression
+            // failure so the chip clears cleanly on poll.
+            actionResultReason = outcome?.reasonCode ?: actionResultReason
+            actionBusy = null
+            // Projections are stale after any authoritative mutation: force a
+            // refresh of every surface once the round trip completes.
+            linkAdapter.refresh()
+            dataVersion++
+        }
+    }
+
     // ---- pairing shell state ----
     var pairing by remember { mutableStateOf<PairingUiState?>(null) }
     var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    // Pairing SAS terminal sync: when a pairing lands with a SAS payload,
+    // navigate into the SAS shell once; when a running SAS shell observes a
+    // terminal phase (paired/failed/expired/rejected), close it automatically
+    // so stale confirmations never linger.
+    LaunchedEffect(pairing, currentRoute) {
+        val state = pairing
+        when {
+            state == null -> Unit
+            state.pairingId != null && state.sasCode != null &&
+                currentRoute == "connect/scan" -> navController.navigate("connect/sas")
+            state.phase in SAS_TERMINAL_PHASES && currentRoute == "connect/sas" ->
+                navController.popBackStack()
+        }
+    }
 
     LaunchedEffect(pairing?.expiresAtEpochMs) {
         if (pairing?.expiresAtEpochMs != null) {
@@ -220,18 +280,57 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                 HomeScreen(
                     paired = if (linked.first) linked.second != null else null,
                     state = homeState,
+                    aiAdvisory = aiState,
                     onScanQr = { navController.navigate("connect/scan") },
                 )
             }
             composable(Tab.Environment.route) { EnvironmentScreen(environmentState) }
-            composable(Tab.Changes.route) { ChangesScreen(changesState) }
-            composable(Tab.Supervision.route) { SupervisionScreen(supervisionState) }
+            composable(Tab.Changes.route) {
+                ChangesScreen(
+                    state = changesState,
+                    onOpenEvidence = { eventId ->
+                        navController.navigate("evidence/${android.net.Uri.encode(eventId)}")
+                    },
+                )
+            }
+            composable(Tab.Supervision.route) {
+                SupervisionScreen(
+                    state = supervisionState,
+                    onApprove = { sessionId, actionRef ->
+                        runSupervisionAction(sessionId, actionRef, approve = true)
+                    },
+                    onReject = { sessionId, actionRef ->
+                        runSupervisionAction(sessionId, actionRef, approve = false)
+                    },
+                    actionInProgressSessionId = actionBusy?.takeIf { actionResultReason == null },
+                    actionResultReasonCode = actionResultReason,
+                )
+            }
             composable(Tab.More.route) { MoreScreen(onOpen = { navController.navigate(it.route) }) }
 
             composable(MoreDestination.Checkpoints.route) { CheckpointsScreen(checkpointsState) }
             composable(MoreDestination.Recovery.route) { RecoveryScreen(recoveryState) }
-            composable(MoreDestination.AiMonitor.route) { AiMonitorScreen(aiState) }
-            composable(MoreDestination.Devices.route) { DevicesScreen(linked.second) }
+            composable(MoreDestination.Devices.route) {
+                DevicesScreen(
+                    linked = linked.second,
+                    connection = connectionState,
+                    isUnpairing = unpairInProgress,
+                    onUnpair = {
+                        if (!unpairInProgress) {
+                            unpairInProgress = true
+                            scope.launch {
+                                try {
+                                    linkAdapter.unpair()
+                                } catch (unsupported: Exception) {
+                                    // Noop/preview adapter has nothing to delete.
+                                }
+                                unpairInProgress = false
+                                dataVersion++
+                            }
+                        }
+                    },
+                )
+            }
             composable(MoreDestination.Settings.route) {
                 SettingsScreen(
                     preference = languagePreference,
@@ -243,8 +342,40 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                 )
             }
 
+            composable(
+                route = "evidence/{event_id}",
+                arguments = listOf(navArgument("event_id") { type = NavType.StringType }),
+            ) { entry ->
+                val eventId = entry.arguments?.getString("event_id") ?: ""
+                val detail by produceState<com.agentstate.guard.ui.state.EvidenceUiState?>(
+                    initialValue = null,
+                    eventId,
+                ) {
+                    value = linkAdapter.evidenceState(eventId)
+                }
+                EvidenceScreen(
+                    eventId = eventId,
+                    state = detail,
+                    onBack = { navController.popBackStack() },
+                )
+            }
+
             composable("connect/scan") {
-                ScanConnectScreen(onBack = { navController.popBackStack() })
+                ScanConnectScreen(
+                    onBack = { navController.popBackStack() },
+                    onPayloadDetected = { payloadText ->
+                        scope.launch {
+                            pairing = try {
+                                linkAdapter.beginScanPairing(payloadText)
+                            } catch (unsupported: Exception) {
+                                PairingUiState(
+                                    PairingPhase.ERROR,
+                                    reasonCode = pairingFailureReasonCode(unsupported),
+                                )
+                            }
+                        }
+                    },
+                )
             }
             composable("connect/sas") {
                 val current = pairing

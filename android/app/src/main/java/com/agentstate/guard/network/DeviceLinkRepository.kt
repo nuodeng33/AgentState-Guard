@@ -99,6 +99,9 @@ class DeviceLinkRepository(
         return result
     }
 
+    /** Bounded read of one sanitized evidence event; read-only, no refresh. */
+    fun evidence(eventId: String): JSONObject = withAuthenticated { it.getEvidence(eventId) }
+
     fun unpairLocal() {
         client?.clearSession()
         client = null

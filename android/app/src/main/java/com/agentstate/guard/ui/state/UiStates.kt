@@ -154,8 +154,12 @@ data class RecoveryUiState(
     override val syncedAtEpochMs: Long? = null,
 ) : ProjectedState
 
-/** Advisory-only AI projection; never an authority, never a secret. */
-data class AiMonitorUiState(
+/** Advisory-only AI projection (contextual cards; never an authority, never
+ * a secret). There is no standalone AI product surface on Android — only
+ * AI-context inside Home / Environment / Supervision. [configured] means the
+ * desktop has a live provider; the advisory is not authoritative regardless.
+ */
+data class AiAdvisoryUiState(
     val phase: DataPhase,
     val configured: Boolean = false,
     val summary: String? = null,
@@ -197,7 +201,11 @@ data class LinkedDesktop(
     val endpoint: String? = null,
 )
 
-/** Evidence drill-down projection (read-only; populated by later wiring). */
+/**
+ * Evidence drill-down projection for one ledger event. Everything shown
+ * comes verbatim from the backend sanitized DTO — no raw payload, no raw
+ * ledger, no frontend-side filtering or synthesis.
+ */
 data class EvidenceUiState(
     val phase: DataPhase,
     val status: String? = null,
@@ -205,8 +213,20 @@ data class EvidenceUiState(
     val eventId: String? = null,
     val eventType: String? = null,
     val observedAt: String? = null,
+    val recordedAt: String? = null,
+    /** Verbatim backend source identifier when the backend supplies one. */
+    val source: String? = null,
+    val subject: String? = null,
     val result: String? = null,
+    /** Flat "key value" summary lines derived from sanitized detail only. */
+    val verificationSummary: List<String>? = null,
+    /** Flat "key value" lines for sanitized_detail.affected_objects. */
+    val affectedObjects: List<String>? = null,
     val checkpointId: String? = null,
+    val changeId: String? = null,
+    val chainRef: String? = null,
+    /** Related ledger refs, display-only — never treated as lookup keys. */
+    val relatedEvidenceRefs: List<String> = emptyList(),
 )
 
 /** Connection / About projection for the bound-link state. */

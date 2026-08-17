@@ -11,7 +11,6 @@
 
     <string name="more_checkpoints">检查点</string>
     <string name="more_recovery">恢复</string>
-    <string name="more_ai_monitor">AI 监管</string>
     <string name="more_devices">设备</string>
     <string name="more_settings">设置</string>
 
@@ -21,8 +20,21 @@
     <string name="pairing_first_hint">首次连接将在两台设备上显示相同的 6 位安全码。</string>
 
     <string name="pairing_scan_title">扫码连接</string>
-    <string name="pairing_scan_shell">摄像头扫码能力将在后续阶段由 Device Link 层接入。</string>
     <string name="pairing_waiting">正在等待电脑响应…</string>
+    <string name="pairing_scan_point_camera">将摄像头对准电脑上显示的二维码</string>
+    <string name="pairing_scan_hint">在桌面端“设备”页发起配对后，扫描该二维码。</string>
+    <string name="pairing_scan_not_valid">这不是有效的 AgentState 配对二维码</string>
+    <string name="camera_permission_rationale_title">需要相机权限来扫描二维码。</string>
+    <string name="camera_permission_rationale_body">相机仅用于读取电脑屏幕上的配对二维码，不会保存任何照片或视频。</string>
+    <string name="camera_permission_permanent_body">相机权限已被拒绝。请在系统设置中开启后再扫描配对二维码。</string>
+    <string name="camera_permission_grant">允许相机权限</string>
+    <string name="camera_permission_open_settings">打开设置</string>
+    <string name="pairing_scan_error_title">配对失败</string>
+    <string name="pairing_scan_error_retry">重新扫描</string>
+
+    <!-- devices / unpair -->
+    <string name="devices_connected_computer">已连接的电脑</string>
+    <string name="unpair_section_title">本设备</string>
 
     <string name="sas_title">连接电脑</string>
     <string name="sas_prompt">请确认两台设备显示相同安全码：</string>
@@ -93,12 +105,20 @@
     <string name="supervision_q_latest_activity">最近已验证活动</string>
     <string name="supervision_q_pending_approval">待审批</string>
     <string name="supervision_q_blocked">受阻/等待</string>
+    <string name="supervision_q_recent_activities">最近已确认活动</string>
+    <string name="supervision_q_agents_observed">观测到的智能体</string>
+    <string name="supervision_q_intervention">需要你介入</string>
     <string name="supervision_status_running">运行中</string>
     <string name="supervision_status_idle">空闲</string>
     <string name="supervision_status_waiting_approval">等待审批</string>
     <string name="supervision_status_blocked">受阻</string>
     <string name="supervision_status_failed">失败</string>
     <string name="supervision_status_completed">已完成</string>
+    <string name="supervision_no_current_fact">电脑未报告当前动作</string>
+    <string name="supervision_ai_advisory">AI 建议</string>
+    <string name="supervision_policy_decision">策略决定</string>
+    <string name="supervision_session">会话</string>
+    <string name="supervision_checkpoint_required">需要检查点</string>
     <string name="supervision_action_ref">操作引用</string>
     <string name="approve_once_action">批准一次</string>
     <string name="reject_action">拒绝</string>
@@ -118,11 +138,27 @@
     <string name="checkpoint_created_at">创建时间</string>
     <string name="checkpoint_manifest_integrity">清单完整性</string>
     <string name="evidence_title">证据</string>
+    <string name="evidence_status">状态</string>
     <string name="evidence_event_id">事件</string>
     <string name="evidence_event_type">事件类型</string>
     <string name="evidence_observed_at">观测时间</string>
+    <string name="evidence_recorded_at">记录时间</string>
+    <string name="evidence_source">来源</string>
+    <string name="evidence_subject">主体</string>
     <string name="evidence_result">结果</string>
     <string name="evidence_checkpoint">检查点</string>
+    <string name="evidence_change_id">变更</string>
+    <string name="evidence_chain_ref">链上引用</string>
+    <string name="evidence_reason_code">原因码</string>
+    <string name="evidence_verification">验证</string>
+    <string name="evidence_affected_objects">受影响对象</string>
+    <string name="evidence_related_refs">相关证据</string>
+    <string name="evidence_times">时间戳</string>
+    <string name="evidence_references">引用</string>
+    <string name="evidence_not_found">未找到该事件对应的证据</string>
+    <string name="evidence_unavailable">证据暂不可用</string>
+    <string name="action_view_evidence">查看证据</string>
+    <string name="ai_advisory_card_title">AI 建议</string>
     <string name="ai_advisory_note">仅供参考 — AI 分析仅为信息性建议，不会在此设备上执行任何操作。</string>
     <string name="ai_advisory_severity">严重度</string>
     <string name="ai_advisory_analyzed_at">分析于</string>

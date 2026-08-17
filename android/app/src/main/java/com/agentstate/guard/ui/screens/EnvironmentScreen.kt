@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.components.DataStateHost
+import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.components.StatusBadge
 import com.agentstate.guard.ui.state.EnvironmentUiState
 import com.agentstate.guard.ui.theme.Spacing
@@ -38,6 +39,11 @@ fun EnvironmentScreen(state: EnvironmentUiState) {
         Text(
             stringResource(R.string.nav_environment),
             style = MaterialTheme.typography.headlineSmall,
+        )
+        FreshnessCaption(
+            lastKnown = state.lastKnown,
+            observedAt = state.observedAt,
+            syncedAtEpochMs = state.syncedAtEpochMs,
         )
         DataStateHost(
             phase = state.phase,

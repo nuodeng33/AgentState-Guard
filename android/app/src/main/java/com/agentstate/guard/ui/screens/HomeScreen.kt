@@ -17,8 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
+import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.components.SectionHeader
 import com.agentstate.guard.ui.components.StatusBadge
+import com.agentstate.guard.ui.state.AiAdvisoryUiState
 import com.agentstate.guard.ui.state.HomeUiState
 import com.agentstate.guard.ui.theme.Spacing
 import com.agentstate.guard.ui.theme.Surface as SurfaceColor
@@ -34,6 +36,7 @@ import com.agentstate.guard.ui.theme.toneForMachineState
 fun HomeScreen(
     paired: Boolean?,
     state: HomeUiState?,
+    aiAdvisory: AiAdvisoryUiState? = null,
     onScanQr: () -> Unit,
 ) {
     Column(
@@ -55,6 +58,11 @@ fun HomeScreen(
             )
             false -> UnpairedHome(onScanQr = onScanQr)
             true -> ConnectedHome(state)
+        }
+
+        // Advisory only — it is not an authority and never a standalone product.
+        aiAdvisory?.let { advisory ->
+            AiAdvisoryCard(state = advisory)
         }
     }
 }
@@ -110,6 +118,13 @@ private fun ConnectedHome(state: HomeUiState?) {
                     stringResource(R.string.state_waiting_desktop),
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
+                )
+            }
+            if (state != null && (state.lastKnown || state.observedAt != null)) {
+                FreshnessCaption(
+                    lastKnown = state.lastKnown,
+                    observedAt = state.observedAt,
+                    syncedAtEpochMs = state.syncedAtEpochMs,
                 )
             }
         }

@@ -25,7 +25,7 @@ class NoopAdapterHonestyTest {
         assertEquals(DataPhase.EMPTY, adapter.supervisionState().phase)
         assertEquals(DataPhase.EMPTY, adapter.checkpointsState().phase)
         assertEquals(DataPhase.EMPTY, adapter.recoveryState().phase)
-        assertEquals(DataPhase.EMPTY, adapter.aiMonitorState().phase)
+        assertEquals(DataPhase.EMPTY, adapter.aiAdvisoryState().phase)
         assertTrue(adapter.environmentState().items.isEmpty())
         assertTrue(adapter.changesState().items.isEmpty())
         assertTrue(adapter.checkpointsState().items.isEmpty())

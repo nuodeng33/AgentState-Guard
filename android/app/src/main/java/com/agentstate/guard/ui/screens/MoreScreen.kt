@@ -22,7 +22,6 @@ import com.agentstate.guard.ui.theme.Surface as SurfaceColor
 enum class MoreDestination(val route: String, val labelRes: Int) {
     Checkpoints("more/checkpoints", R.string.more_checkpoints),
     Recovery("more/recovery", R.string.more_recovery),
-    AiMonitor("more/ai", R.string.more_ai_monitor),
     Devices("more/devices", R.string.more_devices),
     Settings("more/settings", R.string.more_settings),
 }

@@ -1,6 +1,6 @@
 package com.agentstate.guard.ui.link
 
-import com.agentstate.guard.ui.state.AiMonitorUiState
+import com.agentstate.guard.ui.state.AiAdvisoryUiState
 import com.agentstate.guard.ui.state.ChangesUiState
 import com.agentstate.guard.ui.state.CheckpointsUiState
 import com.agentstate.guard.ui.state.ConnectionUiState
@@ -26,6 +26,24 @@ class DeviceLinkUnsupportedException : Exception("DEVICE_LINK_UNSUPPORTED")
 fun pairingFailureReasonCode(error: Throwable): String = when (error) {
     is DeviceLinkUnsupportedException -> "DEVICE_LINK_UNSUPPORTED"
     else -> "PAIRING_FAILED"
+}
+
+/**
+ * Maps an evidence read failure to a small, stable machine reason code.
+ * Backend codes pass through verbatim when they are already stable tokens
+ * (EVIDENCE_*, DEVICE_*, DEVICE_LINK_*); everything unknown collapses to
+ * EVIDENCE_UNAVAILABLE. Raw exception text never reaches the UI.
+ */
+fun evidenceFailureReasonCode(error: Throwable): String {
+    val token = (error as? com.agentstate.guard.network.DeviceLinkHttpException)?.reasonCode
+    return if (
+        token != null &&
+        (token.startsWith("EVIDENCE_") || token.startsWith("DEVICE_"))
+    ) {
+        token
+    } else {
+        "EVIDENCE_UNAVAILABLE"
+    }
 }
 
 /**
@@ -64,7 +82,7 @@ interface DeviceLinkUiAdapter {
     suspend fun supervisionState(): SupervisionUiState
     suspend fun checkpointsState(): CheckpointsUiState
     suspend fun recoveryState(): RecoveryUiState
-    suspend fun aiMonitorState(): AiMonitorUiState
+    suspend fun aiAdvisoryState(): AiAdvisoryUiState
 
     /** Connection / About projection (bound desktop facts, freshness, auth). */
     suspend fun connectionState(): ConnectionUiState
@@ -116,8 +134,8 @@ class NoopDeviceLinkUiAdapter : DeviceLinkUiAdapter {
     override suspend fun checkpointsState(): CheckpointsUiState =
         CheckpointsUiState(phase = DataPhase.EMPTY)
     override suspend fun recoveryState(): RecoveryUiState = RecoveryUiState(phase = DataPhase.EMPTY)
-    override suspend fun aiMonitorState(): AiMonitorUiState =
-        AiMonitorUiState(phase = DataPhase.EMPTY, configured = false)
+    override suspend fun aiAdvisoryState(): AiAdvisoryUiState =
+        AiAdvisoryUiState(phase = DataPhase.EMPTY, configured = false)
     override suspend fun connectionState(): ConnectionUiState = ConnectionUiState.EMPTY
     override suspend fun evidenceState(eventId: String): EvidenceUiState =
         EvidenceUiState(phase = DataPhase.EMPTY)
