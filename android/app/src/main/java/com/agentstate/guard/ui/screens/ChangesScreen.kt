@@ -58,6 +58,8 @@ fun ChangesScreen(
             phase = state.phase,
             loadingText = stringResource(R.string.state_loading),
             emptyText = stringResource(R.string.empty_changes),
+            lastKnown = state.lastKnown,
+            reasonCode = state.reasonCode,
         ) {
             state.items.forEach { change ->
                 ChangeRow(change = change, onOpenEvidence = onOpenEvidence)
@@ -88,11 +90,18 @@ private fun ChangeRow(change: ChangeUi, onOpenEvidence: (String) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(change.file, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "${change.changeType} · ${change.whenText}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                    )
+                    val summary = listOfNotNull(
+                        change.changeKind,
+                        change.changeType,
+                        change.whenText,
+                    ).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (summary.isNotBlank()) {
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
+                    }
                 }
                 change.result?.let { result ->
                     StatusBadge(label = result, tone = toneForMachineState(result))
@@ -106,6 +115,24 @@ private fun ChangeRow(change: ChangeUi, onOpenEvidence: (String) -> Unit) {
                 )
             }
             if (change.eventId != null) {
+            ChangeDetail(R.string.change_actor, change.actor)
+            ChangeDetail(R.string.evidence_checkpoint, change.checkpointId)
+            ChangeDetail(R.string.evidence_verification, change.verificationSummary)
+            ChangeDetail(R.string.fact_execution_domain, change.executionDomainId)
+            ChangeDetail(R.string.fact_attribution, change.attribution)
+            ChangeDetail(R.string.fact_change_kind, change.changeKind)
+            ChangeDetail(R.string.fact_coverage_before, change.coverageBefore)
+            ChangeDetail(R.string.fact_coverage_after, change.coverageAfter)
+            ChangeDetail(R.string.fact_recovery_disposition, change.recoveryDisposition)
+            ChangeDetail(R.string.fact_workspace, change.workspaceId)
+            ChangeDetail(
+                R.string.evidence_affected_objects,
+                change.affectedObjects?.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+            )
+            ChangeDetail(
+                R.string.evidence_related_refs,
+                change.evidenceRefs?.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+            )
                 Text(
                     stringResource(R.string.action_view_evidence),
                     style = MaterialTheme.typography.labelSmall,
@@ -114,4 +141,14 @@ private fun ChangeRow(change: ChangeUi, onOpenEvidence: (String) -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun ChangeDetail(labelRes: Int, value: String?) {
+    value ?: return
+    Text(
+        stringResource(labelRes) + ": " + value,
+        style = MaterialTheme.typography.labelSmall,
+        color = TextSecondary,
+    )
 }

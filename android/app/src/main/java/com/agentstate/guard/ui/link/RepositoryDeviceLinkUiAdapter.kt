@@ -12,7 +12,6 @@ import com.agentstate.guard.network.QrPayload
 import com.agentstate.guard.network.AndroidKeyStoreSigner
 import com.agentstate.guard.network.SharedPreferencesBindingStore
 import com.agentstate.guard.ui.state.AiAdvisoryUiState
-import com.agentstate.guard.ui.state.ChangeUi
 import com.agentstate.guard.ui.state.ChangesUiState
 import com.agentstate.guard.ui.state.CheckpointUi
 import com.agentstate.guard.ui.state.CheckpointsUiState
@@ -26,9 +25,7 @@ import com.agentstate.guard.ui.state.LinkedDesktop
 import com.agentstate.guard.ui.state.RecoveryUiState
 import com.agentstate.guard.ui.state.SupervisionActionUiResult
 import com.agentstate.guard.ui.state.SupervisionAgentUi
-import com.agentstate.guard.ui.state.SupervisionSessionUi
 import com.agentstate.guard.ui.state.SupervisionUiState
-import com.agentstate.guard.ui.state.VerifiedActivityUi
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -36,7 +33,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.Locale
 
 /**
  * Production adapter: the only bridge between the Compose shell and the
@@ -110,10 +106,11 @@ class RepositoryDeviceLinkUiAdapter(
         )
     }
 
-    private fun phaseOf(snapshot: DeviceLinkSnapshot): DataPhase =
-        if (snapshot.online) DataPhase.CONNECTED else DataPhase.UNREACHABLE
+    private fun phaseOf(snapshot: DeviceLinkSnapshot, projection: JSONObject?): DataPhase =
+        ProjectionTruthMapper.phase(snapshot.online, projection)
 
-    private fun lastKnownOf(snapshot: DeviceLinkSnapshot): Boolean = !snapshot.online
+    private fun lastKnownOf(snapshot: DeviceLinkSnapshot): Boolean =
+        ProjectionTruthMapper.isLastKnown(snapshot)
 
     // ---- Per-surface projections ---------------------------------------------
 
@@ -132,7 +129,7 @@ class RepositoryDeviceLinkUiAdapter(
         val binding = blocking { bindings.load() }
         val current = currentSnapshot()
         return ConnectionUiState(
-            phase = if (binding == null) DataPhase.EMPTY else phaseOf(current),
+            phase = if (binding == null) DataPhase.EMPTY else phaseOf(current, current.status),
             paired = binding != null,
             online = current.online,
             lastKnown = lastKnownOf(current),
@@ -149,17 +146,20 @@ class RepositoryDeviceLinkUiAdapter(
     override suspend fun homeState(): HomeUiState {
         val current = currentSnapshot()
         return HomeUiState(
-            phase = phaseOf(current),
+            phase = phaseOf(current, current.status),
             desktopName = blocking { bindings.load() }?.desktopUuid,
             overallStatus = current.status?.optStringOpt("status"),
-            runtimeSummary = current.environment?.optStringOpt("status"),
-            agentsSummary = current.agents?.optItemsCount()?.toString(),
-            pendingSupervision = current.supervision?.optPendingCount(),
+            runtimeSummary = ProjectionTruthMapper.projectionStatus(current.environment),
+            agentsSummary = ProjectionTruthMapper.projectionStatus(current.agents),
+            supervisionStatus = ProjectionTruthMapper.projectionStatus(current.supervision),
+            pendingSupervision = current.supervision?.let { ProjectionTruthMapper.pendingCount(it) },
+            changesStatus = ProjectionTruthMapper.projectionStatus(current.changes),
             changesCount = current.changes?.optItemsCount(),
             lastCheckpoint = current.checkpoints?.optFirstCheckpointId()
                 ?: current.recovery?.optJSONObjectOpt("latest_checkpoint")
                     ?.optStringOpt("checkpoint_id"),
             aiStatus = current.aiAdvisory?.optStringOpt("status"),
+            recoveryProjectionStatus = ProjectionTruthMapper.projectionStatus(current.recovery),
             recoveryStatus = current.recovery?.optStringOpt("recovery_level"),
             reasonCode = current.reasonCode,
             lastKnown = lastKnownOf(current),
@@ -183,7 +183,7 @@ class RepositoryDeviceLinkUiAdapter(
             )
         }.orEmpty()
         return EnvironmentUiState(
-            phase = phaseOf(current),
+            phase = phaseOf(current, environment),
             items = items,
             reasonCode = environment.optStringOpt("reason_code") ?: current.reasonCode,
             lastKnown = lastKnownOf(current),
@@ -193,7 +193,7 @@ class RepositoryDeviceLinkUiAdapter(
     }
 
     private fun unavailableEnvironment(current: DeviceLinkSnapshot) = EnvironmentUiState(
-        phase = phaseOf(current),
+        phase = phaseOf(current, current.environment),
         reasonCode = current.reasonCode,
         lastKnown = lastKnownOf(current),
         syncedAtEpochMs = syncedAtEpochMs,
@@ -203,17 +203,10 @@ class RepositoryDeviceLinkUiAdapter(
         val current = currentSnapshot()
         val changes = current.changes ?: return unavailableChanges(current)
         val items = changes.optJSONArraySafe("items")?.mapObjects { item ->
-            ChangeUi(
-                file = item.optStringOpt("subject") ?: item.optStringOpt("event_id") ?: "UNKNOWN",
-                changeType = item.optStringOpt("type") ?: "UNKNOWN",
-                whenText = item.optStringOpt("timestamp") ?: "",
-                eventId = item.optStringOpt("event_id"),
-                result = item.optStringOpt("result"),
-                reasonCode = item.optStringOpt("reason_code"),
-            )
+            ProjectionTruthMapper.change(item)
         }.orEmpty()
         return ChangesUiState(
-            phase = phaseOf(current),
+            phase = phaseOf(current, changes),
             items = items,
             reasonCode = changes.optStringOpt("reason_code") ?: current.reasonCode,
             lastKnown = lastKnownOf(current),
@@ -223,7 +216,7 @@ class RepositoryDeviceLinkUiAdapter(
     }
 
     private fun unavailableChanges(current: DeviceLinkSnapshot) = ChangesUiState(
-        phase = phaseOf(current),
+        phase = phaseOf(current, current.changes),
         reasonCode = current.reasonCode,
         lastKnown = lastKnownOf(current),
         syncedAtEpochMs = syncedAtEpochMs,
@@ -233,18 +226,7 @@ class RepositoryDeviceLinkUiAdapter(
         val current = currentSnapshot()
         val supervision = current.supervision ?: return unavailableSupervision(current)
         val sessions = supervision.optJSONArraySafe("items")?.mapObjects { item ->
-            SupervisionSessionUi(
-                sessionId = item.optStringOpt("supervision_session_id") ?: "UNKNOWN",
-                status = item.optStringOpt("status") ?: "UNKNOWN",
-                policyDecision = item.optStringOpt("policy_decision"),
-                pendingApproval = item.optBoolean("pending_approval", false),
-                blockedOrFailedReason = item.optStringOpt("blocked_or_failed_reason"),
-                actionRef = item.optStringOpt("action_ref"),
-                requiresCheckpoint = item.optBoolean("requires_checkpoint", false),
-                latestVerifiedActivity = item.optJSONObjectOpt("latest_verified_activity")
-                    ?.toVerifiedActivity(),
-                observedAt = item.optStringOpt("observed_at"),
-            )
+            ProjectionTruthMapper.supervisionSession(item)
         }.orEmpty()
         val agents = supervision.optJSONArraySafe("observed_agents")?.mapObjects { item ->
             SupervisionAgentUi(
@@ -257,11 +239,11 @@ class RepositoryDeviceLinkUiAdapter(
             )
         }.orEmpty()
         val recent = supervision.optJSONArraySafe("recent_verified_activities")
-            ?.mapObjects { item -> item.toVerifiedActivity() }
+            ?.mapObjects { item -> ProjectionTruthMapper.verifiedActivity(item) }
             .orEmpty()
         return SupervisionUiState(
-            phase = phaseOf(current),
-            pendingCount = sessions.count { it.pendingApproval },
+            phase = phaseOf(current, supervision),
+            pendingCount = ProjectionTruthMapper.pendingCount(supervision),
             reasonCode = supervision.optStringOpt("reason_code") ?: current.reasonCode,
             sessions = sessions,
             observedAgents = agents,
@@ -273,7 +255,7 @@ class RepositoryDeviceLinkUiAdapter(
     }
 
     private fun unavailableSupervision(current: DeviceLinkSnapshot) = SupervisionUiState(
-        phase = phaseOf(current),
+        phase = phaseOf(current, current.supervision),
         reasonCode = current.reasonCode,
         lastKnown = lastKnownOf(current),
         syncedAtEpochMs = syncedAtEpochMs,
@@ -294,7 +276,7 @@ class RepositoryDeviceLinkUiAdapter(
             )
         }.orEmpty()
         return CheckpointsUiState(
-            phase = phaseOf(current),
+            phase = phaseOf(current, checkpoints),
             items = items,
             reasonCode = checkpoints.optStringOpt("reason_code") ?: current.reasonCode,
             lastKnown = lastKnownOf(current),
@@ -304,7 +286,7 @@ class RepositoryDeviceLinkUiAdapter(
     }
 
     private fun unavailableCheckpoints(current: DeviceLinkSnapshot) = CheckpointsUiState(
-        phase = phaseOf(current),
+        phase = phaseOf(current, current.checkpoints),
         reasonCode = current.reasonCode,
         lastKnown = lastKnownOf(current),
         syncedAtEpochMs = syncedAtEpochMs,
@@ -313,13 +295,13 @@ class RepositoryDeviceLinkUiAdapter(
     override suspend fun recoveryState(): RecoveryUiState {
         val current = currentSnapshot()
         val recovery = current.recovery ?: return RecoveryUiState(
-            phase = phaseOf(current),
+            phase = phaseOf(current, current.recovery),
             reasonCode = current.reasonCode,
             lastKnown = lastKnownOf(current),
             syncedAtEpochMs = syncedAtEpochMs,
         )
         return RecoveryUiState(
-            phase = phaseOf(current),
+            phase = phaseOf(current, recovery),
             recoveryLevel = recovery.optStringOpt("recovery_level"),
             reasonCode = recovery.optStringOpt("reason_code") ?: current.reasonCode,
             actualRestoreStatus = recovery.optStringOpt("actual_restore_status"),
@@ -336,15 +318,15 @@ class RepositoryDeviceLinkUiAdapter(
     override suspend fun aiAdvisoryState(): AiAdvisoryUiState {
         val current = currentSnapshot()
         val advisory = current.aiAdvisory ?: return AiAdvisoryUiState(
-            phase = phaseOf(current),
-            configured = false,
+            phase = phaseOf(current, current.aiAdvisory),
+            configured = null,
             reasonCode = current.reasonCode,
             lastKnown = lastKnownOf(current),
             syncedAtEpochMs = syncedAtEpochMs,
         )
         return AiAdvisoryUiState(
-            phase = phaseOf(current),
-            configured = advisory.optStringOpt("status") != "UNAVAILABLE",
+            phase = phaseOf(current, advisory),
+            configured = ProjectionTruthMapper.aiConfigured(advisory),
             summary = advisory.optStringOpt("summary"),
             severity = advisory.optStringOpt("severity"),
             reasonCode = advisory.optStringOpt("reason_code") ?: current.reasonCode,
@@ -361,6 +343,12 @@ class RepositoryDeviceLinkUiAdapter(
         // mutates the parent projection and never falls back to raw data.
         val dto = try {
             blocking { repository.evidence(eventId) }
+        } catch (error: DeviceLinkHttpException) {
+            return ProjectionTruthMapper.evidenceHttpFailure(
+                status = error.status,
+                reasonCode = error.reasonCode,
+                requestedEventId = eventId,
+            )
         } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
             return EvidenceUiState(
                 phase = DataPhase.ERROR,
@@ -369,41 +357,7 @@ class RepositoryDeviceLinkUiAdapter(
                 eventId = eventId,
             )
         }
-        val detail = dto.optJSONObjectOpt("sanitized_detail")
-        val affectedObjects = detail?.optJSONArraySafe("affected_objects")
-            ?.let { array ->
-                (0 until array.length()).mapNotNull { index ->
-                    array.optString(index, null)
-                }
-            }
-            ?.filter { it.isNotBlank() }
-        val verification = dto.optStringOpt("verification_summary")
-            ?: detail?.optStringOpt("verification")
-        val related = dto.optJSONArraySafe("related_evidence_refs")
-            ?.let { array -> (0 until array.length()).mapNotNull { array.optString(it, null) } }
-            .orEmpty()
-        return EvidenceUiState(
-            phase = when (dto.optStringOpt("status")) {
-                "AVAILABLE" -> DataPhase.CONNECTED
-                "NOT_FOUND" -> DataPhase.EMPTY
-                else -> DataPhase.DEGRADED
-            },
-            status = dto.optStringOpt("status"),
-            reasonCode = dto.optStringOpt("reason_code"),
-            eventId = dto.optStringOpt("event_id") ?: eventId,
-            eventType = dto.optStringOpt("event_type"),
-            observedAt = dto.optStringOpt("observed_at"),
-            recordedAt = dto.optStringOpt("recorded_at"),
-            source = dto.optStringOpt("source"),
-            subject = dto.optStringOpt("subject"),
-            result = dto.optStringOpt("result"),
-            verificationSummary = verification?.let(::listOf),
-            affectedObjects = affectedObjects,
-            checkpointId = dto.optStringOpt("checkpoint_id"),
-            changeId = dto.optStringOpt("change_id"),
-            chainRef = dto.optStringOpt("chain_ref"),
-            relatedEvidenceRefs = related,
-        )
+        return ProjectionTruthMapper.evidence(dto, eventId)
     }
 
     // ---- The only two Android mutations ---------------------------------------
@@ -411,29 +365,33 @@ class RepositoryDeviceLinkUiAdapter(
     override suspend fun approveOnce(
         sessionId: String,
         actionRef: String,
-    ): SupervisionActionUiResult = supervisionAction {
+    ): SupervisionActionUiResult = supervisionAction(
+        expectedAction = "APPROVE_ONCE",
+        expectedSessionId = sessionId,
+    ) {
         repository.approveOnce(sessionId, actionRef)
     }
 
     override suspend fun rejectSupervision(
         sessionId: String,
         actionRef: String,
-    ): SupervisionActionUiResult = supervisionAction {
+    ): SupervisionActionUiResult = supervisionAction(
+        expectedAction = "REJECT",
+        expectedSessionId = sessionId,
+    ) {
         repository.reject(sessionId, actionRef)
     }
 
     private suspend fun supervisionAction(
+        expectedAction: String,
+        expectedSessionId: String,
         block: () -> JSONObject,
     ): SupervisionActionUiResult = try {
         val result = blocking(block)
         // Never serve stale supervision data after a mutation.
         snapshot = null
         performRefresh()
-        SupervisionActionUiResult(
-            succeeded = result.optBoolean("consumed", true),
-            status = result.optStringOpt("status"),
-            reasonCode = result.optStringOpt("reason_code"),
-        )
+        ProjectionTruthMapper.supervisionAction(result, expectedAction, expectedSessionId)
     } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
         SupervisionActionUiResult(
             succeeded = false,
@@ -445,7 +403,7 @@ class RepositoryDeviceLinkUiAdapter(
     // ---- Unpair -----------------------------------------------------------------
 
     override suspend fun unpair() {
-        blocking { repository.unpairLocal() }
+        blocking { repository.unpair() }
         snapshot = null
         syncedAtEpochMs = null
         pairing = null
@@ -582,15 +540,6 @@ class RepositoryDeviceLinkUiAdapter(
 
     private fun JSONObject.optItemsCount(): Int? = optJSONArraySafe("items")?.length()
 
-    private fun JSONObject.optPendingCount(): Int? {
-        val items = optJSONArraySafe("items") ?: return null
-        var pending = 0
-        for (index in 0 until items.length()) {
-            val item = items.optJSONObject(index) ?: continue
-            if (item.optBoolean("pending_approval", false)) pending++
-        }
-        return pending
-    }
 
     private fun JSONObject.optFirstCheckpointId(): String? {
         val items = optJSONArraySafe("items") ?: return null
@@ -598,14 +547,6 @@ class RepositoryDeviceLinkUiAdapter(
         return items.optJSONObject(0)?.optStringOpt("checkpoint_id")
     }
 
-    private fun JSONObject.toVerifiedActivity(): VerifiedActivityUi = VerifiedActivityUi(
-        eventId = optStringOpt("event_id") ?: "UNKNOWN",
-        type = optStringOpt("type") ?: "UNKNOWN",
-        result = optStringOpt("result"),
-        reasonCode = optStringOpt("reason_code"),
-        timestamp = optStringOpt("timestamp"),
-        checkpointId = optStringOpt("checkpoint_id"),
-    )
 
     private fun <T> JSONArray.mapObjects(map: (JSONObject) -> T): List<T> {
         val result = ArrayList<T>(length())

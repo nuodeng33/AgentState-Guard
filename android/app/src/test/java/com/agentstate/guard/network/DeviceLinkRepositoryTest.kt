@@ -7,6 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import java.net.SocketTimeoutException
 
 class DeviceLinkRepositoryTest {
     private val first = DeviceEndpoint("192.168.1.9", 8788, "a".repeat(64))
@@ -14,7 +15,7 @@ class DeviceLinkRepositoryTest {
     private val binding = BoundDesktop(first, "desktop-a", "04", "b".repeat(64), "android-a")
 
     @Test
-    fun refreshPreservesLastKnownAsOfflineAndUnpairDeletesLocalTrust() {
+    fun refreshPreservesLastKnownAsOffline() {
         val store = MemoryBindingStore(binding)
         val signer = FakeSigner()
         val transport = ScriptedTransport(*successfulRefresh())
@@ -32,9 +33,6 @@ class DeviceLinkRepositoryTest {
         assertFalse(offline.online)
         assertEquals("environment", offline.environment?.getString("view"))
 
-        repository.unpairLocal()
-        assertNull(store.load())
-        assertTrue(signer.deleted)
     }
 
     @Test
@@ -72,6 +70,151 @@ class DeviceLinkRepositoryTest {
         assertEquals(first.host, store.load()?.endpoint?.host)
     }
 
+
+    @Test
+    fun authenticatedSelfUnpairRevokesDesktopBeforeDeletingLocalTrust() {
+        val store = MemoryBindingStore(binding)
+        val signer = FakeSigner()
+        val transport = ScriptedTransport(*successfulAuthentication(), selfUnpairResponse())
+        val repository = DeviceLinkRepository(
+            store, signer, DeviceEndpointRediscovery { null },
+            DeviceClientFactory { DeviceLinkClient(it, transport) },
+        )
+
+        repository.unpair()
+
+        assertEquals("/device/v1/self-unpair", transport.requests.last().path)
+        assertEquals("POST", transport.requests.last().method)
+        assertEquals(0, transport.requests.last().body?.length())
+        assertEquals("Bearer ${"3".repeat(64)}", transport.requests.last().headers["Authorization"])
+        assertNull(store.load())
+        assertTrue(signer.deleted)
+    }
+
+    @Test
+    fun failedRemoteSelfUnpairRetainsBindingAndSignerForRetry() {
+        val store = MemoryBindingStore(binding)
+        val signer = FakeSigner()
+        val transport = ScriptedTransport(*successfulAuthentication()).apply {
+            failurePath = "/device/v1/self-unpair"
+            failure = DeviceLinkHttpException(503, "DEVICE_SELF_UNPAIR_UNAVAILABLE")
+        }
+        val repository = DeviceLinkRepository(
+            store, signer, DeviceEndpointRediscovery { null },
+            DeviceClientFactory { DeviceLinkClient(it, transport) },
+        )
+
+        val failure = try {
+            repository.unpair()
+            null
+        } catch (error: DeviceLinkHttpException) {
+            error
+        }
+
+        assertEquals("DEVICE_SELF_UNPAIR_UNAVAILABLE", failure?.reasonCode)
+        assertEquals(binding, store.load())
+        assertFalse(signer.deleted)
+    }
+
+    @Test
+    fun desktopAlreadyRevokedProofAllowsTerminalLocalCleanup() {
+        val store = MemoryBindingStore(binding)
+        val signer = FakeSigner()
+        val transport = ScriptedTransport().apply {
+            failurePath = "/device/v1/auth/challenge"
+            failure = DeviceLinkHttpException(403, "DEVICE_NOT_BOUND")
+        }
+        val repository = DeviceLinkRepository(
+            store, signer, DeviceEndpointRediscovery { null },
+            DeviceClientFactory { DeviceLinkClient(it, transport) },
+        )
+
+        repository.unpair()
+
+        assertNull(store.load())
+        assertTrue(signer.deleted)
+    }
+
+    @Test
+    fun serverFailureCannotMasqueradeAsAlreadyRevokedTerminalProof() {
+        val store = MemoryBindingStore(binding)
+        val signer = FakeSigner()
+        val transport = ScriptedTransport().apply {
+            failurePath = "/device/v1/auth/challenge"
+            failure = DeviceLinkHttpException(503, "DEVICE_NOT_BOUND")
+        }
+        val repository = DeviceLinkRepository(
+            store, signer, DeviceEndpointRediscovery { null },
+            DeviceClientFactory { DeviceLinkClient(it, transport) },
+        )
+
+        val failure = runCatching { repository.unpair() }.exceptionOrNull()
+
+        assertTrue(failure is DeviceLinkHttpException)
+        assertEquals(503, (failure as DeviceLinkHttpException).status)
+        assertEquals(binding, store.load())
+        assertFalse(signer.deleted)
+    }
+
+    @Test
+    fun offlineAndTimeoutSelfUnpairFailuresRetainLocalTrust() {
+        listOf(IOException("offline"), SocketTimeoutException("timeout")).forEach { transportFailure ->
+            val store = MemoryBindingStore(binding)
+            val signer = FakeSigner()
+            val transport = ScriptedTransport(*successfulAuthentication()).apply {
+                failurePath = "/device/v1/self-unpair"
+                failure = transportFailure
+            }
+            val repository = DeviceLinkRepository(
+                store, signer, DeviceEndpointRediscovery { null },
+                DeviceClientFactory { DeviceLinkClient(it, transport) },
+            )
+
+            val thrown = runCatching { repository.unpair() }.exceptionOrNull()
+
+            assertEquals(transportFailure, thrown)
+            assertEquals(binding, store.load())
+            assertFalse(signer.deleted)
+        }
+    }
+
+    @Test
+    fun ambiguousSuccessfulResponseRetainsLocalTrust() {
+        val store = MemoryBindingStore(binding)
+        val signer = FakeSigner()
+        val transport = ScriptedTransport(
+            *successfulAuthentication(),
+            JSONObject().put("status", "MAYBE"),
+        )
+        val repository = DeviceLinkRepository(
+            store, signer, DeviceEndpointRediscovery { null },
+            DeviceClientFactory { DeviceLinkClient(it, transport) },
+        )
+
+        val failure = runCatching { repository.unpair() }.exceptionOrNull()
+
+        assertTrue(failure is DeviceLinkResponseException)
+        assertEquals(
+            "DEVICE_SELF_UNPAIR_RESPONSE_INVALID",
+            (failure as DeviceLinkResponseException).reasonCode,
+        )
+        assertEquals(binding, store.load())
+        assertFalse(signer.deleted)
+    }
+
+    private fun successfulAuthentication(): Array<JSONObject> = arrayOf(
+        JSONObject().put("challenge_id", "1".repeat(32))
+            .put("desktop_challenge", "2".repeat(64)),
+        JSONObject().put("session_token", "3".repeat(64))
+            .put("desktop_signature", "30"),
+    )
+
+    private fun selfUnpairResponse(): JSONObject = JSONObject()
+        .put("schema_version", "device-link-self-unpair-1")
+        .put("action", "SELF_UNPAIR")
+        .put("status", "UNPAIRED")
+        .put("reason_code", "DEVICE_SELF_UNPAIRED")
+
     private fun successfulRefresh(): Array<JSONObject> = arrayOf(
         JSONObject().put("challenge_id", "1".repeat(32))
             .put("desktop_challenge", "2".repeat(64)),
@@ -107,6 +250,8 @@ private class FakeSigner : DeviceSigner {
 private class ScriptedTransport(vararg responses: JSONObject) : DeviceHttpTransport {
     private val responses = ArrayDeque(responses.toList())
     var failure: IOException? = null
+    var failurePath: String? = null
+    val requests = mutableListOf<RecordedRequest>()
 
     override fun request(
         endpoint: DeviceEndpoint,
@@ -115,7 +260,8 @@ private class ScriptedTransport(vararg responses: JSONObject) : DeviceHttpTransp
         body: JSONObject?,
         headers: Map<String, String>,
     ): JSONObject {
-        failure?.let { throw it }
+        requests += RecordedRequest(endpoint, path, method, body, headers)
+        failure?.takeIf { failurePath == null || failurePath == path }?.let { throw it }
         return responses.removeFirst()
     }
 }

@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.components.DataStateHost
+import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.components.StatusBadge
 import com.agentstate.guard.ui.state.RecoveryUiState
 import com.agentstate.guard.ui.theme.Spacing
@@ -32,10 +33,17 @@ fun RecoveryScreen(state: RecoveryUiState) {
             stringResource(R.string.more_recovery),
             style = MaterialTheme.typography.headlineSmall,
         )
+        FreshnessCaption(
+            lastKnown = state.lastKnown,
+            observedAt = state.observedAt,
+            syncedAtEpochMs = state.syncedAtEpochMs,
+        )
         DataStateHost(
             phase = state.phase,
             loadingText = stringResource(R.string.state_loading),
             emptyText = stringResource(R.string.state_no_data),
+            lastKnown = state.lastKnown,
+            reasonCode = state.reasonCode,
         ) {
             Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
                 Column(modifier = Modifier.padding(Spacing.l)) {

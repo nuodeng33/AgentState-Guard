@@ -22,6 +22,7 @@ import com.agentstate.guard.ui.components.DataStateHost
 import com.agentstate.guard.ui.components.EmptyStateCard
 import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.components.SectionHeader
+import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.state.SupervisionSessionUi
 import com.agentstate.guard.ui.state.SupervisionUiState
 import com.agentstate.guard.ui.state.VerifiedActivityUi
@@ -31,10 +32,10 @@ import com.agentstate.guard.ui.theme.TextSecondary
 
 /**
  * Supervision — answers, in order:
- *   1. Is an agent working?            (observed agents from the projection)
+ *   1. Is an agent working?            (UNKNOWN without a direct current fact)
  *   2. Is anything blocked / failed?   (session blocked_or_failed_reason)
  *   3. Does it need your intervention? (pending approval with action buttons)
- *   4. What is the current action?     (latest verified activity, verbatim)
+ *   4. What is the current action?     (direct current_* facts only)
  *   5. What was recently confirmed?    (recent verified activities)
  *   6. Sessions at a glance
  *
@@ -71,17 +72,18 @@ fun SupervisionScreen(
             phase = state.phase,
             loadingText = stringResource(R.string.state_loading),
             emptyText = stringResource(R.string.empty_supervision),
+            lastKnown = state.lastKnown,
+            reasonCode = state.reasonCode,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-                // 1. Is an agent working?
+                // No backend field proves that an observed agent is currently working.
                 SectionHeader(stringResource(R.string.supervision_q_agent_working))
-                if (state.observedAgents.isEmpty()) {
-                    Text(
-                        stringResource(R.string.supervision_status_idle),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                    )
-                } else {
+                FactRow(
+                    primary = "UNKNOWN",
+                    secondary = stringResource(R.string.supervision_no_working_fact),
+                )
+                if (state.observedAgents.isNotEmpty()) {
+                    SectionHeader(stringResource(R.string.supervision_q_agents_observed))
                     state.observedAgents.forEach { agent ->
                         FactRow(
                             primary = agent.identity,
@@ -106,7 +108,7 @@ fun SupervisionScreen(
                 }
 
                 // 3. Pending approval with a server-issued action_ref: actionable.
-                val pending = state.sessions.filter { it.pendingApproval && it.actionRef != null }
+                val pending = state.sessions.filter { it.pendingApproval == true && it.actionRef != null }
                 if (pending.isNotEmpty()) {
                     SectionHeader(stringResource(R.string.supervision_q_intervention))
                     pending.forEach { session ->
@@ -124,19 +126,38 @@ fun SupervisionScreen(
                     }
                 }
 
-                // 4. What is the current action? (honest absence when no backend fact)
+                // Current means a direct live backend current_* fact, never latest history.
                 SectionHeader(stringResource(R.string.supervision_q_current_action))
-                val latest = state.sessions.mapNotNull { session ->
-                    session.latestVerifiedActivity?.let { it to session.sessionId }
-                }.maxByOrNull { it.first.timestamp ?: "" }
-                if (latest == null) {
+                val current = if (state.phase == DataPhase.CONNECTED && !state.lastKnown) {
+                    state.sessions.firstOrNull { session ->
+                        session.currentTask != null ||
+                            session.currentPhase != null ||
+                            session.currentAction != null
+                    }
+                } else {
+                    null
+                }
+                if (current == null) {
                     Text(
                         stringResource(R.string.supervision_no_current_fact),
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                     )
                 } else {
-                    ActivityRow(latest.first, sessionContext = latest.second)
+                    FactRow(
+                        primary = current.sessionId,
+                        secondary = listOfNotNull(
+                            current.currentTask?.let {
+                                stringResource(R.string.supervision_current_task) + ": " + it
+                            },
+                            current.currentPhase?.let {
+                                stringResource(R.string.supervision_current_phase) + ": " + it
+                            },
+                            current.currentAction?.let {
+                                stringResource(R.string.supervision_current_action) + ": " + it
+                            },
+                        ).joinToString(" · "),
+                    )
                 }
 
                 // 5. Recently confirmed activity.
@@ -211,7 +232,7 @@ private fun PendingApprovalCard(
                 secondary = listOfNotNull(
                     session.status,
                     session.policyDecision,
-                    if (session.requiresCheckpoint) {
+                    if (session.requiresCheckpoint == true) {
                         stringResource(R.string.supervision_checkpoint_required)
                     } else {
                         null

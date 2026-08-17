@@ -64,6 +64,23 @@ fun supervisionFailureReasonCode(error: Throwable): String {
 }
 
 /**
+ * Preserve bounded backend Device Link tokens; collapse every other failure
+ * without exposing raw exception text to Compose.
+ */
+fun unpairFailureReasonCode(error: Throwable): String {
+    val token = when (error) {
+        is com.agentstate.guard.network.DeviceLinkHttpException -> error.reasonCode
+        is com.agentstate.guard.network.DeviceLinkResponseException -> error.reasonCode
+        else -> null
+    }
+    return if (token != null && token.startsWith("DEVICE_")) {
+        token
+    } else {
+        "DEVICE_SELF_UNPAIR_FAILED"
+    }
+}
+
+/**
  * Boundary between the Android UI and the Device Link integration.
  *
  * The UI only ever talks to this interface. Implementations return UI-safe
@@ -96,7 +113,7 @@ interface DeviceLinkUiAdapter {
     /** Reject one pending supervision intent exactly once. */
     suspend fun rejectSupervision(sessionId: String, actionRef: String): SupervisionActionUiResult
 
-    /** Remove the local binding and KeyStore identity; the next link needs a new QR+SAS. */
+    /** Revoke this authenticated binding, then remove local trust; retry safely on failure. */
     suspend fun unpair()
 
     /** Bring projections up to date (app start, resume, explicit pull). Single-flight. */

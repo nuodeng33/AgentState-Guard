@@ -15,6 +15,7 @@ enum class DataPhase {
     DEGRADED,
     UNREACHABLE,
     EMPTY,
+    UNKNOWN,
     ERROR,
 }
 
@@ -69,11 +70,24 @@ data class CheckpointsUiState(
 data class ChangeUi(
     val file: String,
     val changeType: String,
-    val whenText: String,
+    val whenText: String?,
     /** Ledger event identifier, for evidence drill-down. */
     val eventId: String? = null,
+    val actor: String? = null,
+    val subject: String? = null,
     val result: String? = null,
     val reasonCode: String? = null,
+    val checkpointId: String? = null,
+    val affectedObjects: List<String>? = null,
+    val verificationSummary: String? = null,
+    val executionDomainId: String? = null,
+    val attribution: String? = null,
+    val changeKind: String? = null,
+    val coverageBefore: String? = null,
+    val coverageAfter: String? = null,
+    val recoveryDisposition: String? = null,
+    val workspaceId: String? = null,
+    val evidenceRefs: List<String>? = null,
 )
 
 data class ChangesUiState(
@@ -112,17 +126,20 @@ data class SupervisionSessionUi(
     val sessionId: String,
     val status: String,
     val policyDecision: String?,
-    val pendingApproval: Boolean,
+    val pendingApproval: Boolean?,
     val blockedOrFailedReason: String?,
     val actionRef: String?,
-    val requiresCheckpoint: Boolean,
+    val requiresCheckpoint: Boolean?,
     val latestVerifiedActivity: VerifiedActivityUi?,
+    val currentTask: String? = null,
+    val currentPhase: String? = null,
+    val currentAction: String? = null,
     val observedAt: String?,
 )
 
 data class SupervisionUiState(
     val phase: DataPhase,
-    val pendingCount: Int = 0,
+    val pendingCount: Int? = null,
     val reasonCode: String? = null,
     val sessions: List<SupervisionSessionUi> = emptyList(),
     val observedAgents: List<SupervisionAgentUi> = emptyList(),
@@ -161,7 +178,7 @@ data class RecoveryUiState(
  */
 data class AiAdvisoryUiState(
     val phase: DataPhase,
-    val configured: Boolean = false,
+    val configured: Boolean? = null,
     val summary: String? = null,
     val severity: String? = null,
     val reasonCode: String? = null,
@@ -178,10 +195,13 @@ data class HomeUiState(
     val overallStatus: String? = null,
     val runtimeSummary: String? = null,
     val agentsSummary: String? = null,
+    val supervisionStatus: String? = null,
     val pendingSupervision: Int? = null,
+    val changesStatus: String? = null,
     val changesCount: Int? = null,
     val lastCheckpoint: String? = null,
     val aiStatus: String? = null,
+    val recoveryProjectionStatus: String? = null,
     val recoveryStatus: String? = null,
     val reasonCode: String? = null,
     override val lastKnown: Boolean = false,
@@ -225,8 +245,15 @@ data class EvidenceUiState(
     val checkpointId: String? = null,
     val changeId: String? = null,
     val chainRef: String? = null,
+    val executionDomainId: String? = null,
+    val attribution: String? = null,
+    val changeKind: String? = null,
+    val coverageBefore: String? = null,
+    val coverageAfter: String? = null,
+    val recoveryDisposition: String? = null,
+    val workspaceId: String? = null,
     /** Related ledger refs, display-only — never treated as lookup keys. */
-    val relatedEvidenceRefs: List<String> = emptyList(),
+    val relatedEvidenceRefs: List<String>? = null,
 )
 
 /** Connection / About projection for the bound-link state. */

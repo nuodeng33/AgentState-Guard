@@ -162,4 +162,17 @@
     <string name="ai_advisory_note">仅供参考 — AI 分析仅为信息性建议，不会在此设备上执行任何操作。</string>
     <string name="ai_advisory_severity">严重度</string>
     <string name="ai_advisory_analyzed_at">分析于</string>
+    <string name="supervision_no_working_fact">电脑未报告可靠的当前工作事实</string>
+    <string name="supervision_current_task">当前任务</string>
+    <string name="supervision_current_phase">当前阶段</string>
+    <string name="supervision_current_action">当前动作</string>
+    <string name="change_actor">行为主体</string>
+    <string name="evidence_workspace_facts">工作区事实</string>
+    <string name="fact_execution_domain">执行域</string>
+    <string name="fact_attribution">归因</string>
+    <string name="fact_change_kind">变更类型</string>
+    <string name="fact_coverage_before">变更前覆盖</string>
+    <string name="fact_coverage_after">变更后覆盖</string>
+    <string name="fact_recovery_disposition">恢复处置</string>
+    <string name="fact_workspace">工作区</string>
 </resources>

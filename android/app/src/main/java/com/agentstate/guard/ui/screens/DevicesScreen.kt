@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.components.EmptyStateCard
+import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.components.SectionHeader
 import com.agentstate.guard.ui.state.ConnectionUiState
 import com.agentstate.guard.ui.state.DataPhase
@@ -34,17 +35,16 @@ import com.agentstate.guard.ui.theme.TextSecondary
 /**
  * Devices — one bound desktop, connection facts, and the unpair action.
  *
- * Unpair is an Android-local action: it deletes the binding and the
- * KeyStore identity on this device. It is NOT the same operation as
- * "disable Device Link" on the desktop: the desktop keeps the durable
- * binding either way — only this local trust is removed — and reconnecting
- * is a full re-pairing (QR + SAS), not a toggle.
+ * Authenticated unpair first revokes the durable desktop binding, then deletes
+ * this device's local binding and KeyStore identity. A failure preserves local
+ * trust for retry; a success requires a full new QR + SAS pairing.
  */
 @Composable
 fun DevicesScreen(
     linked: LinkedDesktop?,
     connection: ConnectionUiState?,
     isUnpairing: Boolean = false,
+    unpairFailureReasonCode: String? = null,
     onUnpair: () -> Unit = {},
 ) {
     var confirmUnpair by remember { mutableStateOf(false) }
@@ -92,6 +92,13 @@ fun DevicesScreen(
                     else stringResource(R.string.unpair_action),
                 )
             }
+            unpairFailureReasonCode?.let { code ->
+                Text(
+                    stringResource(R.string.action_failed) + ": " + code,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 
@@ -133,13 +140,11 @@ private fun ConnectionFacts(state: ConnectionUiState) {
         style = MaterialTheme.typography.bodySmall,
         color = TextSecondary,
     )
-    if (state.lastKnown) {
-        Text(
-            stringResource(R.string.connection_last_known),
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-        )
-    }
+    FreshnessCaption(
+        lastKnown = state.lastKnown,
+        observedAt = state.observedAt,
+        syncedAtEpochMs = state.syncedAtEpochMs,
+    )
     if (state.authRequired) {
         Text(
             stringResource(R.string.connection_auth_required),
@@ -147,7 +152,6 @@ private fun ConnectionFacts(state: ConnectionUiState) {
             color = TextSecondary,
         )
     }
-    FactRowText(stringResource(R.string.about_last_observed), state.observedAt)
     FactRowText(
         stringResource(R.string.about_reason_code),
         state.reasonCode,

@@ -20,6 +20,7 @@ interface DeviceHttpTransport {
 }
 
 class DeviceLinkHttpException(val status: Int, val reasonCode: String) : IOException(reasonCode)
+class DeviceLinkResponseException(val reasonCode: String) : IOException(reasonCode)
 
 /** Real HTTPS transport pinned to the Desktop TLS public key. */
 class PinnedHttpsTransport(private val timeoutMs: Int = 15_000) : DeviceHttpTransport {
@@ -51,11 +52,20 @@ class PinnedHttpsTransport(private val timeoutMs: Int = 15_000) : DeviceHttpTran
         connection.disconnect()
         val json = JSONObject(text)
         if (status !in 200..299) {
-            val code = json.optJSONObject("error")?.optString("code") ?: "DEVICE_HTTP_$status"
+            val code = deviceHttpReasonCode(json, status)
             throw DeviceLinkHttpException(status, code)
         }
         return json
     }
+}
+
+/** Preserve a bounded projection's authoritative top-level reason on HTTP errors. */
+internal fun deviceHttpReasonCode(payload: JSONObject, status: Int): String {
+    val nested = payload.optJSONObject("error")?.opt("code") as? String
+    val topLevel = payload.opt("reason_code") as? String
+    return nested?.takeIf { it.isNotBlank() }
+        ?: topLevel?.takeIf { it.isNotBlank() }
+        ?: "DEVICE_HTTP_$status"
 }
 
 private class PinnedTrustManager(private val expectedFingerprint: String) : X509TrustManager {
@@ -160,6 +170,18 @@ class DeviceLinkClient(
     fun reject(sessionId: String, actionRef: String): JSONObject = post(
         "/device/v1/supervision/$sessionId/reject", JSONObject().put("action_ref", actionRef),
     )
+    fun selfUnpair(): JSONObject {
+        val response = post("/device/v1/self-unpair", JSONObject())
+        if (
+            response.optString("schema_version") != "device-link-self-unpair-1" ||
+            response.optString("action") != "SELF_UNPAIR" ||
+            response.optString("status") != "UNPAIRED" ||
+            response.optString("reason_code") != "DEVICE_SELF_UNPAIRED"
+        ) {
+            throw DeviceLinkResponseException("DEVICE_SELF_UNPAIR_RESPONSE_INVALID")
+        }
+        return response
+    }
 
     private fun get(path: String) = request(path, "GET", null)
     private fun post(path: String, body: JSONObject, pairing: Boolean = false) =

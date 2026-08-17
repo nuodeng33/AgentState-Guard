@@ -102,7 +102,17 @@ class DeviceLinkRepository(
     /** Bounded read of one sanitized evidence event; read-only, no refresh. */
     fun evidence(eventId: String): JSONObject = withAuthenticated { it.getEvidence(eventId) }
 
-    fun unpairLocal() {
+    fun unpair() {
+        try {
+            withAuthenticated { it.selfUnpair() }
+        } catch (error: DeviceLinkHttpException) {
+            if (error.status != 403 || error.reasonCode != "DEVICE_NOT_BOUND") throw error
+        }
+        unpairLocal()
+    }
+
+    /** Local cleanup runs only after the desktop has revoked this binding. */
+    private fun unpairLocal() {
         client?.clearSession()
         client = null
         authenticated = false

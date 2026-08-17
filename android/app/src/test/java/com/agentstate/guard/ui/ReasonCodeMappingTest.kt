@@ -2,6 +2,8 @@ package com.agentstate.guard.ui
 
 import com.agentstate.guard.ui.link.DeviceLinkUnsupportedException
 import com.agentstate.guard.ui.link.pairingFailureReasonCode
+import com.agentstate.guard.ui.link.unpairFailureReasonCode
+import com.agentstate.guard.network.DeviceLinkHttpException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -35,6 +37,21 @@ class ReasonCodeMappingTest {
     @Test
     fun `null-message exception maps to generic code`() {
         assertEquals("PAIRING_FAILED", pairingFailureReasonCode(RuntimeException()))
+    }
+
+    @Test
+    fun `self unpair preserves stable backend code but never raw exception text`() {
+        assertEquals(
+            "DEVICE_SELF_UNPAIR_UNAVAILABLE",
+            unpairFailureReasonCode(
+                DeviceLinkHttpException(503, "DEVICE_SELF_UNPAIR_UNAVAILABLE")
+            )
+        )
+        val code = unpairFailureReasonCode(
+            IllegalStateException("$sentinel /secret/path?token=abc")
+        )
+        assertEquals("DEVICE_SELF_UNPAIR_FAILED", code)
+        assertFalse(code.contains(sentinel))
     }
 
     @Test

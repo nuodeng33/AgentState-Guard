@@ -11,7 +11,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +21,7 @@ import com.agentstate.guard.ui.components.SectionHeader
 import com.agentstate.guard.ui.components.StatusBadge
 import com.agentstate.guard.ui.state.AiAdvisoryUiState
 import com.agentstate.guard.ui.state.HomeUiState
+import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.theme.Spacing
 import com.agentstate.guard.ui.theme.Surface as SurfaceColor
 import com.agentstate.guard.ui.theme.TextSecondary
@@ -102,15 +102,25 @@ private fun ConnectedHome(state: HomeUiState?) {
     SectionHeader(stringResource(R.string.home_overall))
     Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
         Column(modifier = Modifier.padding(Spacing.l)) {
+            val connectionLabel = when (state?.phase) {
+                DataPhase.CONNECTED -> R.string.state_connected_computer
+                DataPhase.UNREACHABLE -> R.string.connection_offline
+                DataPhase.LOADING, null -> R.string.state_loading
+                else -> R.string.state_waiting_desktop
+            }
             Text(
-                stringResource(R.string.state_connected_computer),
+                stringResource(connectionLabel),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
                 state?.desktopName ?: stringResource(R.string.state_no_data),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            val overall = state?.overallStatus
+            val overall = when {
+                state == null || state.phase == DataPhase.LOADING -> null
+                state.phase == DataPhase.CONNECTED -> state.overallStatus
+                else -> state.phase.name
+            }
             if (overall != null) {
                 StatusBadge(label = overall, tone = toneForMachineState(overall))
             } else {
@@ -120,7 +130,10 @@ private fun ConnectedHome(state: HomeUiState?) {
                     color = TextSecondary,
                 )
             }
-            if (state != null && (state.lastKnown || state.observedAt != null)) {
+            if (
+                state != null &&
+                (state.lastKnown || state.observedAt != null || state.syncedAtEpochMs != null)
+            ) {
                 FreshnessCaption(
                     lastKnown = state.lastKnown,
                     observedAt = state.observedAt,
@@ -133,13 +146,22 @@ private fun ConnectedHome(state: HomeUiState?) {
     SummaryRow(stringResource(R.string.home_agents), state?.agentsSummary)
     SummaryRow(
         stringResource(R.string.home_pending_supervision),
-        state?.pendingSupervision?.toString(),
+        summaryWithStatus(state?.supervisionStatus, state?.pendingSupervision?.toString()),
     )
-    SummaryRow(stringResource(R.string.home_changes), state?.changesCount?.toString())
+    SummaryRow(
+        stringResource(R.string.home_changes),
+        summaryWithStatus(state?.changesStatus, state?.changesCount?.toString()),
+    )
     SummaryRow(stringResource(R.string.home_checkpoints), state?.lastCheckpoint)
     SummaryRow(stringResource(R.string.home_ai_supervisor), state?.aiStatus)
-    SummaryRow(stringResource(R.string.home_recovery_status), state?.recoveryStatus)
+    SummaryRow(
+        stringResource(R.string.home_recovery_status),
+        summaryWithStatus(state?.recoveryProjectionStatus, state?.recoveryStatus),
+    )
 }
+
+private fun summaryWithStatus(status: String?, detail: String?): String? =
+    listOfNotNull(status, detail).takeIf { it.isNotEmpty() }?.joinToString(" · ")
 
 @Composable
 private fun SummaryRow(label: String, value: String?) {

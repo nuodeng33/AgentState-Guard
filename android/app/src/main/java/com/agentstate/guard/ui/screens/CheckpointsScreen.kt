@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.components.DataStateHost
+import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.state.CheckpointsUiState
 import com.agentstate.guard.ui.theme.Spacing
 import com.agentstate.guard.ui.theme.Surface as SurfaceColor
@@ -32,10 +33,17 @@ fun CheckpointsScreen(state: CheckpointsUiState) {
             stringResource(R.string.more_checkpoints),
             style = MaterialTheme.typography.headlineSmall,
         )
+        FreshnessCaption(
+            lastKnown = state.lastKnown,
+            observedAt = state.observedAt,
+            syncedAtEpochMs = state.syncedAtEpochMs,
+        )
         DataStateHost(
             phase = state.phase,
             loadingText = stringResource(R.string.state_loading),
             emptyText = stringResource(R.string.empty_checkpoints),
+            lastKnown = state.lastKnown,
+            reasonCode = state.reasonCode,
         ) {
             state.items.forEach { checkpoint ->
                 Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {

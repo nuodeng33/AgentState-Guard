@@ -192,4 +192,17 @@
     <string name="ai_advisory_note">Advisory only — AI analysis is informational; it never performs actions on this device.</string>
     <string name="ai_advisory_severity">Severity</string>
     <string name="ai_advisory_analyzed_at">Analyzed at</string>
+    <string name="supervision_no_working_fact">No direct current-work fact reported by the computer</string>
+    <string name="supervision_current_task">Current task</string>
+    <string name="supervision_current_phase">Current phase</string>
+    <string name="supervision_current_action">Current action</string>
+    <string name="change_actor">Actor</string>
+    <string name="evidence_workspace_facts">Workspace facts</string>
+    <string name="fact_execution_domain">Execution domain</string>
+    <string name="fact_attribution">Attribution</string>
+    <string name="fact_change_kind">Change kind</string>
+    <string name="fact_coverage_before">Coverage before</string>
+    <string name="fact_coverage_after">Coverage after</string>
+    <string name="fact_recovery_disposition">Recovery disposition</string>
+    <string name="fact_workspace">Workspace</string>
 </resources>

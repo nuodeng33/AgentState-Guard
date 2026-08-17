@@ -16,6 +16,10 @@ class DeviceLinkClientTest {
             JSONObject().put("state", "confirmed_both"),
             JSONObject().put("status", "bound").put("session_token", "s".repeat(64)),
             JSONObject().put("status", "active"),
+            JSONObject().put("schema_version", "device-link-self-unpair-1")
+                .put("action", "SELF_UNPAIR")
+                .put("status", "UNPAIRED")
+                .put("reason_code", "DEVICE_SELF_UNPAIRED"),
         )
         val client = DeviceLinkClient(endpoint, transport)
         val payload = QrPayload(
@@ -28,10 +32,14 @@ class DeviceLinkClientTest {
         assertEquals("confirmed_both", client.pairConfirm(payload.sessionId, true))
         assertEquals("bound", client.pairComplete(payload.sessionId, "android-a", "04", "Phone"))
         client.getStatus()
+        client.selfUnpair()
 
         assertEquals(payload.ticket, transport.requests[0].body?.getString("ticket"))
         assertEquals("p".repeat(64), transport.requests[1].headers["X-Pairing-Token"])
         assertEquals("Bearer ${"s".repeat(64)}", transport.requests.last().headers["Authorization"])
+        assertEquals("/device/v1/self-unpair", transport.requests.last().path)
+        assertEquals("POST", transport.requests.last().method)
+        assertEquals(0, transport.requests.last().body?.length())
         assertTrue(transport.requests.none { it.endpoint.baseUrl.contains("10.0.2.2") })
     }
 
@@ -43,6 +51,19 @@ class DeviceLinkClientTest {
     @Test(expected = IllegalArgumentException::class)
     fun endpointCannotUsePublicInternetAddress() {
         DeviceEndpoint("8.8.8.8", 8788, "a".repeat(64))
+    }
+
+    @Test
+    fun topLevelProjectionReasonSurvivesHttpErrorMapping() {
+        assertEquals(
+            "EVIDENCE_EVENT_NOT_FOUND",
+            deviceHttpReasonCode(
+                JSONObject()
+                    .put("status", "NOT_FOUND")
+                    .put("reason_code", "EVIDENCE_EVENT_NOT_FOUND"),
+                404,
+            ),
+        )
     }
 }
 

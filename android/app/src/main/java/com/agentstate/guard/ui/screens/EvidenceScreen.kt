@@ -55,7 +55,10 @@ fun EvidenceScreen(eventId: String, state: EvidenceUiState?, onBack: () -> Unit)
             )
             state.phase == DataPhase.EMPTY || state.status == "NOT_FOUND" -> EmptyStateCard(
                 title = stringResource(R.string.evidence_not_found),
-                detail = state.eventId ?: eventId,
+                detail = listOfNotNull(
+                    state.reasonCode,
+                    state.eventId ?: eventId,
+                ).joinToString(" · "),
             )
             state.phase == DataPhase.ERROR || state.status == "UNAVAILABLE" -> EmptyStateCard(
                 title = stringResource(R.string.evidence_unavailable),
@@ -65,11 +68,35 @@ fun EvidenceScreen(eventId: String, state: EvidenceUiState?, onBack: () -> Unit)
                 phase = state.phase,
                 loadingText = stringResource(R.string.state_loading),
                 emptyText = stringResource(R.string.evidence_not_found),
+                reasonCode = state.reasonCode,
             ) {
                 state.status?.let { status ->
                     StatusBadge(label = status, tone = toneForMachineState(status))
                 }
                 FactCard(state)
+                val hasWorkspaceFacts = listOf(
+                    state.executionDomainId,
+                    state.attribution,
+                    state.changeKind,
+                    state.coverageBefore,
+                    state.coverageAfter,
+                    state.recoveryDisposition,
+                    state.workspaceId,
+                ).any { it != null }
+                if (hasWorkspaceFacts) {
+                    SectionHeader(stringResource(R.string.evidence_workspace_facts))
+                    state.executionDomainId?.let {
+                        DetailRow(R.string.fact_execution_domain, it)
+                    }
+                    state.attribution?.let { DetailRow(R.string.fact_attribution, it) }
+                    state.changeKind?.let { DetailRow(R.string.fact_change_kind, it) }
+                    state.coverageBefore?.let { DetailRow(R.string.fact_coverage_before, it) }
+                    state.coverageAfter?.let { DetailRow(R.string.fact_coverage_after, it) }
+                    state.recoveryDisposition?.let {
+                        DetailRow(R.string.fact_recovery_disposition, it)
+                    }
+                    state.workspaceId?.let { DetailRow(R.string.fact_workspace, it) }
+                }
                 if (!state.verificationSummary.isNullOrEmpty()) {
                     SectionHeader(stringResource(R.string.evidence_verification))
                     state.verificationSummary.forEach { line ->
@@ -90,9 +117,9 @@ fun EvidenceScreen(eventId: String, state: EvidenceUiState?, onBack: () -> Unit)
                         }
                     }
                 }
-                if (state.relatedEvidenceRefs.isNotEmpty()) {
+                state.relatedEvidenceRefs?.takeIf { it.isNotEmpty() }?.let { refs ->
                     SectionHeader(stringResource(R.string.evidence_related_refs))
-                    state.relatedEvidenceRefs.forEach { ref ->
+                    refs.forEach { ref ->
                         Text(
                             ref,
                             style = MaterialTheme.typography.labelSmall,

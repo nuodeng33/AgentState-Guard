@@ -13,8 +13,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
+import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.components.StatusBadge
 import com.agentstate.guard.ui.state.AiAdvisoryUiState
+import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.theme.Spacing
 import com.agentstate.guard.ui.theme.Surface as SurfaceColor
 import com.agentstate.guard.ui.theme.TextSecondary
@@ -48,6 +50,17 @@ fun AiAdvisoryCard(
             Text(
                 stringResource(R.string.ai_advisory_card_title),
                 style = MaterialTheme.typography.titleSmall,
+            )
+            if (state.phase != DataPhase.CONNECTED) {
+                StatusBadge(
+                    label = state.phase.name,
+                    tone = toneForMachineState(state.phase.name),
+                )
+            }
+            FreshnessCaption(
+                lastKnown = state.lastKnown,
+                observedAt = state.observedAt,
+                syncedAtEpochMs = state.syncedAtEpochMs,
             )
             if (!severity.isNullOrBlank()) {
                 StatusBadge(

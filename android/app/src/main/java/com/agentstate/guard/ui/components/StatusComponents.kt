@@ -95,6 +95,8 @@ fun DataStateHost(
     phase: DataPhase,
     loadingText: String,
     emptyText: String,
+    lastKnown: Boolean = false,
+    reasonCode: String? = null,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
@@ -102,8 +104,31 @@ fun DataStateHost(
         DataPhase.LOADING -> Row(modifier.padding(Spacing.l)) {
             Text(loadingText, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         }
-        DataPhase.EMPTY, DataPhase.UNREACHABLE, DataPhase.DEGRADED, DataPhase.ERROR ->
-            EmptyStateCard(title = emptyText, modifier = modifier)
+        DataPhase.EMPTY ->
+            EmptyStateCard(title = emptyText, detail = reasonCode, modifier = modifier)
+        DataPhase.UNKNOWN, DataPhase.ERROR ->
+            EmptyStateCard(title = phase.name, detail = reasonCode ?: emptyText, modifier = modifier)
+        DataPhase.DEGRADED -> Column {
+            EmptyStateCard(title = phase.name, detail = reasonCode ?: emptyText, modifier = modifier)
+            content()
+        }
+        DataPhase.UNREACHABLE -> {
+            if (lastKnown) {
+                Column {
+                    EmptyStateCard(
+                        title = phase.name,
+                        detail = listOfNotNull(
+                            stringResource(R.string.connection_last_known),
+                            reasonCode,
+                        ).joinToString(" · "),
+                        modifier = modifier,
+                    )
+                    content()
+                }
+            } else {
+                EmptyStateCard(title = phase.name, detail = reasonCode ?: emptyText, modifier = modifier)
+            }
+        }
         DataPhase.CONNECTED -> content()
     }
 }

@@ -49,6 +49,8 @@ fun EnvironmentScreen(state: EnvironmentUiState) {
             phase = state.phase,
             loadingText = stringResource(R.string.state_loading),
             emptyText = stringResource(R.string.empty_environment),
+            lastKnown = state.lastKnown,
+            reasonCode = state.reasonCode,
         ) {
             state.items.forEach { item ->
                 Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {

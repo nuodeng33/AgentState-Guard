@@ -41,6 +41,7 @@ import com.agentstate.guard.ui.link.PairingPhase
 import com.agentstate.guard.ui.link.PairingUiState
 import com.agentstate.guard.ui.link.RepositoryDeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.pairingFailureReasonCode
+import com.agentstate.guard.ui.link.unpairFailureReasonCode
 import com.agentstate.guard.ui.screens.AiAdvisoryCard
 import com.agentstate.guard.ui.screens.ChangesScreen
 import com.agentstate.guard.ui.screens.CheckpointsScreen
@@ -165,6 +166,7 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
 
     // ---- supervision mutation machine -----------------------------------------
     var unpairInProgress by remember { mutableStateOf(false) }
+    var unpairResultReason by remember { mutableStateOf<String?>(null) }
     var actionBusy by remember { mutableStateOf<String?>(null) }
     var actionResultReason by remember { mutableStateOf<String?>(null) }
     fun runSupervisionAction(
@@ -315,14 +317,16 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                     linked = linked.second,
                     connection = connectionState,
                     isUnpairing = unpairInProgress,
+                    unpairFailureReasonCode = unpairResultReason,
                     onUnpair = {
                         if (!unpairInProgress) {
+                            unpairResultReason = null
                             unpairInProgress = true
                             scope.launch {
                                 try {
                                     linkAdapter.unpair()
-                                } catch (unsupported: Exception) {
-                                    // Noop/preview adapter has nothing to delete.
+                                } catch (error: Exception) {
+                                    unpairResultReason = unpairFailureReasonCode(error)
                                 }
                                 unpairInProgress = false
                                 dataVersion++
@@ -350,6 +354,8 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                 val detail by produceState<com.agentstate.guard.ui.state.EvidenceUiState?>(
                     initialValue = null,
                     eventId,
+                    linkAdapter,
+                    dataVersion,
                 ) {
                     value = linkAdapter.evidenceState(eventId)
                 }
