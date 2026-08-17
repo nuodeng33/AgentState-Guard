@@ -23,7 +23,7 @@ export interface PairingViewState {
   phase: PairingPhase;
   /** Opaque adapter-owned pairing handle. */
   pairingId?: string;
-  /** Opaque string a future QR renderer turns into an image; shown as placeholder text now. */
+  /** Canonical `agentstate://pair?...` URI; rendered as the pairing QR. */
   qrPayload?: string;
   /** Epoch milliseconds when the pairing offer expires. */
   expiresAt?: number;

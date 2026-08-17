@@ -55,6 +55,24 @@ function smokeFetch(input: RequestInfo | URL): Promise<Response> {
   }
   const match = path.match(/^\/api\/v1\/(runtime|agents|supervision|recovery|changes)$/);
   if (match) return Promise.resolve(json(emptyView(match[1])));
+  if (path === '/api/v1/devices') {
+    return Promise.resolve(
+      json({
+        schema_version: 'device-link-lifecycle-1',
+        enabled: false,
+        status: 'DISABLED',
+        endpoint: null,
+        address: null,
+        subnet: null,
+        reason_code: 'DEVICE_LINK_DISABLED',
+        desktop_uuid: null,
+        desktop_signing_fingerprint: null,
+        tls_spki_fingerprint: null,
+        bound_devices: [],
+        active_pair_sessions: 0,
+      }),
+    );
+  }
   if (path === '/api/status') {
     return Promise.resolve(
       json({
@@ -81,9 +99,10 @@ describe('App smoke (product IA)', () => {
   it('navigates the seven-surface IA without a white screen and never persists the token', async () => {
     render(<App />);
 
-    // Home is the landing view and summarizes the four authoritative views.
+    // Home is the landing view and summarizes the authoritative projections
+    // plus the Device Link lifecycle — never an aggregate health verdict.
     expect(await screen.findByText('Overview')).toBeTruthy();
-    for (const label of ['Runtime', 'Agents', 'Supervision', 'Recovery']) {
+    for (const label of ['Environment', 'Agents', 'Supervision', 'Recovery', 'Changes', 'Device Link']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
 

@@ -82,6 +82,7 @@ class DeviceLinkRepositoryTest {
         JSONObject().put("view", "agents"),
         JSONObject().put("view", "supervision"),
         JSONObject().put("view", "changes"),
+        JSONObject().put("view", "checkpoints"),
         JSONObject().put("view", "recovery"),
         JSONObject().put("view", "advisory"),
     )

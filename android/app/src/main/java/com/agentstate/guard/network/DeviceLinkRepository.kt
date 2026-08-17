@@ -18,9 +18,12 @@ data class DeviceLinkSnapshot(
     val agents: JSONObject?,
     val supervision: JSONObject?,
     val changes: JSONObject?,
+    val checkpoints: JSONObject?,
     val recovery: JSONObject?,
     val aiAdvisory: JSONObject?,
     val reasonCode: String?,
+    /** True when the failure reason means the saved session/binding failed auth. */
+    val authRequired: Boolean = false,
 )
 
 /** Foreground/explicit-refresh repository; no second authority or event bus. */
@@ -62,7 +65,7 @@ class DeviceLinkRepository(
 
     fun refresh(): DeviceLinkSnapshot {
         val binding = bindings.load() ?: return offline("DEVICE_NOT_PAIRED")
-        var active = client ?: clients.create(binding.endpoint).also { client = it }
+        val active = client ?: clients.create(binding.endpoint).also { client = it }
         return try {
             ensureAuthenticated(active, binding)
             fetch(active)
@@ -73,20 +76,28 @@ class DeviceLinkRepository(
                 try {
                     ensureAuthenticated(active, binding)
                     fetch(active)
+                } catch (second: DeviceLinkHttpException) {
+                    reconnect(binding, second.reasonCode, authRejected(second))
                 } catch (_: IOException) {
                     reconnect(binding, error.reasonCode)
                 }
-            } else offline(error.reasonCode)
+            } else offline(error.reasonCode, authRequired = authRejected(error))
         } catch (_: IOException) {
             reconnect(binding, "DEVICE_LINK_OFFLINE")
         }
     }
 
-    fun approveOnce(sessionId: String, actionRef: String): JSONObject =
-        withAuthenticated { it.approveOnce(sessionId, actionRef) }
+    fun approveOnce(sessionId: String, actionRef: String): JSONObject {
+        val result = withAuthenticated { it.approveOnce(sessionId, actionRef) }
+        lastKnown = null
+        return result
+    }
 
-    fun reject(sessionId: String, actionRef: String): JSONObject =
-        withAuthenticated { it.reject(sessionId, actionRef) }
+    fun reject(sessionId: String, actionRef: String): JSONObject {
+        val result = withAuthenticated { it.reject(sessionId, actionRef) }
+        lastKnown = null
+        return result
+    }
 
     fun unpairLocal() {
         client?.clearSession()
@@ -97,10 +108,14 @@ class DeviceLinkRepository(
         signer.delete()
     }
 
-    private fun reconnect(binding: BoundDesktop, reason: String): DeviceLinkSnapshot {
-        val endpoint = rediscovery.rediscover(binding) ?: return offline(reason)
+    private fun reconnect(
+        binding: BoundDesktop,
+        reason: String,
+        authRequired: Boolean = false,
+    ): DeviceLinkSnapshot {
+        val endpoint = rediscovery.rediscover(binding) ?: return offline(reason, authRequired)
         if (endpoint.tlsSpkiFingerprint != binding.endpoint.tlsSpkiFingerprint) {
-            return offline("DEVICE_REDISCOVERY_IDENTITY_MISMATCH")
+            return offline("DEVICE_REDISCOVERY_IDENTITY_MISMATCH", authRequired = true)
         }
         val updated = binding.copy(endpoint = endpoint)
         val replacement = clients.create(endpoint)
@@ -110,6 +125,8 @@ class DeviceLinkRepository(
             ensureAuthenticated(replacement, updated)
             bindings.save(updated)
             fetch(replacement)
+        } catch (error: DeviceLinkHttpException) {
+            offline(error.reasonCode, authRequired = authRejected(error))
         } catch (_: IOException) {
             offline(reason)
         }
@@ -118,8 +135,8 @@ class DeviceLinkRepository(
     private fun fetch(active: DeviceLinkClient): DeviceLinkSnapshot {
         val snapshot = DeviceLinkSnapshot(
             true, active.getStatus(), active.getEnvironment(), active.getAgents(),
-            active.getSupervision(), active.getChanges(), active.getRecovery(),
-            active.getAiAdvisory(), null,
+            active.getSupervision(), active.getChanges(), active.getCheckpoints(),
+            active.getRecovery(), active.getAiAdvisory(), null,
         )
         lastKnown = snapshot
         return snapshot
@@ -147,12 +164,18 @@ class DeviceLinkRepository(
         }
     }
 
-    private fun offline(reason: String): DeviceLinkSnapshot {
+    private fun offline(reason: String, authRequired: Boolean = false): DeviceLinkSnapshot {
         val previous = lastKnown
         return if (previous == null) {
-            DeviceLinkSnapshot(false, null, null, null, null, null, null, null, reason)
-        } else previous.copy(online = false, reasonCode = reason)
+            DeviceLinkSnapshot(
+                false, null, null, null, null, null, null, null, null,
+                reason, authRequired,
+            )
+        } else previous.copy(online = false, reasonCode = reason, authRequired = authRequired)
     }
+
+    private fun authRejected(error: DeviceLinkHttpException): Boolean =
+        error.status == 401 || error.status == 403
 
     private fun clientOrThrow() = client ?: throw IllegalStateException("PAIRING_NOT_STARTED")
     private fun randomNonce() = ByteArray(32).also {

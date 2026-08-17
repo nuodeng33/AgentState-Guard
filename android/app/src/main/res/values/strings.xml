@@ -77,4 +77,83 @@
     <string name="action_done">Done</string>
     <string name="action_start_over">Start over</string>
     <string name="action_back">Back</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_refresh">Refresh</string>
+
+    <!-- connection states (offline / last-known / auth) -->
+    <string name="connection_live">Live</string>
+    <string name="connection_offline">Offline</string>
+    <string name="connection_unreachable">Unreachable</string>
+    <string name="connection_auth_required">Re-authentication required</string>
+    <string name="connection_last_known">Cached — not live</string>
+    <string name="connection_last_synced">Last synced %1$s</string>
+    <string name="connection_observed_at">Observed at %1$s</string>
+    <string name="connection_reason">Reason code</string>
+
+    <!-- unpair flow -->
+    <string name="unpair_action">Unpair this device</string>
+    <string name="unpair_confirm_title">Unpair this device?</string>
+    <string name="unpair_confirm_body">The binding to the computer and this device\'s local identity will be removed. Reconnecting requires a new QR code and a new security code confirmation.</string>
+    <string name="unpair_done">Device unpaired</string>
+
+    <!-- About / connection details -->
+    <string name="about_title">About</string>
+    <string name="about_app_version">App version</string>
+    <string name="about_protocol_version">Protocol version</string>
+    <string name="about_connection_state">Connection state</string>
+    <string name="about_bound_uuid">Bound desktop UUID</string>
+    <string name="about_signing_fingerprint">Desktop fingerprint</string>
+    <string name="about_endpoint">Endpoint</string>
+    <string name="about_last_observed">Last observed</string>
+    <string name="about_auth_state">Authentication</string>
+    <string name="about_reason_code">Reason code</string>
+
+    <!-- supervision -->
+    <string name="supervision_q_agent_working">Is an agent working?</string>
+    <string name="supervision_q_current_action">Current action</string>
+    <string name="supervision_q_latest_activity">Latest verified activity</string>
+    <string name="supervision_q_pending_approval">Pending approval</string>
+    <string name="supervision_q_blocked">Blocked / waiting</string>
+    <string name="supervision_status_running">Running</string>
+    <string name="supervision_status_idle">Idle</string>
+    <string name="supervision_status_waiting_approval">Waiting for approval</string>
+    <string name="supervision_status_blocked">Blocked</string>
+    <string name="supervision_status_failed">Failed</string>
+    <string name="supervision_status_completed">Completed</string>
+    <string name="supervision_action_ref">Action reference</string>
+    <string name="approve_once_action">Approve once</string>
+    <string name="reject_action">Reject</string>
+    <string name="approve_once_confirm_title">Approve this action once?</string>
+    <string name="approve_once_confirm_body">This approves exactly one pending action. It does not grant ongoing approval.</string>
+    <string name="reject_confirm_title">Reject this action?</string>
+    <string name="reject_confirm_body">This rejects the pending action. The desktop session keeps its own record of the decision.</string>
+    <string name="action_failed">Action failed</string>
+
+    <!-- recovery (read-only) -->
+    <string name="recovery_actual_restore">Actual restore</string>
+    <string name="recovery_verified">Verified</string>
+    <string name="recovery_not_verified">Not verified</string>
+    <string name="recovery_test_restore">Test restore</string>
+    <string name="recovery_trusted_baseline">Trusted baseline</string>
+    <string name="recovery_checkpoint_count">Checkpoint count</string>
+    <string name="recovery_verified_at">Verified at</string>
+    <string name="recovery_read_only">Recovery is read-only on Android; run restore actions on the desktop.</string>
+
+    <!-- checkpoints -->
+    <string name="checkpoint_created_at">Created at</string>
+    <string name="checkpoint_manifest_integrity">Manifest integrity</string>
+
+    <!-- evidence (read-only) -->
+    <string name="evidence_title">Evidence</string>
+    <string name="evidence_event_id">Event</string>
+    <string name="evidence_event_type">Event type</string>
+    <string name="evidence_observed_at">Observed at</string>
+    <string name="evidence_result">Result</string>
+    <string name="evidence_checkpoint">Checkpoint</string>
+
+    <!-- AI Monitor advisory -->
+    <string name="ai_advisory_note">Advisory only — AI analysis is informational; it never performs actions on this device.</string>
+    <string name="ai_advisory_severity">Severity</string>
+    <string name="ai_advisory_analyzed_at">Analyzed at</string>
 </resources>

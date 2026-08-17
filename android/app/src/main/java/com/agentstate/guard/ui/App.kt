@@ -13,6 +13,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -23,7 +24,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -31,9 +35,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.link.DeviceLinkUiAdapter
-import com.agentstate.guard.ui.link.NoopDeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.PairingPhase
 import com.agentstate.guard.ui.link.PairingUiState
+import com.agentstate.guard.ui.link.RepositoryDeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.pairingFailureReasonCode
 import com.agentstate.guard.ui.screens.AiMonitorScreen
 import com.agentstate.guard.ui.screens.ChangesScreen
@@ -51,6 +55,7 @@ import com.agentstate.guard.ui.screens.SupervisionScreen
 import com.agentstate.guard.ui.state.AiMonitorUiState
 import com.agentstate.guard.ui.state.ChangesUiState
 import com.agentstate.guard.ui.state.CheckpointsUiState
+import com.agentstate.guard.ui.state.ConnectionUiState
 import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.state.EnvironmentUiState
 import com.agentstate.guard.ui.state.HomeUiState
@@ -72,48 +77,77 @@ private val IN_FLIGHT_PHASES = setOf(
     PairingPhase.PAIRING_CREATED,
     PairingPhase.WAITING_FOR_DESKTOP,
     PairingPhase.SAS_PENDING,
+    PairingPhase.CONFIRMING,
 )
 
 /**
  * Product shell: five bottom tabs (Home / Environment / Changes /
  * Supervision / More); More hosts Checkpoints, Recovery, AI Monitor,
  * Devices, and Settings. All data flows through the injected
- * DeviceLinkUiAdapter; the default noop adapter keeps every surface in an
- * honest no-data state.
+ * DeviceLinkUiAdapter; production binds the real repository adapter, the
+ * noop adapter stays reserved for previews and tests.
  */
 @Composable
 fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
-    val linkAdapter = adapter ?: remember { NoopDeviceLinkUiAdapter() }
+    val context = LocalContext.current
+    val linkAdapter = adapter ?: remember {
+        RepositoryDeviceLinkUiAdapter.provideAdapter(context.applicationContext)
+    }
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
     // ---- adapter projections (LOADING until the first answer) ----
-    val linked by produceState<Pair<Boolean, LinkedDesktop?>>(false to null, linkAdapter) {
+    // Foreground refresh: once at start and again on every lifecycle resume
+    // (single-flight inside the adapter). dataVersion re-reads projections so
+    // a resume-triggered refresh updates every surface without any polling.
+    var dataVersion by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(linkAdapter) {
+        linkAdapter.refresh()
+        dataVersion++
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(linkAdapter, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch {
+                    linkAdapter.refresh()
+                    dataVersion++
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val linked by produceState<Pair<Boolean, LinkedDesktop?>>(false to null, linkAdapter, dataVersion) {
         value = true to linkAdapter.linkedDesktop()
     }
-    val homeState by produceState(HomeUiState(DataPhase.LOADING), linkAdapter) {
+    val homeState by produceState(HomeUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.homeState()
     }
-    val environmentState by produceState(EnvironmentUiState(DataPhase.LOADING), linkAdapter) {
+    val environmentState by produceState(EnvironmentUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.environmentState()
     }
-    val changesState by produceState(ChangesUiState(DataPhase.LOADING), linkAdapter) {
+    val changesState by produceState(ChangesUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.changesState()
     }
-    val supervisionState by produceState(SupervisionUiState(DataPhase.LOADING), linkAdapter) {
+    val supervisionState by produceState(SupervisionUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.supervisionState()
     }
-    val checkpointsState by produceState(CheckpointsUiState(DataPhase.LOADING), linkAdapter) {
+    val checkpointsState by produceState(CheckpointsUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.checkpointsState()
     }
-    val recoveryState by produceState(RecoveryUiState(DataPhase.LOADING), linkAdapter) {
+    val recoveryState by produceState(RecoveryUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.recoveryState()
     }
-    val aiState by produceState(AiMonitorUiState(DataPhase.LOADING), linkAdapter) {
+    val aiState by produceState(AiMonitorUiState(DataPhase.LOADING), linkAdapter, dataVersion) {
         value = linkAdapter.aiMonitorState()
+    }
+    val connectionState by produceState<ConnectionUiState?>(null, linkAdapter, dataVersion) {
+        value = linkAdapter.connectionState()
     }
 
     // ---- pairing shell state ----

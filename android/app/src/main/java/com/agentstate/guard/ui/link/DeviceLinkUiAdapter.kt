@@ -3,11 +3,14 @@ package com.agentstate.guard.ui.link
 import com.agentstate.guard.ui.state.AiMonitorUiState
 import com.agentstate.guard.ui.state.ChangesUiState
 import com.agentstate.guard.ui.state.CheckpointsUiState
+import com.agentstate.guard.ui.state.ConnectionUiState
 import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.state.EnvironmentUiState
+import com.agentstate.guard.ui.state.EvidenceUiState
 import com.agentstate.guard.ui.state.HomeUiState
 import com.agentstate.guard.ui.state.LinkedDesktop
 import com.agentstate.guard.ui.state.RecoveryUiState
+import com.agentstate.guard.ui.state.SupervisionActionUiResult
 import com.agentstate.guard.ui.state.SupervisionUiState
 
 /** Thrown when this build has no Device Link transport wired in. */
@@ -26,12 +29,30 @@ fun pairingFailureReasonCode(error: Throwable): String = when (error) {
 }
 
 /**
- * Boundary between the Android UI and the future Device Link integration.
+ * Maps a supervision mutation failure to a small, stable machine reason code.
+ * Backend reason codes (SUPERVISION_*, DEVICE_* tokens) pass through verbatim;
+ * unknown or unclassified failures collapse to SUPERVISION_ACTION_FAILED.
+ */
+fun supervisionFailureReasonCode(error: Throwable): String {
+    val token = (error as? com.agentstate.guard.network.DeviceLinkHttpException)?.reasonCode
+    return if (
+        token != null &&
+        (token.startsWith("SUPERVISION_") || token.startsWith("DEVICE_"))
+    ) {
+        token
+    } else {
+        "SUPERVISION_ACTION_FAILED"
+    }
+}
+
+/**
+ * Boundary between the Android UI and the Device Link integration.
  *
  * The UI only ever talks to this interface. Implementations return UI-safe
  * projections and never leak protocol internals, raw exceptions, or secrets.
- * The real adapter is provided by the Device Link worker; until then
- * [NoopDeviceLinkUiAdapter] keeps every screen in an honest no-data state.
+ * The production implementation is [RepositoryDeviceLinkUiAdapter];
+ * [NoopDeviceLinkUiAdapter] is the honest empty default used only in
+ * previews and tests.
  */
 interface DeviceLinkUiAdapter {
     /** The linked desktop, or null when unpaired. */
@@ -44,6 +65,24 @@ interface DeviceLinkUiAdapter {
     suspend fun checkpointsState(): CheckpointsUiState
     suspend fun recoveryState(): RecoveryUiState
     suspend fun aiMonitorState(): AiMonitorUiState
+
+    /** Connection / About projection (bound desktop facts, freshness, auth). */
+    suspend fun connectionState(): ConnectionUiState
+
+    /** Read-only evidence drill-down; default shells show NO_EVIDENCE. */
+    suspend fun evidenceState(eventId: String): EvidenceUiState
+
+    /** Approve one pending supervision intent exactly once. */
+    suspend fun approveOnce(sessionId: String, actionRef: String): SupervisionActionUiResult
+
+    /** Reject one pending supervision intent exactly once. */
+    suspend fun rejectSupervision(sessionId: String, actionRef: String): SupervisionActionUiResult
+
+    /** Remove the local binding and KeyStore identity; the next link needs a new QR+SAS. */
+    suspend fun unpair()
+
+    /** Bring projections up to date (app start, resume, explicit pull). Single-flight. */
+    suspend fun refresh()
 
     /** Begin pairing from a scanned payload string (opaque to the UI). */
     suspend fun beginScanPairing(payload: String): PairingUiState
@@ -62,8 +101,9 @@ interface DeviceLinkUiAdapter {
 }
 
 /**
- * Default adapter for builds without Device Link: unpaired, every projection
- * EMPTY, pairing unsupported. Performs no I/O of any kind.
+ * Default adapter for previews and tests: unpaired, every projection EMPTY,
+ * pairing unsupported. Performs no I/O of any kind. Never the production
+ * default — production binds [RepositoryDeviceLinkUiAdapter].
  */
 class NoopDeviceLinkUiAdapter : DeviceLinkUiAdapter {
     override suspend fun linkedDesktop(): LinkedDesktop? = null
@@ -78,6 +118,19 @@ class NoopDeviceLinkUiAdapter : DeviceLinkUiAdapter {
     override suspend fun recoveryState(): RecoveryUiState = RecoveryUiState(phase = DataPhase.EMPTY)
     override suspend fun aiMonitorState(): AiMonitorUiState =
         AiMonitorUiState(phase = DataPhase.EMPTY, configured = false)
+    override suspend fun connectionState(): ConnectionUiState = ConnectionUiState.EMPTY
+    override suspend fun evidenceState(eventId: String): EvidenceUiState =
+        EvidenceUiState(phase = DataPhase.EMPTY)
+    override suspend fun approveOnce(
+        sessionId: String,
+        actionRef: String,
+    ): SupervisionActionUiResult = throw DeviceLinkUnsupportedException()
+    override suspend fun rejectSupervision(
+        sessionId: String,
+        actionRef: String,
+    ): SupervisionActionUiResult = throw DeviceLinkUnsupportedException()
+    override suspend fun unpair() = throw DeviceLinkUnsupportedException()
+    override suspend fun refresh() = Unit
 
     override suspend fun beginScanPairing(payload: String): PairingUiState =
         throw DeviceLinkUnsupportedException()

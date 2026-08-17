@@ -25,7 +25,7 @@ object PreviewFixtures {
             EnvironmentItemUi("Node.js", "v22.23.1", "OK"),
             EnvironmentItemUi("Python", "3.11.2", "OK"),
             EnvironmentItemUi("Docker", null, "UNREACHABLE"),
-            EnvironmentItemUi("Tailscale", null, "NOT INSTALLED"),
+            EnvironmentItemUi("Git", "2.39.5", "OK"),
         ),
     )
 
@@ -54,7 +54,7 @@ object PreviewFixtures {
 @Composable
 private fun HomeUnpairedPreview() {
     AgentStateTheme {
-        HomeScreen(paired = false, state = null, onScanQr = {}, onFindLan = {}, onManualAddress = {})
+        HomeScreen(paired = false, state = null, onScanQr = {})
     }
 }
 
@@ -62,7 +62,7 @@ private fun HomeUnpairedPreview() {
 @Composable
 private fun HomeConnectedPreview() {
     AgentStateTheme {
-        HomeScreen(paired = true, state = PreviewFixtures.demoHome, onScanQr = {}, onFindLan = {}, onManualAddress = {})
+        HomeScreen(paired = true, state = PreviewFixtures.demoHome, onScanQr = {})
     }
 }
 
