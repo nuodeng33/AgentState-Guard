@@ -35,6 +35,12 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    // QR scanning: CameraX viewfinder/analysis + ZXing QR engine (lifecycle-scoped).
+    implementation("androidx.camera:camera-core:1.3.3")
+    implementation("androidx.camera:camera-camera2:1.3.3")
+    implementation("androidx.camera:camera-lifecycle:1.3.3")
+    implementation("androidx.camera:camera-view:1.3.3")
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20230227")
     androidTestImplementation("androidx.test:runner:1.5.2")

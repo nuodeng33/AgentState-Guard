@@ -13,13 +13,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.agentstate.guard.R
 import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.theme.Spacing
 import com.agentstate.guard.ui.theme.StatusTone
 import com.agentstate.guard.ui.theme.Surface as SurfaceColor
 import com.agentstate.guard.ui.theme.TextSecondary
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Status badge: the label is a verbatim machine token; tone only supports it.
@@ -27,7 +34,7 @@ import com.agentstate.guard.ui.theme.TextSecondary
 @Composable
 fun StatusBadge(label: String, tone: StatusTone, modifier: Modifier = Modifier) {
     Surface(
-        modifier = modifier,
+        modifier = modifier.semantics { contentDescription = label },
         color = tone.background,
         border = BorderStroke(1.dp, tone.border),
         shape = MaterialTheme.shapes.small,
@@ -99,4 +106,40 @@ fun DataStateHost(
             EmptyStateCard(title = emptyText, modifier = modifier)
         DataPhase.CONNECTED -> content()
     }
+}
+
+/**
+ * Honest provenance strip for a projection: whether the shown facts are
+ * cached (last-known), the verbatim backend observed time, and/or the local
+ * last successful sync time. No staleness thresholds are computed here —
+ * the architecture forbids the frontend from creating them.
+ */
+@Composable
+fun FreshnessCaption(
+    lastKnown: Boolean,
+    observedAt: String?,
+    syncedAtEpochMs: Long?,
+    modifier: Modifier = Modifier,
+) {
+    val messages = mutableListOf<String>()
+    if (lastKnown) {
+        messages += stringResource(R.string.connection_last_known)
+    }
+    observedAt?.let { messages += stringResource(R.string.connection_observed_at, it) }
+    syncedAtEpochMs?.let { epochMs ->
+        val formatted = TIME_FORMAT.get().format(Date(epochMs))
+        messages += stringResource(R.string.connection_last_synced, formatted)
+    }
+    if (messages.isEmpty()) return
+    Text(
+        text = messages.joinToString("  ·  "),
+        style = MaterialTheme.typography.labelSmall,
+        color = TextSecondary,
+        modifier = modifier,
+    )
+}
+
+private val TIME_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat =
+        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 }

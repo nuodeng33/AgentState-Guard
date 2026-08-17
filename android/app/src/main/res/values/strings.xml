@@ -17,7 +17,6 @@
     <!-- More menu -->
     <string name="more_checkpoints">Checkpoints</string>
     <string name="more_recovery">Recovery</string>
-    <string name="more_ai_monitor">AI Monitor</string>
     <string name="more_devices">Devices</string>
     <string name="more_settings">Settings</string>
 
@@ -29,8 +28,21 @@
 
     <!-- pairing shells -->
     <string name="pairing_scan_title">Scan to connect</string>
-    <string name="pairing_scan_shell">The camera scanner is connected by the Device Link layer in a later stage.</string>
     <string name="pairing_waiting">Waiting for the computer…</string>
+    <string name="pairing_scan_point_camera">Point the camera at the QR code shown on your computer</string>
+    <string name="pairing_scan_hint">The desktop shows this code on the Devices page after you start pairing there.</string>
+    <string name="pairing_scan_not_valid">That is not a valid AgentState pairing code</string>
+    <string name="camera_permission_rationale_title">Camera access is needed to scan the QR code.</string>
+    <string name="camera_permission_rationale_body">The camera is used only to read the pairing QR code from your computer screen. No photos or videos are stored.</string>
+    <string name="camera_permission_permanent_body">Camera access was denied. Enable it in system settings to scan the pairing QR code.</string>
+    <string name="camera_permission_grant">Allow camera access</string>
+    <string name="camera_permission_open_settings">Open settings</string>
+    <string name="pairing_scan_error_title">Pairing failed</string>
+    <string name="pairing_scan_error_retry">Scan again</string>
+
+    <!-- devices / unpair -->
+    <string name="devices_connected_computer">Connected computer</string>
+    <string name="unpair_section_title">This device</string>
 
     <!-- SAS -->
     <string name="sas_title">Connect to computer</string>
@@ -115,12 +127,20 @@
     <string name="supervision_q_latest_activity">Latest verified activity</string>
     <string name="supervision_q_pending_approval">Pending approval</string>
     <string name="supervision_q_blocked">Blocked / waiting</string>
+    <string name="supervision_q_recent_activities">Recent confirmed activity</string>
+    <string name="supervision_q_agents_observed">Observed agents</string>
+    <string name="supervision_q_intervention">Needs your intervention</string>
     <string name="supervision_status_running">Running</string>
     <string name="supervision_status_idle">Idle</string>
     <string name="supervision_status_waiting_approval">Waiting for approval</string>
     <string name="supervision_status_blocked">Blocked</string>
     <string name="supervision_status_failed">Failed</string>
     <string name="supervision_status_completed">Completed</string>
+    <string name="supervision_no_current_fact">No current action reported by the computer</string>
+    <string name="supervision_ai_advisory">AI advisory</string>
+    <string name="supervision_policy_decision">Policy decision</string>
+    <string name="supervision_session">Session</string>
+    <string name="supervision_checkpoint_required">checkpoint required</string>
     <string name="supervision_action_ref">Action reference</string>
     <string name="approve_once_action">Approve once</string>
     <string name="reject_action">Reject</string>
@@ -146,13 +166,29 @@
 
     <!-- evidence (read-only) -->
     <string name="evidence_title">Evidence</string>
+    <string name="evidence_status">Status</string>
     <string name="evidence_event_id">Event</string>
     <string name="evidence_event_type">Event type</string>
     <string name="evidence_observed_at">Observed at</string>
+    <string name="evidence_recorded_at">Recorded at</string>
+    <string name="evidence_source">Source</string>
+    <string name="evidence_subject">Subject</string>
     <string name="evidence_result">Result</string>
     <string name="evidence_checkpoint">Checkpoint</string>
+    <string name="evidence_change_id">Change</string>
+    <string name="evidence_chain_ref">Chain reference</string>
+    <string name="evidence_reason_code">Reason code</string>
+    <string name="evidence_verification">Verification</string>
+    <string name="evidence_affected_objects">Affected objects</string>
+    <string name="evidence_related_refs">Related evidence</string>
+    <string name="evidence_times">Timestamps</string>
+    <string name="evidence_references">References</string>
+    <string name="evidence_not_found">No evidence found for this event</string>
+    <string name="evidence_unavailable">Evidence is unavailable right now</string>
+    <string name="action_view_evidence">View evidence</string>
 
-    <!-- AI Monitor advisory -->
+    <!-- AI advisory (contextual card inside Home / Environment / Supervision) -->
+    <string name="ai_advisory_card_title">AI advisory</string>
     <string name="ai_advisory_note">Advisory only — AI analysis is informational; it never performs actions on this device.</string>
     <string name="ai_advisory_severity">Severity</string>
     <string name="ai_advisory_analyzed_at">Analyzed at</string>
