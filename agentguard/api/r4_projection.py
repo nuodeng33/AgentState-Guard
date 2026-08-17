@@ -677,6 +677,7 @@ class R4ReadProjectionService:
                 items.append(_recovery_failure_item(checkpoint_id, load_reason))
                 continue
             manifest = artifact.get("manifest")
+            workspace = artifact.get("workspace")
             domains = (
                 {
                     entry.get("domain")
@@ -686,6 +687,10 @@ class R4ReadProjectionService:
                 if isinstance(manifest, list)
                 else set()
             )
+            if isinstance(workspace, dict) and _atom(
+                workspace.get("execution_domain_id")
+            ):
+                domains.add(workspace["execution_domain_id"])
             if len(domains) != 1:
                 items.append(
                     _recovery_failure_item(checkpoint_id, "RECOVERY_DOMAIN_UNKNOWN")
@@ -712,6 +717,7 @@ class R4ReadProjectionService:
                 execution_domain_id=domain,
             )
             actual_restore = _actual_restore_summary(connection, checkpoint_id, digest)
+            workspace_summary = _workspace_recovery_summary(workspace)
             items.append(
                 {
                     "checkpoint_id": checkpoint_id,
@@ -721,6 +727,7 @@ class R4ReadProjectionService:
                     **facts.safe_summary(),
                     "evidence_refs": list(facts.evidence_refs),
                     **actual_restore,
+                    **workspace_summary,
                 }
             )
         projection = _base(
@@ -749,15 +756,26 @@ class R4ReadProjectionService:
                 "actual_restore_status": latest["actual_restore_status"],
                 "recovery_verified": latest["actual_restore_status"] == "VERIFIED",
                 "verified_at": latest["actual_restore_verified_at"],
+                "scope_kind": latest["scope_kind"],
+                "workspace_id": latest["workspace_id"],
+                "coverage": latest["coverage"],
                 "capabilities": {
                     "create_checkpoint": True,
                     "test_restore": True,
                     "restore": True,
                 },
-                "limitations": [
-                    "PRODUCT_CONFIG_TARGET_ONLY",
-                    "EXPLICIT_RESTORE_CONFIRMATION_REQUIRED",
-                ],
+                "limitations": (
+                    [
+                        "NOT_WHOLE_HOST_BACKUP",
+                        "COVERAGE_BASED_WORKSPACE_PROTECTION",
+                        "EXPLICIT_RESTORE_CONFIRMATION_REQUIRED",
+                    ]
+                    if latest["scope_kind"] == "HOST_WORKSPACE"
+                    else [
+                        "PRODUCT_CONFIG_TARGET_ONLY",
+                        "EXPLICIT_RESTORE_CONFIRMATION_REQUIRED",
+                    ]
+                ),
             }
         )
         return projection
@@ -796,6 +814,9 @@ def _recovery_failure_item(
         "actual_restore_status": "NOT_RUN",
         "actual_restore_verified_at": None,
         "actual_restore_evidence_refs": [],
+        "scope_kind": "UNKNOWN",
+        "workspace_id": None,
+        "coverage": None,
     }
 
 
@@ -814,6 +835,9 @@ def _with_empty_recovery(projection: dict[str, Any]) -> dict[str, Any]:
         "actual_restore_status": "NOT_RUN",
         "recovery_verified": False,
         "verified_at": None,
+        "scope_kind": "UNKNOWN",
+        "workspace_id": None,
+        "coverage": None,
         "capabilities": {
             "create_checkpoint": True,
             "test_restore": True,
@@ -860,4 +884,39 @@ def _actual_restore_summary(
         "actual_restore_status": "VERIFIED" if verified else "NOT_RUN",
         "actual_restore_verified_at": verified_at,
         "actual_restore_evidence_refs": refs,
+    }
+
+
+def _workspace_recovery_summary(workspace: object) -> dict[str, Any]:
+    if not isinstance(workspace, dict):
+        return {
+            "scope_kind": "PRODUCT_CONFIG",
+            "workspace_id": None,
+            "coverage": None,
+        }
+    coverage = workspace.get("coverage")
+    counts = workspace.get("coverage_counts")
+    reason_counts: dict[str, int] = {}
+    if isinstance(coverage, list):
+        for entry in coverage:
+            reason = _atom(entry.get("reason_code")) if isinstance(entry, dict) else None
+            if reason is not None:
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    safe_counts = (
+        {
+            key: counts.get(key)
+            for key in ("restorable", "audit_only", "excluded", "unreachable")
+        }
+        if isinstance(counts, dict)
+        else None
+    )
+    return {
+        "scope_kind": "HOST_WORKSPACE",
+        "workspace_id": _atom(workspace.get("workspace_id")),
+        "coverage": {
+            "counts": safe_counts,
+            "reason_counts": dict(sorted(reason_counts.items())),
+            "scan_complete": workspace.get("scan_complete") is True,
+            "scan_reason_code": _atom(workspace.get("scan_reason_code")),
+        },
     }

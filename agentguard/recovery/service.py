@@ -159,6 +159,7 @@ class RecoveryService:
             execution_domain_id=request.execution_domain_id,
             checkpoint_id=checkpoint_ref,
             manifest_digest=digest,
+            details=dict(outcome.details),
         )
 
     def verify(self, request: RecoveryRequest) -> RecoveryOperationResult:

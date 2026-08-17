@@ -220,6 +220,31 @@ class WorkspaceScopeService:
             ledger_event_id=row[12],
         )
 
+    def latest_result(self) -> WorkspaceScopeResult | None:
+        """Return the latest durable status without treating stale BOUND as active."""
+
+        connection = self._database._conn
+        if connection is None:
+            raise WorkspaceScopeError("WORKSPACE_SCOPE_DATABASE_CLOSED")
+        if verify_ledger(connection):
+            raise WorkspaceScopeError("WORKSPACE_SCOPE_LEDGER_INVALID")
+        row = connection.execute(
+            """SELECT observation_id, status, reason_code, workspace_id,
+                      root_digest, ledger_event_id
+               FROM workspace_scope_observations
+               ORDER BY observation_sequence DESC LIMIT 1"""
+        ).fetchone()
+        if row is None:
+            return None
+        return WorkspaceScopeResult(
+            observation_id=row[0],
+            status=row[1],
+            reason_code=row[2],
+            workspace_id=row[3],
+            root_digest=row[4],
+            ledger_event_id=row[5],
+        )
+
 
 def _validate_resolved(resolved: ResolvedWorkspaceAuthority) -> None:
     if resolved.status not in {"BOUND", "NOT_OBSERVED", "UNAVAILABLE"}:
