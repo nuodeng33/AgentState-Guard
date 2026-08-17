@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +14,7 @@ from .agents import (
     ProcessBackend,
     ProcessCollector,
     ProcessState,
+    ProcessWorkspaceAuthority,
     PsutilProcessBackend,
 )
 from .capabilities import AgentLifecycleStatus, CapabilityStatus, EvidenceReliability
@@ -41,6 +42,14 @@ _AGENT_SIGNATURES: dict[str, tuple[str, AgentRole]] = {
 }
 
 
+@dataclass(frozen=True)
+class ProductDiscoveryReport:
+    """Serializable discovery plus private, in-process workspace authority facts."""
+
+    snapshot: DiscoverySnapshot
+    workspace_authorities: tuple[ProcessWorkspaceAuthority, ...] = ()
+
+
 class ProductDiscoveryService:
     """Compose fixed local probes without treating this product as an Agent."""
 
@@ -58,6 +67,9 @@ class ProductDiscoveryService:
         self._home_path = home_path if home_path is not None else str(Path.home())
 
     def discover(self) -> DiscoverySnapshot:
+        return self.discover_with_authority().snapshot
+
+    def discover_with_authority(self) -> ProductDiscoveryReport:
         runtime_snapshot = self._runtime_adapter.discover()
         domain = current_execution_domain(runtime_snapshot.domains)
         if domain is None or domain.kind is ExecutionDomainKind.UNKNOWN:
@@ -106,6 +118,7 @@ class ProductDiscoveryService:
         ).collect()
         evidence: list[ProbeEvidence] = [*runtime_snapshot.evidence, runtime_evidence]
         agents: list[AgentDescriptor] = []
+        workspace_authorities: list[ProcessWorkspaceAuthority] = []
         workspace_agents: dict[str, list[str]] = {}
         workspace_sources: dict[str, tuple[object, ProbeEvidence]] = {}
         process_evidence = {item.evidence_id: item for item in processes.evidence}
@@ -113,6 +126,9 @@ class ProductDiscoveryService:
             evidence_id: candidate
             for candidate in processes.workspace_candidates
             for evidence_id in candidate.evidence_refs
+        }
+        authorities_by_process = {
+            item.process_instance_id: item for item in processes.workspace_authorities
         }
 
         for fact in processes.facts:
@@ -183,6 +199,9 @@ class ProductDiscoveryService:
                     )
                     workspace_sources[candidate.candidate_id] = (candidate, workspace_evidence)
                     evidence.append(workspace_evidence)
+                authority = authorities_by_process.get(fact.process_instance_id)
+                if authority is not None and authority.candidate_id == candidate.candidate_id:
+                    workspace_authorities.append(replace(authority, agent_id=agent_id))
             agents.append(
                 AgentDescriptor(
                     agent_id=agent_id,
@@ -233,20 +252,23 @@ class ProductDiscoveryService:
                 )
             )
 
-        return DiscoverySnapshot(
-            snapshot_id=f"product-{nonce}",
-            observed_at=observed_at,
-            domains=(domain,),
-            runtimes=(runtime,),
-            agents=tuple(agents),
-            workspaces=workspaces,
-            evidence=tuple(evidence),
-            errors=(*runtime_snapshot.errors, *processes.errors),
-            status=(
-                CapabilityStatus.AVAILABLE
-                if processes.status is CapabilityStatus.AVAILABLE
-                else CapabilityStatus.DEGRADED
+        return ProductDiscoveryReport(
+            snapshot=DiscoverySnapshot(
+                snapshot_id=f"product-{nonce}",
+                observed_at=observed_at,
+                domains=(domain,),
+                runtimes=(runtime,),
+                agents=tuple(agents),
+                workspaces=workspaces,
+                evidence=tuple(evidence),
+                errors=(*runtime_snapshot.errors, *processes.errors),
+                status=(
+                    CapabilityStatus.AVAILABLE
+                    if processes.status is CapabilityStatus.AVAILABLE
+                    else CapabilityStatus.DEGRADED
+                ),
             ),
+            workspace_authorities=tuple(workspace_authorities),
         )
 
 
@@ -304,6 +326,7 @@ def _stable_id(prefix: str, *parts: str) -> str:
 
 
 __all__ = [
+    "ProductDiscoveryReport",
     "ProductDiscoveryService",
     "current_execution_domain",
     "unavailable_product_snapshot",

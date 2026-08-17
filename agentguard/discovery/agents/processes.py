@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from ..capabilities import CapabilityStatus, EvidenceReliability
@@ -17,6 +18,7 @@ from .models import (
     ProcessRelationship,
     ProcessState,
     ProcessWarningCode,
+    ProcessWorkspaceAuthority,
     WorkspaceCandidate,
     WorkspaceSource,
     make_process_instance_id,
@@ -69,6 +71,10 @@ class ProcessCollectionResult:
     facts: tuple[ProcessFact, ...] = ()
     relationships: tuple[ProcessRelationship, ...] = ()
     workspace_candidates: tuple[WorkspaceCandidate, ...] = ()
+    workspace_authorities: tuple[ProcessWorkspaceAuthority, ...] = field(
+        default=(),
+        repr=False,
+    )
     evidence: tuple[ProbeEvidence, ...] = ()
     errors: tuple[DiscoveryError, ...] = ()
     status: CapabilityStatus = CapabilityStatus.UNKNOWN
@@ -166,8 +172,9 @@ class ProcessCollector:
         evidence: list[ProbeEvidence] = []
         errors: list[DiscoveryError] = []
         workspace_candidates: list[WorkspaceCandidate] = []
+        workspace_authorities: list[ProcessWorkspaceAuthority] = []
         for handle in handles:
-            fact, record, item_errors, item_workspaces = self._collect_handle(
+            fact, record, item_errors, item_workspaces, item_authorities = self._collect_handle(
                 handle,
                 observed_at,
             )
@@ -175,6 +182,7 @@ class ProcessCollector:
             evidence.append(record)
             errors.extend(item_errors)
             workspace_candidates.extend(item_workspaces)
+            workspace_authorities.extend(item_authorities)
 
         relationships = build_process_relationships(tuple(facts))
         status = (
@@ -186,6 +194,7 @@ class ProcessCollector:
             facts=tuple(facts),
             relationships=relationships,
             workspace_candidates=tuple(workspace_candidates),
+            workspace_authorities=tuple(workspace_authorities),
             evidence=tuple(evidence),
             errors=tuple(errors),
             status=status,
@@ -200,6 +209,7 @@ class ProcessCollector:
         ProbeEvidence,
         tuple[DiscoveryError, ...],
         tuple[WorkspaceCandidate, ...],
+        tuple[ProcessWorkspaceAuthority, ...],
     ]:
         pid = _safe_pid(getattr(handle, "pid", -1))
         try:
@@ -217,7 +227,7 @@ class ProcessCollector:
                 access=CapabilityStatus.DEGRADED,
                 warning=ProcessWarningCode.PARTIAL_VISIBILITY,
                 error=error,
-            ), ())
+            ), (), ())
         except ProcessLookupError:
             error = _process_error(
                 DiscoveryErrorCode.NOT_PRESENT,
@@ -231,7 +241,7 @@ class ProcessCollector:
                 access=CapabilityStatus.NOT_PRESENT,
                 warning=ProcessWarningCode.PROCESS_EXITED,
                 error=error,
-            ), ())
+            ), (), ())
         except ProcessAccessDeniedError:
             error = _process_error(
                 DiscoveryErrorCode.PERMISSION_DENIED,
@@ -245,7 +255,7 @@ class ProcessCollector:
                 access=CapabilityStatus.PERMISSION_DENIED,
                 warning=ProcessWarningCode.PARTIAL_VISIBILITY,
                 error=error,
-            ), ())
+            ), (), ())
         except PermissionError:
             error = _process_error(
                 DiscoveryErrorCode.PERMISSION_DENIED,
@@ -259,7 +269,7 @@ class ProcessCollector:
                 access=CapabilityStatus.PERMISSION_DENIED,
                 warning=ProcessWarningCode.PARTIAL_VISIBILITY,
                 error=error,
-            ), ())
+            ), (), ())
         except NotImplementedError:
             error = _process_error(
                 DiscoveryErrorCode.UNSUPPORTED,
@@ -273,7 +283,7 @@ class ProcessCollector:
                 access=CapabilityStatus.UNSUPPORTED,
                 warning=ProcessWarningCode.PARTIAL_VISIBILITY,
                 error=error,
-            ), ())
+            ), (), ())
         except Exception:  # noqa: BLE001 - one process must not stop collection
             error = _process_error(
                 DiscoveryErrorCode.COLLECTOR_FAILURE,
@@ -287,7 +297,7 @@ class ProcessCollector:
                 access=CapabilityStatus.ERROR,
                 warning=ProcessWarningCode.PARTIAL_VISIBILITY,
                 error=error,
-            ), ())
+            ), (), ())
 
         errors: list[DiscoveryError] = []
         parent_pid = self._optional_value(handle.parent_pid, errors)
@@ -326,7 +336,7 @@ class ProcessCollector:
             collector=self._collector,
         )
         evidence_id = f"{self._collector}:{instance_id}"
-        workspace_candidates = self._collect_workspace_candidate(
+        workspace_candidates, exact_cwd = self._collect_workspace_candidate(
             handle,
             evidence_id,
             errors,
@@ -348,6 +358,7 @@ class ProcessCollector:
             identity_kind = ExecutableIdentityKind.UNKNOWN
             safe_fixed = {}
             workspace_candidates = ()
+            exact_cwd = None
         zombie_during_read = any(
             error.details.get("reason_code") == "PROCESS_ZOMBIE"
             for error in errors
@@ -400,14 +411,29 @@ class ProcessCollector:
             collector=self._collector,
         )
         record = _process_evidence(fact, observed_at, errors[0] if errors else None)
-        return fact, record, tuple(errors), workspace_candidates
+        workspace_authorities = (
+            (
+                ProcessWorkspaceAuthority(
+                    process_instance_id=instance_id,
+                    candidate_id=workspace_candidates[0].candidate_id,
+                    execution_domain_id=self._execution_domain_id,
+                    cwd=exact_cwd,
+                    evidence_refs=(evidence_id,),
+                ),
+            )
+            if exact_cwd is not None
+            and workspace_candidates
+            and workspace_candidates[0].access_status is CapabilityStatus.AVAILABLE
+            else ()
+        )
+        return fact, record, tuple(errors), workspace_candidates, workspace_authorities
 
     def _collect_workspace_candidate(
         self,
         handle: ProcessHandle,
         evidence_id: str,
         errors: list[DiscoveryError],
-    ) -> tuple[WorkspaceCandidate, ...]:
+    ) -> tuple[tuple[WorkspaceCandidate, ...], Path | None]:
         from .workspaces import (
             unavailable_workspace_candidate,
             workspace_candidate_from_path,
@@ -442,30 +468,35 @@ class ProcessCollector:
         else:
             if cwd is None:
                 return (
-                    unavailable_workspace_candidate(
-                        source=WorkspaceSource.PROCESS_CWD,
-                        execution_domain_id=self._execution_domain_id,
-                        evidence_refs=(evidence_id,),
-                        access_status=CapabilityStatus.UNKNOWN,
+                    (
+                        unavailable_workspace_candidate(
+                            source=WorkspaceSource.PROCESS_CWD,
+                            execution_domain_id=self._execution_domain_id,
+                            evidence_refs=(evidence_id,),
+                            access_status=CapabilityStatus.UNKNOWN,
+                        ),
                     ),
+                    None,
                 )
-            return (
-                workspace_candidate_from_path(
-                    path=str(cwd),
-                    source=WorkspaceSource.PROCESS_CWD,
-                    execution_domain_id=self._execution_domain_id,
-                    evidence_refs=(evidence_id,),
-                    home_path=self._home_path,
-                ),
-            )
-        errors.append(_process_error(code, self._collector, reason))
-        return (
-            unavailable_workspace_candidate(
+            candidate = workspace_candidate_from_path(
+                path=str(cwd),
                 source=WorkspaceSource.PROCESS_CWD,
                 execution_domain_id=self._execution_domain_id,
                 evidence_refs=(evidence_id,),
-                access_status=status,
+                home_path=self._home_path,
+            )
+            return (candidate,), Path(str(cwd))
+        errors.append(_process_error(code, self._collector, reason))
+        return (
+            (
+                unavailable_workspace_candidate(
+                    source=WorkspaceSource.PROCESS_CWD,
+                    execution_domain_id=self._execution_domain_id,
+                    evidence_refs=(evidence_id,),
+                    access_status=status,
+                ),
             ),
+            None,
         )
 
     def _optional_value(self, reader: Callable[[], Any], errors: list[DiscoveryError]) -> Any:

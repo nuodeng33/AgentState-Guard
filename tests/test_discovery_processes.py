@@ -3,6 +3,7 @@
 import socket
 import urllib.request
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from agentguard.discovery import CapabilityStatus, DiscoveryErrorCode
 from agentguard.discovery.agents import (
@@ -143,6 +144,16 @@ def test_forbidden_psutil_like_methods_are_never_called():
         "api_key",
     ):
         assert forbidden not in encoded
+
+
+def test_exact_workspace_authority_is_internal_only():
+    workspace = Path("/home/private-user/private-workspace")
+    result = _collector([FakeHandle(cwd=str(workspace))]).collect()
+
+    assert result.workspace_authorities[0].cwd == workspace
+    encoded = result.to_dict()
+    assert "workspace_authorities" not in encoded
+    assert str(workspace) not in str(encoded)
 
 
 def test_fixed_boolean_facts_require_explicit_whitelist():

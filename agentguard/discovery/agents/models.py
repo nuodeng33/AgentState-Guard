@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from enum import Enum
+from pathlib import Path
 from typing import Any, ClassVar
 
 from ..capabilities import (
@@ -454,6 +455,32 @@ class WorkspaceCandidate:
         }
 
 
+@dataclass(frozen=True)
+class ProcessWorkspaceAuthority:
+    """Exact process CWD retained only inside the local authority pipeline."""
+
+    process_instance_id: str
+    candidate_id: str
+    execution_domain_id: str
+    cwd: Path = field(repr=False)
+    evidence_refs: tuple[str, ...] = ()
+    agent_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.process_instance_id or not self.candidate_id:
+            raise ValueError("workspace authority requires opaque process and candidate IDs")
+        if not self.execution_domain_id:
+            raise ValueError("workspace authority requires an execution domain")
+        if not self.evidence_refs:
+            raise ValueError("workspace authority requires evidence refs")
+        object.__setattr__(self, "cwd", Path(self.cwd))
+        object.__setattr__(
+            self,
+            "evidence_refs",
+            tuple(str(item) for item in self.evidence_refs),
+        )
+
+
 __all__ = [
     "AgentCandidateType",
     "AgentClassification",
@@ -463,6 +490,7 @@ __all__ = [
     "ProcessRelationship",
     "ProcessState",
     "ProcessWarningCode",
+    "ProcessWorkspaceAuthority",
     "WorkspaceCandidate",
     "WorkspacePathKind",
     "WorkspaceSource",
