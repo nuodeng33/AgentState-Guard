@@ -89,6 +89,40 @@ describe('SupervisionPage policy display', () => {
     expect(screen.getByText('VERIFIED_R2')).toBeTruthy();
   });
 
+  it('renders missing approval/checkpoint and recovery booleans as unknown, never No', () => {
+    const unknown = {
+      ...session({ supervision_session_id: 'ssn-missing-facts' }),
+      pending_approval: undefined,
+      requires_manual_approval: undefined,
+      manual_approval: undefined,
+      requires_checkpoint: undefined,
+      recovery_facts: {
+        reason_code: 'RECOVERY_FACTS_PARTIAL',
+        r1_verified: null,
+        r2_verified: undefined,
+        r3_verified: null,
+      },
+    } as unknown as SupervisionItem;
+    const view: SupervisionView = { ...VIEW, items: [unknown] };
+
+    render(<SupervisionViewBody data={view} />);
+
+    for (const label of [
+      'Pending approval',
+      'Requires manual approval',
+      'Manual approval granted',
+      'Requires checkpoint',
+      'R1 verified',
+      'R2 verified',
+      'R3 verified',
+    ]) {
+      const row = screen.getByText(label).closest('.kv-row');
+      expect(row?.textContent).toContain('—');
+      expect(row?.textContent).not.toContain('No');
+    }
+  });
+
+
   it('states the action boundary honestly', () => {
     render(<SupervisionViewBody data={VIEW} />);
     // Sessions without a server-issued action_ref expose no executable action.
@@ -154,6 +188,13 @@ describe('SupervisionPage evidence wiring', () => {
             result: 'CREATED',
             affected_objects: [],
             checkpoint_id: 'checkpoint-3',
+            execution_domain_id: null,
+            attribution: null,
+            change_kind: null,
+            coverage_before: null,
+            coverage_after: null,
+            recovery_disposition: null,
+            workspace_id: null,
             change_id: null,
             supervision_session_id: 'ssn-evidence',
             verification_summary: null,

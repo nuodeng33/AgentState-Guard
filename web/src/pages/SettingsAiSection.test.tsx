@@ -59,6 +59,20 @@ describe('Settings AI provider section', () => {
     expect(document.body.textContent).not.toContain('SECRET-KEY-123');
   });
 
+  it('keeps omitted model count and latency unknown instead of fabricating zero', async () => {
+    const { client } = buildClient({
+      '/api/ai/test': { body: { ok: true } },
+    });
+    render(<SettingsPage client={client} />);
+
+    fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: 'http://host:1/v1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection' }));
+
+    expect((await screen.findByRole('status')).textContent).toContain('Connected (— models, —ms)');
+    expect(screen.getByRole('status').textContent).not.toContain('0 models');
+  });
+
+
   it('models fetch posts {base_url, api_key} only', async () => {
     const { client, posts } = buildClient({
       '/api/ai/models': {

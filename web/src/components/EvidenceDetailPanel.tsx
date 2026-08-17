@@ -91,6 +91,7 @@ export function EvidenceDetailPanel({ detail, phase, error, onClose }: EvidenceD
                 <KeyValue k={t('kv.observedAt')} v={orDash(detail.observed_at)} />
                 <KeyValue k={t('evidence.field.recordedAt')} v={orDash(detail.recorded_at)} />
                 <KeyValue k={t('evidence.field.source')} v={orDash(detail.source)} />
+                <KeyValue k="execution_domain_id" v={orDash(detail.execution_domain_id)} />
                 <KeyValue k={t('evidence.field.subject')} v={orDash(detail.subject ?? null)} />
                 <KeyValue k={t('evidence.field.result')} v={orDash(detail.result)} />
                 <KeyValue
@@ -125,6 +126,27 @@ export function EvidenceDetailPanel({ detail, phase, error, onClose }: EvidenceD
                         k={t('evidence.field.verification')}
                         v={detail.sanitized_detail.verification}
                       />
+                    )}
+                    {detail.sanitized_detail.attribution !== undefined && (
+                      <KeyValue k="attribution" v={detail.sanitized_detail.attribution} />
+                    )}
+                    {detail.sanitized_detail.change_kind !== undefined && (
+                      <KeyValue k="change_kind" v={detail.sanitized_detail.change_kind} />
+                    )}
+                    {detail.sanitized_detail.coverage_before !== undefined && (
+                      <KeyValue k="coverage_before" v={detail.sanitized_detail.coverage_before} />
+                    )}
+                    {detail.sanitized_detail.coverage_after !== undefined && (
+                      <KeyValue k="coverage_after" v={detail.sanitized_detail.coverage_after} />
+                    )}
+                    {detail.sanitized_detail.recovery_disposition !== undefined && (
+                      <KeyValue
+                        k="recovery_disposition"
+                        v={detail.sanitized_detail.recovery_disposition}
+                      />
+                    )}
+                    {detail.sanitized_detail.workspace_id !== undefined && (
+                      <KeyValue k="workspace_id" v={detail.sanitized_detail.workspace_id} />
                     )}
                   </KeyValueGrid>
                 </>

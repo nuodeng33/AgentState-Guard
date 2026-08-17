@@ -39,6 +39,13 @@ const ENABLED_LINK = {
     },
   ],
   active_pair_sessions: 0,
+  firewall: {
+    operation: 'APPLY',
+    status: 'APPLIED',
+    reason_code: 'DEVICE_FIREWALL_APPLIED',
+    scope_digest: '12'.repeat(32),
+    recorded_at: '2026-08-16T09:59:00Z',
+  },
 };
 
 const DISABLED_LINK = {
@@ -52,6 +59,22 @@ const DISABLED_LINK = {
   active_pair_sessions: 0,
 };
 
+
+const DEGRADED_LINK = {
+  ...DISABLED_LINK,
+  enabled: undefined,
+  status: 'DEGRADED',
+  reason_code: 'DEVICE_FIREWALL_REMOVE_FAILED',
+  active_pair_sessions: undefined,
+  bound_devices: undefined,
+  firewall: {
+    operation: 'REMOVE',
+    status: 'FAILED',
+    reason_code: 'DEVICE_FIREWALL_REMOVE_FAILED',
+    scope_digest: '34'.repeat(32),
+    recorded_at: '2026-08-16T11:00:00Z',
+  },
+};
 interface Recorded {
   path: string;
   method: string;
@@ -91,6 +114,11 @@ describe('DeviceLinkSection', () => {
     expect(screen.getByText(/2026-08-16T10:00:00Z/)).toBeTruthy();
     expect(screen.getByText(/keeps the durable binding/)).toBeTruthy();
     expect(screen.queryByText(/VPN|cloud|relay/)).toBeNull();
+    expect(screen.getByText('APPLY')).toBeTruthy();
+    expect(screen.getByText('APPLIED')).toBeTruthy();
+    expect(screen.getByText('DEVICE_FIREWALL_APPLIED')).toBeTruthy();
+    expect(screen.getByText('12'.repeat(32))).toBeTruthy();
+    expect(screen.getByText('2026-08-16T09:59:00Z')).toBeTruthy();
   });
 
   it('ENABLE → POST {} to /enable then re-reads', async () => {
@@ -102,6 +130,28 @@ describe('DeviceLinkSection', () => {
     await waitFor(() => expect(posts.length).toBe(1));
     expect(posts[0].path).toBe('/api/v1/device-link/enable');
     expect(posts[0].body).toEqual({});
+  });
+
+  it('preserves DEGRADED and renders missing active sessions as unknown', async () => {
+    const posts: Recorded[] = [];
+    render(<DeviceLinkSection client={buildLinkFetch(DEGRADED_LINK, posts)} />);
+
+    const status = await screen.findByText('DEGRADED');
+    expect(status.className).toContain('badge-warn');
+    expect(screen.queryByText('DISABLED')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Disable' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Refresh network' })).toBeNull();
+    expect(screen.getAllByText('DEVICE_FIREWALL_REMOVE_FAILED').length).toBeGreaterThan(0);
+    expect(screen.getByText('REMOVE')).toBeTruthy();
+    expect(screen.getByText('FAILED')).toBeTruthy();
+    expect(screen.getByText('34'.repeat(32))).toBeTruthy();
+    expect(screen.queryByText('No mobile device is currently bound.')).toBeNull();
+    const boundDevices = screen.getByText('Bound devices').closest('.card')?.querySelector('.bound-device-facts');
+    expect(boundDevices?.textContent).toContain('—');
+    const sessions = screen.getByText('active pair sessions').closest('.kv-row');
+    expect(sessions?.textContent).toContain('—');
+    expect(sessions?.textContent).not.toContain('0');
   });
 
   it('DISABLED shows only Enable; ENABLED exposes Disable + Refresh network', async () => {

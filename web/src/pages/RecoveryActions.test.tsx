@@ -36,6 +36,9 @@ const BASE_VIEW = {
   actual_restore_status: 'NOT_RUN',
   recovery_verified: false,
   verified_at: null,
+  scope_kind: 'PRODUCT_CONFIG',
+  workspace_id: null,
+  coverage: null,
   capabilities: { create_checkpoint: true, test_restore: true, restore: true },
   limitations: ['PRODUCT_CONFIG_TARGET_ONLY'],
 };
@@ -59,6 +62,13 @@ const GOOD_ITEM = {
   trusted_baseline_status: 'NONE',
   trusted_baseline_id: null,
   evidence_refs: [],
+  actual_restore_status: 'NOT_RUN',
+  actual_restore_verified_at: null,
+  actual_restore_evidence_refs: [],
+  scope_kind: 'PRODUCT_CONFIG',
+  workspace_id: null,
+  coverage: null,
+  created_at: '2026-08-16T00:00:00Z',
 };
 
 function withItem(item: Record<string, unknown>): typeof BASE_VIEW {
@@ -79,6 +89,15 @@ const CREATED = {
   manifest_digest: 'ab12',
   verified_targets: 1,
   evidence_refs: ['evt-9'],
+  scope_kind: 'HOST_WORKSPACE',
+  workspace_id: 'workspace-7',
+  coverage: { restorable: 3, audit_only: 2, excluded: 1, unreachable: 4 },
+  coverage_reason_counts: { WORKSPACE_AUDIT_ONLY: 2, WORKSPACE_PATH_EXCLUDED: 1 },
+  scan_complete: false,
+  scan_reason_code: 'WORKSPACE_SCAN_PARTIAL',
+  post_restore_status: null,
+  quarantined_targets: null,
+  residue_targets: null,
 };
 
 function buildClient(viewPayload: () => object, action: { body: object; status?: number }) {
@@ -117,6 +136,11 @@ describe('Recovery actions', () => {
     // created ≠ recoverable
     expect((await screen.findByText(/43/)).textContent).toContain('≠ recoverable');
     expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/v1/recovery').length).toBeGreaterThanOrEqual(2);
+    expect(await screen.findByText('HOST_WORKSPACE')).toBeTruthy();
+    expect(screen.getByText('workspace-7')).toBeTruthy();
+    expect(screen.getByText('coverage.restorable').closest('.kv-row')?.textContent).toContain('3');
+    expect(screen.getByText('coverage.unreachable').closest('.kv-row')?.textContent).toContain('4');
+    expect(screen.getByText('WORKSPACE_SCAN_PARTIAL')).toBeTruthy();
   });
 
   it('Test Restore posts exactly {} to /{id}/test and shows the receipt', async () => {
@@ -137,7 +161,13 @@ describe('Recovery actions', () => {
 
   it('Restore sends {confirm:true} only after typing the confirmation word', async () => {
     const { client, calls } = buildClient(() => withItem(GOOD_ITEM), {
-      body: { ...CREATED, reason_code: 'RECOVERY_RESTORED_AND_VERIFIED' },
+      body: {
+        ...CREATED,
+        reason_code: 'RECOVERY_RESTORED_AND_VERIFIED',
+        post_restore_status: 'POST_RESTORE_VERIFIED',
+        quarantined_targets: 2,
+        residue_targets: 0,
+      },
     });
     render(<RecoveryPage client={client} />);
 
@@ -158,6 +188,9 @@ describe('Recovery actions', () => {
     await waitFor(() => expect(posts().length).toBe(1));
     expect(posts()[0].path).toBe('/api/v1/recovery/42/restore');
     expect(posts()[0].body).toEqual({ confirm: true });
+    await waitFor(() => expect(screen.getByText('POST_RESTORE_VERIFIED')).toBeTruthy());
+    expect(screen.getByText('quarantined_targets').closest('.kv-row')?.textContent).toContain('2');
+    expect(screen.getByText('residue_targets').closest('.kv-row')?.textContent).toContain('0');
   });
 
   it('failed action surfaces only the stable backend reason_code', async () => {

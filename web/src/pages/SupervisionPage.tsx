@@ -142,7 +142,8 @@ export function SupervisionViewBody({
 }) {
   const t = useT();
   const label = t('nav.supervision');
-  const yesNo = (value: boolean) => (value ? t('common.yes') : t('common.no'));
+  const yesNo = (value: boolean | null | undefined) =>
+    value == null ? '—' : value ? t('common.yes') : t('common.no');
   const showEvidencePanel =
     selectedEvidence !== null && (evidencePanel.phase !== 'idle' || evidencePanel.detail !== null);
   return (
@@ -228,7 +229,7 @@ function SupervisionCard({
   client?: ApiClient;
   onChanged?: () => void;
   busy?: boolean;
-  yesNo: (value: boolean) => string;
+  yesNo: (value: boolean | null | undefined) => string;
   selectedEvidence?: string | null;
   onOpenEvidence?: (eventId: string) => void;
 }) {
@@ -246,7 +247,7 @@ function SupervisionCard({
         </span>
       </div>
       <KeyValueGrid>
-        <KeyValue k={t('supervision.field.pendingApproval')} v={yesNo(item.pending_approval === true)} />
+        <KeyValue k={t('supervision.field.pendingApproval')} v={yesNo(item.pending_approval)} />
         <KeyValue k={t('kv.requiresManualApproval')} v={yesNo(item.requires_manual_approval)} />
         <KeyValue k={t('kv.manualApprovalGranted')} v={yesNo(item.manual_approval)} />
         <KeyValue k={t('kv.requiresCheckpoint')} v={yesNo(item.requires_checkpoint)} />
@@ -368,7 +369,7 @@ function RecoveryFacts({
   yesNo,
 }: {
   facts: NonNullable<SupervisionItem['recovery_facts']>;
-  yesNo: (value: boolean) => string;
+  yesNo: (value: boolean | null | undefined) => string;
 }) {
   const t = useT();
   return (
@@ -385,9 +386,9 @@ function RecoveryFacts({
             )
           }
         />
-        <KeyValue k={t('kv.r1Verified')} v={yesNo(facts.r1_verified === true)} />
-        <KeyValue k={t('kv.r2Verified')} v={yesNo(facts.r2_verified === true)} />
-        <KeyValue k={t('kv.r3Verified')} v={yesNo(facts.r3_verified === true)} />
+        <KeyValue k={t('kv.r1Verified')} v={yesNo(facts.r1_verified)} />
+        <KeyValue k={t('kv.r2Verified')} v={yesNo(facts.r2_verified)} />
+        <KeyValue k={t('kv.r3Verified')} v={yesNo(facts.r3_verified)} />
         <KeyValue k={t('kv.testRestore')} v={orDash(facts.test_restore_status)} />
         <KeyValue
           k={t('kv.trustedBaseline')}

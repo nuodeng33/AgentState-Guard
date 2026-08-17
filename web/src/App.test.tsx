@@ -33,6 +33,21 @@ function emptyView(view: string): Record<string, unknown> {
       recovery_level: 'R0',
       r1_verified: false,
       r2_verified: false,
+      actual_restore_status: 'NOT_RUN',
+      recovery_verified: false,
+      verified_at: null,
+      scope_kind: 'UNKNOWN',
+      workspace_id: null,
+      coverage: null,
+      capabilities: {
+        create_checkpoint: true,
+        test_restore: true,
+        restore: true,
+      },
+      limitations: [
+        'PRODUCT_CONFIG_TARGET_ONLY',
+        'EXPLICIT_RESTORE_CONFIRMATION_REQUIRED',
+      ],
       r3_verified: false,
       test_restore_status: 'NOT_RUN_P6',
       trusted_baseline_status: 'NONE',
@@ -70,6 +85,13 @@ function smokeFetch(input: RequestInfo | URL): Promise<Response> {
         tls_spki_fingerprint: null,
         bound_devices: [],
         active_pair_sessions: 0,
+        firewall: {
+          operation: 'NONE',
+          status: 'NOT_RUN',
+          reason_code: 'DEVICE_FIREWALL_NOT_RUN',
+          scope_digest: null,
+          recorded_at: null,
+        },
       }),
     );
   }
@@ -106,6 +128,8 @@ describe('App smoke (product IA)', () => {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
 
+    expect(screen.queryByText('Latest advisory')).toBeNull();
+    expect(screen.queryByText('No advisory yet.')).toBeNull();
     // Runtime/Agents are no longer primary nav items; Environment folds both.
     expect(screen.queryByRole('button', { name: 'Agents' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Environment' }));
@@ -143,5 +167,44 @@ describe('App smoke (product IA)', () => {
     expect(fetchCalls.filter((p) => p === '/api/v1/discovery/refresh')).toHaveLength(0);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it('Home keeps a degraded Device Link degraded and has no source-less AI placeholder', async () => {
+    vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
+      if (String(input) === '/api/v1/devices') {
+        return Promise.resolve(
+          json({
+            schema_version: 'device-link-lifecycle-1',
+            enabled: false,
+            status: 'DEGRADED',
+            endpoint: null,
+            address: null,
+            subnet: null,
+            reason_code: 'DEVICE_FIREWALL_REMOVE_FAILED',
+            desktop_uuid: 'desktop-1',
+            desktop_signing_fingerprint: null,
+            tls_spki_fingerprint: null,
+            bound_devices: [],
+            firewall: {
+              operation: 'REMOVE',
+              status: 'FAILED',
+              reason_code: 'DEVICE_FIREWALL_REMOVE_FAILED',
+              scope_digest: null,
+              recorded_at: null,
+            },
+          }),
+        );
+      }
+      return smokeFetch(input);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('DEGRADED')).toBeTruthy();
+    expect(screen.queryByText('DISABLED')).toBeNull();
+    expect(screen.getAllByText('DEVICE_FIREWALL_REMOVE_FAILED').length).toBeGreaterThan(0);
+    expect(screen.getByText('FAILED')).toBeTruthy();
+    expect(screen.queryByText('Latest advisory')).toBeNull();
+    expect(screen.queryByText('No advisory yet.')).toBeNull();
   });
 });

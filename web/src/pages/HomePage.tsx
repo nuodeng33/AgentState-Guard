@@ -13,7 +13,6 @@ import { getDevices } from '../api/product';
 import type { DeviceLinkStatus, R4ViewDto, ViewName } from '../api/types';
 import { useAsync } from '../api/useAsync';
 import { useR4View } from '../api/useR4View';
-import { AiAdvisoryPanel } from '../components/AiAdvisoryPanel';
 import { SectionHeader } from '../components/SectionHeader';
 import { StateBadge, viewStatusTone, type BadgeTone } from '../components/StateBadge';
 import { StatusCard } from '../components/StatusCard';
@@ -41,8 +40,6 @@ export default function HomePage({ client = apiClient }: { client?: ApiClient })
         ))}
         <DeviceLinkSummaryCard devices={devices} t={t} />
       </div>
-      <SectionHeader title={t('home.section.advisory')} />
-      <AiAdvisoryPanel advisory={null} phase="idle" />
     </div>
   );
 }
@@ -86,11 +83,12 @@ function ViewSummaryCard({
 }
 
 function deviceLinkTone(data: DeviceLinkStatus): BadgeTone {
-  if (!data.enabled) return 'neutral';
   switch (data.status) {
     case 'ENABLED':
       return 'ok';
-    default:
+    case 'DISABLED':
+      return 'neutral';
+    case 'DEGRADED':
       return 'warn';
   }
 }
@@ -118,7 +116,7 @@ function DeviceLinkSummaryCard({
     <StatusCard
       label={t('home.deviceLink')}
       badge={{
-        label: data.enabled ? t('devices.enabled') : t('devices.disabled'),
+        label: data.status,
         tone: deviceLinkTone(data),
       }}
     >
@@ -126,7 +124,16 @@ function DeviceLinkSummaryCard({
         <code>{data.reason_code}</code>
       </p>
       <p className="status-card-meta muted">
-        {t('devices.boundTitle')}: {(data.bound_devices ?? []).length}
+        {t('devices.boundTitle')}: {data.bound_devices === undefined ? '—' : data.bound_devices.length}
+      </p>
+      <p className="status-card-meta muted">
+        {t('devices.activeSessions')}: {data.active_pair_sessions === undefined ? '—' : data.active_pair_sessions}
+      </p>
+      <p className="status-card-meta muted">
+        firewall.status: <code>{data.firewall?.status ?? '—'}</code>
+      </p>
+      <p className="status-card-meta muted">
+        firewall.reason_code: <code>{data.firewall?.reason_code ?? '—'}</code>
       </p>
       {data.endpoint && (
         <p className="status-card-meta muted">

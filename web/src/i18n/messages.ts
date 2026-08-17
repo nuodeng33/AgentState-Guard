@@ -73,6 +73,7 @@ export type MessageKey =
   | 'recovery.unknown.title'
   | 'recovery.unknown.body'
   | 'recovery.r0.title'
+  | 'recovery.section.scope'
   | 'recovery.r0.body'
   | 'recovery.section.level'
   | 'recovery.section.baseline'
@@ -385,6 +386,7 @@ const enUS: Messages = {
   'recovery.r0.title': 'No verified recovery (R0) — fail closed',
   'recovery.r0.body':
     'No checkpoint currently meets a verified recovery level. Treat restore capability as unavailable.',
+  'recovery.section.scope': 'Recovery scope and verification',
   'recovery.section.level': 'Recovery level',
   'recovery.section.baseline': 'Trusted Baseline',
   'recovery.section.checkpoints': 'Checkpoints',
@@ -694,6 +696,7 @@ const zhCN: Messages = {
   'recovery.unknown.body': '后端报告该视图为 UNKNOWN（{reasonCode}），无法确认可恢复性。',
   'recovery.r0.title': '无已验证恢复（R0）—— 按不可恢复处理',
   'recovery.r0.body': '当前没有检查点达到已验证恢复级别，请将恢复能力视为不可用。',
+  'recovery.section.scope': '恢复范围与验证',
   'recovery.section.level': '恢复级别',
   'recovery.section.baseline': '可信基线',
   'recovery.section.checkpoints': '检查点',

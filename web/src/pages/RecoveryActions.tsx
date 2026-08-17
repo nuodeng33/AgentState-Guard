@@ -19,6 +19,8 @@ import type { ApiClient } from '../api/client';
 import { failureText } from '../api/errorText';
 import { createRecoveryCheckpoint, restoreRecovery, testRecovery } from '../api/product';
 import type { RecoveryActionResult } from '../api/types';
+import { EvidenceRefs } from '../components/EvidenceRefs';
+import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { useT, type Translate } from '../i18n/I18nProvider';
 
 export type ActionPhase =
@@ -154,10 +156,13 @@ export function RecoveryItemActions({
 function ActionOutcome({ phase, t }: { phase: ActionPhase; t: Translate }) {
   if (phase.kind === 'done') {
     return (
-      <span className="muted recovery-action-receipt" role="status">
-        {t('recovery.action.receipt')} <code>{phase.result.status}</code>{' '}
-        <code>{phase.result.reason_code}</code>
-      </span>
+      <div className="muted recovery-action-receipt" role="status">
+        <span>
+          {t('recovery.action.receipt')} <code>{phase.result.status}</code>{' '}
+          <code>{phase.result.reason_code}</code>
+        </span>
+        <ActionReceiptFacts result={phase.result} t={t} />
+      </div>
     );
   }
   if (phase.kind === 'fail') {
@@ -211,5 +216,74 @@ function TypedConfirmation({
         {cancelLabel}
       </button>
     </form>
+  );
+}
+
+function ActionReceiptFacts({
+  result,
+  t,
+}: {
+  result: RecoveryActionResult;
+  t: Translate;
+}) {
+  const numberFact = (value: number | null | undefined) =>
+    value == null ? <span className="muted">—</span> : String(value);
+  return (
+    <>
+      <KeyValueGrid>
+        {result.scope_kind !== undefined && (
+          <KeyValue k="scope_kind" v={orDash(result.scope_kind)} />
+        )}
+        {result.workspace_id !== undefined && (
+          <KeyValue k="workspace_id" v={orDash(result.workspace_id)} />
+        )}
+        {result.manifest_digest !== undefined && (
+          <KeyValue k="manifest_digest" v={orDash(result.manifest_digest)} />
+        )}
+        {result.verified_targets !== undefined && (
+          <KeyValue k="verified_targets" v={numberFact(result.verified_targets)} />
+        )}
+        {result.coverage !== undefined &&
+          (result.coverage === null ? (
+            <KeyValue k="coverage" v={<span className="muted">—</span>} />
+          ) : (
+            <>
+              <KeyValue k="coverage.restorable" v={numberFact(result.coverage.restorable)} />
+              <KeyValue k="coverage.audit_only" v={numberFact(result.coverage.audit_only)} />
+              <KeyValue k="coverage.excluded" v={numberFact(result.coverage.excluded)} />
+              <KeyValue k="coverage.unreachable" v={numberFact(result.coverage.unreachable)} />
+            </>
+          ))}
+        {result.coverage_reason_counts &&
+          Object.entries(result.coverage_reason_counts).map(([reason, count]) => (
+            <KeyValue key={reason} k={reason} v={String(count)} />
+          ))}
+        {result.scan_complete !== undefined && (
+          <KeyValue
+            k="scan_complete"
+            v={
+              result.scan_complete === null
+                ? <span className="muted">—</span>
+                : result.scan_complete
+                  ? t('common.yes')
+                  : t('common.no')
+            }
+          />
+        )}
+        {result.scan_reason_code !== undefined && (
+          <KeyValue k="scan_reason_code" v={orDash(result.scan_reason_code)} />
+        )}
+        {result.post_restore_status !== undefined && (
+          <KeyValue k="post_restore_status" v={orDash(result.post_restore_status)} />
+        )}
+        {result.quarantined_targets !== undefined && (
+          <KeyValue k="quarantined_targets" v={numberFact(result.quarantined_targets)} />
+        )}
+        {result.residue_targets !== undefined && (
+          <KeyValue k="residue_targets" v={numberFact(result.residue_targets)} />
+        )}
+      </KeyValueGrid>
+      <EvidenceRefs refs={result.evidence_refs} />
+    </>
   );
 }

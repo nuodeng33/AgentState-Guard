@@ -192,6 +192,13 @@ function ChangeCard({
         <KeyValue k={t('changes.col.time')} v={item.timestamp} />
         <KeyValue k={t('changes.col.actor')} v={item.actor} />
         <KeyValue k={t('changes.col.subject')} v={orDash(item.subject)} />
+        <KeyValue k="execution_domain_id" v={orDash(item.execution_domain_id)} />
+        <KeyValue k="attribution" v={orDash(item.attribution)} />
+        <KeyValue k="change_kind" v={orDash(item.change_kind)} />
+        <KeyValue k="coverage_before" v={orDash(item.coverage_before)} />
+        <KeyValue k="coverage_after" v={orDash(item.coverage_after)} />
+        <KeyValue k="recovery_disposition" v={orDash(item.recovery_disposition)} />
+        <KeyValue k="workspace_id" v={orDash(item.workspace_id)} />
         {item.policy_summary != null && (
           <KeyValue k={t('changes.field.policy')} v={item.policy_summary} />
         )}

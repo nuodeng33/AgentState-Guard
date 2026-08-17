@@ -33,6 +33,13 @@ const ITEM_APPROVED = {
   approval_summary: 'APPROVED',
   verification_summary: null,
   reason_code: 'SUPERVISION_APPROVED',
+  execution_domain_id: 'windows-current',
+  attribution: 'UNATTRIBUTED',
+  change_kind: 'MODIFIED',
+  coverage_before: 'restorable',
+  coverage_after: 'audit_only',
+  recovery_disposition: 'AUDIT_ONLY',
+  workspace_id: 'workspace-safe-id',
   evidence_refs: ['evt-101'],
 };
 
@@ -87,8 +94,17 @@ const EVIDENCE_AVAILABLE: EvidenceDetail = {
   verification_summary: null,
   checkpoint_id: 'checkpoint-9',
   change_id: null,
+  execution_domain_id: 'windows-current',
   chain_ref: 'c'.repeat(64),
-  sanitized_detail: { affected_objects: ['d'.repeat(64)] },
+  sanitized_detail: {
+    affected_objects: ['d'.repeat(64)],
+    attribution: 'UNATTRIBUTED',
+    change_kind: 'MODIFIED',
+    coverage_before: 'restorable',
+    coverage_after: 'audit_only',
+    recovery_disposition: 'AUDIT_ONLY',
+    workspace_id: 'workspace-safe-id',
+  },
   related_evidence_refs: ['evt-099'],
 };
 
@@ -137,6 +153,13 @@ describe('ChangesPage real wiring', () => {
     // affected_objects are bounded digests, rendered verbatim
     expect(screen.getAllByText('d'.repeat(64)).length).toBeGreaterThan(0);
     // view-level status + reason stay machine tokens
+    expect(screen.getAllByText('windows-current').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('UNATTRIBUTED').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('MODIFIED').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('restorable').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('audit_only').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('AUDIT_ONLY').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('workspace-safe-id').length).toBeGreaterThan(0);
     expect(screen.getByText('AVAILABLE')).toBeTruthy();
     expect(screen.getByText('R4_CHANGES_AVAILABLE')).toBeTruthy();
   });

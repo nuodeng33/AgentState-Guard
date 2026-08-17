@@ -64,12 +64,12 @@ function DeviceLinkBody({
   reload: () => void;
 }) {
   const t = useT();
-  const bound = data.bound_devices ?? [];
+  const bound = data.bound_devices;
   return (
     <section className="card">
       <div className="card-head">
         <span className="card-title">{t('devices.section.binding')}</span>
-        <StateBadge label={data.enabled ? t('devices.enabled') : t('devices.disabled')} tone={linkTone(data.status)} />
+        <StateBadge label={data.status} tone={linkTone(data.status)} />
       </div>
       <KeyValueGrid>
         <KeyValue k="reason_code" v={<code>{data.reason_code}</code>} />
@@ -81,8 +81,13 @@ function DeviceLinkBody({
         <KeyValue k={t('devices.tlsFp')} v={orDash(data.tls_spki_fingerprint)} />
         <KeyValue
           k={t('devices.activeSessions')}
-          v={<code>{String(data.active_pair_sessions ?? 0)}</code>}
+          v={data.active_pair_sessions === undefined ? <span className="muted">—</span> : <code>{String(data.active_pair_sessions)}</code>}
         />
+        <KeyValue k="firewall.operation" v={orDash(data.firewall?.operation)} />
+        <KeyValue k="firewall.status" v={orDash(data.firewall?.status)} />
+        <KeyValue k="firewall.reason_code" v={orDash(data.firewall?.reason_code)} />
+        <KeyValue k="firewall.scope_digest" v={orDash(data.firewall?.scope_digest)} />
+        <KeyValue k="firewall.recorded_at" v={orDash(data.firewall?.recorded_at)} />
       </KeyValueGrid>
       <LifecycleActions
         enabled={data.enabled}
@@ -91,20 +96,24 @@ function DeviceLinkBody({
         t={t}
       />
       <h3 className="card-sub">{t('devices.boundTitle')}</h3>
-      {bound.length === 0 ? (
-        <p className="muted">{t('devices.noBound')}</p>
-      ) : (
-        <ul className="evidence-list">
-          {bound.map((device) => (
-            <BoundDeviceRow
-              key={device.uuid}
-              device={device}
-              client={client}
-              onChanged={reload}
-            />
-          ))}
-        </ul>
-      )}
+      <div className="bound-device-facts">
+        {bound === undefined ? (
+          <p className="muted">—</p>
+        ) : bound.length === 0 ? (
+          <p className="muted">{t('devices.noBound')}</p>
+        ) : (
+          <ul className="evidence-list">
+            {bound.map((device) => (
+              <BoundDeviceRow
+                key={device.uuid}
+                device={device}
+                client={client}
+                onChanged={reload}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
       <p className="muted">{t('devices.disableNote')}</p>
     </section>
   );
@@ -116,7 +125,7 @@ function LifecycleActions({
   onChanged,
   t,
 }: {
-  enabled: boolean;
+  enabled: boolean | null | undefined;
   client: ApiClient;
   onChanged: () => void;
   t: Translate;
@@ -144,7 +153,7 @@ function LifecycleActions({
 
   return (
     <div className="action-row">
-      {!enabled && (
+      {enabled === false && (
         <button
           type="button"
           className="btn btn-primary"
@@ -154,7 +163,7 @@ function LifecycleActions({
           {busy === 'enable' ? t('devices.enableRunning') : t('devices.enable')}
         </button>
       )}
-      {enabled && (
+      {enabled === true && (
         <button
           type="button"
           className="btn"
@@ -164,7 +173,7 @@ function LifecycleActions({
           {busy === 'disable' ? t('devices.disableRunning') : t('devices.disable')}
         </button>
       )}
-      {enabled && (
+      {enabled === true && (
         <button
           type="button"
           className="btn"

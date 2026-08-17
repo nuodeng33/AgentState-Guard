@@ -99,11 +99,11 @@ export interface SupervisionItem {
   /** Same as status; backend emits both (r4_projection.supervision). */
   observable_status?: string;
   policy_decision: string | null;
-  manual_approval: boolean;
-  requires_manual_approval: boolean;
-  requires_checkpoint: boolean;
+  manual_approval?: boolean | null;
+  requires_manual_approval?: boolean | null;
+  requires_checkpoint?: boolean | null;
   /** Backend verdict: session awaits manual approval (REVIEW, AWAITING_APPROVAL). */
-  pending_approval?: boolean;
+  pending_approval?: boolean | null;
   /** POLICY_BLOCKED, or SESSION_FAILED/RESTORE_FAILED reason; else null. */
   blocked_or_failed_reason?: string | null;
   /** Advisory only — never merges with policy_decision/status. */
@@ -172,6 +172,21 @@ export type RecoveryLevel = 'R0' | 'R1' | 'R2' | 'R3';
 
 /** Trusted Baseline is a separate trust state, never implied by recovery level. */
 export type TrustedBaselineStatus = 'NONE' | 'TRUSTED' | 'RETIRED' | 'REVOKED';
+export type RecoveryScopeKind = 'HOST_WORKSPACE' | 'PRODUCT_CONFIG' | 'UNKNOWN';
+
+export interface RecoveryCoverageCounts {
+  restorable: number | null;
+  audit_only: number | null;
+  excluded: number | null;
+  unreachable: number | null;
+}
+
+export interface RecoveryCoverage {
+  counts: RecoveryCoverageCounts | null;
+  reason_counts: Record<string, number>;
+  scan_complete: boolean;
+  scan_reason_code: string | null;
+}
 
 export interface RecoverySummaryFields {
   recovery_level: RecoveryLevel;
@@ -195,16 +210,35 @@ export interface RecoveryItem extends RecoverySummaryFields {
   manifest_blob_coverage: number | null;
   test_restore_verified_targets: number | null;
   evidence_refs: string[];
+  created_at?: string | null;
+  manifest_integrity?: string | null;
+  actual_restore_status: string;
+  actual_restore_verified_at: string | null;
+  actual_restore_evidence_refs: string[];
+  scope_kind: RecoveryScopeKind;
+  workspace_id: string | null;
+  coverage: RecoveryCoverage | null;
 }
 
-export type RecoveryView = R4ViewDto<RecoveryItem> & RecoverySummaryFields & {
-  checkpoint_count: number;
-  latest_checkpoint: RecoveryItem | null;
-  actual_restore_status: string;
-  recovery_verified: boolean;
-  verified_at: string | null;
-  capabilities: { create_checkpoint: boolean; test_restore: boolean; restore: boolean };
-  limitations: string[];
+export type RecoveryView = R4ViewDto<RecoveryItem> & {
+  /** Recovery summary fields are absent on authoritative unavailable/degraded projections. */
+  recovery_level?: RecoveryLevel | null;
+  r1_verified?: boolean | null;
+  r2_verified?: boolean | null;
+  r3_verified?: boolean | null;
+  test_restore_status?: string | null;
+  trusted_baseline_status?: TrustedBaselineStatus | null;
+  trusted_baseline_id?: string | null;
+  checkpoint_count?: number | null;
+  latest_checkpoint?: RecoveryItem | null;
+  actual_restore_status?: string | null;
+  recovery_verified?: boolean | null;
+  verified_at?: string | null;
+  capabilities?: { create_checkpoint: boolean; test_restore: boolean; restore: boolean } | null;
+  scope_kind?: RecoveryScopeKind | null;
+  workspace_id?: string | null;
+  coverage?: RecoveryCoverage | null;
+  limitations?: string[] | null;
 };
 
 /* ---- Changes (r4-p8-1 view=changes) ---- */
@@ -228,6 +262,13 @@ export interface ChangeItem {
   approval_summary?: string | null;
   verification_summary: string | null;
   reason_code: string;
+  execution_domain_id: string | null;
+  attribution: string | null;
+  change_kind: string | null;
+  coverage_before: string | null;
+  coverage_after: string | null;
+  recovery_disposition: string | null;
+  workspace_id: string | null;
   evidence_refs: string[];
 }
 
@@ -247,10 +288,20 @@ export interface EvidenceDetail {
   subject?: string | null;
   result?: string;
   verification_summary?: string | null;
+  execution_domain_id?: string | null;
   checkpoint_id?: string | null;
   change_id?: string | null;
   chain_ref?: string;
-  sanitized_detail?: { affected_objects?: string[]; verification?: string };
+  sanitized_detail?: {
+    affected_objects?: string[];
+    verification?: string | null;
+    attribution?: string | null;
+    change_kind?: string | null;
+    coverage_before?: string | null;
+    coverage_after?: string | null;
+    recovery_disposition?: string | null;
+    workspace_id?: string | null;
+  };
   related_evidence_refs?: string[];
 }
 
@@ -283,6 +334,15 @@ export interface RecoveryActionResult {
   checkpoint_id: string | null;
   manifest_digest?: string | null;
   verified_targets?: number | null;
+  scope_kind?: RecoveryScopeKind | null;
+  workspace_id?: string | null;
+  coverage?: RecoveryCoverageCounts | null;
+  coverage_reason_counts?: Record<string, number> | null;
+  scan_complete?: boolean | null;
+  scan_reason_code?: string | null;
+  post_restore_status?: string | null;
+  quarantined_targets?: number | null;
+  residue_targets?: number | null;
   evidence_refs: string[];
 }
 
@@ -295,9 +355,17 @@ export interface BoundDevice {
   last_seen: string | null;
 }
 
+export interface DeviceLinkFirewallStatus {
+  operation: string;
+  status: string;
+  reason_code: string;
+  scope_digest: string | null;
+  recorded_at: string | null;
+}
+
 export interface DeviceLinkStatus {
   schema_version: string;
-  enabled: boolean;
+  enabled?: boolean | null;
   status: 'ENABLED' | 'DISABLED' | 'DEGRADED';
   endpoint: string | null;
   address: string | null;
@@ -306,6 +374,7 @@ export interface DeviceLinkStatus {
   desktop_uuid: string | null;
   desktop_signing_fingerprint: string | null;
   tls_spki_fingerprint: string | null;
+  firewall?: DeviceLinkFirewallStatus | null;
   bound_devices?: BoundDevice[];
   active_pair_sessions?: number;
 }

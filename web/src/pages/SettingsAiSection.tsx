@@ -61,8 +61,8 @@ export function SettingsAiSection({ client }: { client: ApiClient }) {
           setTestResult({
             ok: true,
             text: t('settings.provider.ok', {
-              models: String(result.models_available ?? 0),
-              latency: String(result.latency_ms ?? 0),
+              models: String(result.models_available ?? '—'),
+              latency: String(result.latency_ms ?? '—'),
             }),
           });
         } else {

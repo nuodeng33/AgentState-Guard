@@ -18,10 +18,17 @@ const AVAILABLE: EvidenceDetail = {
   verification_summary: 'VERIFIED_R2',
   checkpoint_id: 'checkpoint-aaa',
   change_id: null,
+  execution_domain_id: 'windows-current',
   chain_ref: 'sha256:'.padEnd(71, 'ab'),
   sanitized_detail: {
     affected_objects: ['sha256:'.padEnd(71, 'cd')],
     verification: 'COMPLETE',
+    attribution: 'UNATTRIBUTED',
+    change_kind: 'MODIFIED',
+    coverage_before: 'restorable',
+    coverage_after: 'audit_only',
+    recovery_disposition: 'AUDIT_ONLY',
+    workspace_id: 'workspace-safe-id',
   },
   related_evidence_refs: ['ledger-evt-0'],
 };
@@ -54,6 +61,13 @@ describe('EvidenceDetailPanel', () => {
     expect(screen.getByText('core')).toBeTruthy(); // source
     expect(screen.getAllByText('COMPLETE').length).toBeGreaterThan(0); // result
     expect(screen.getAllByText(/sha256:/).length).toBeGreaterThan(0); // chain_ref + affected
+    expect(screen.getByText('windows-current')).toBeTruthy();
+    expect(screen.getByText('UNATTRIBUTED')).toBeTruthy();
+    expect(screen.getByText('MODIFIED')).toBeTruthy();
+    expect(screen.getByText('restorable')).toBeTruthy();
+    expect(screen.getByText('audit_only')).toBeTruthy();
+    expect(screen.getByText('AUDIT_ONLY')).toBeTruthy();
+    expect(screen.getByText('workspace-safe-id')).toBeTruthy();
     expect(screen.getByText('ledger-evt-0')).toBeTruthy(); // related ref
   });
 
