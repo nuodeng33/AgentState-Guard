@@ -97,7 +97,12 @@ def create_app(
         ProductDiscoveryService,
         unavailable_product_snapshot,
     )
+    from ..discovery.workspace_authority import (
+        ResolvedWorkspaceAuthority,
+        resolve_host_workspace,
+    )
     from ..evidence.discovery_adapter import record_discovery_snapshot
+    from ..recovery.workspace_scope import WorkspaceScopeService
     from ..storage.db import StateDB
     from ..storage.snapshots import SnapshotStore
     from ..transactions.engine import TransactionEngine
@@ -284,11 +289,20 @@ def create_app(
 
     def _refresh_product_discovery() -> dict[str, object]:
         unavailable = False
+        authority_report = None
+        supports_workspace_authority = callable(
+            getattr(_product_discovery, "discover_with_authority", None)
+        )
         try:
-            snapshot = _product_discovery.discover()
+            if supports_workspace_authority:
+                authority_report = _product_discovery.discover_with_authority()
+                snapshot = authority_report.snapshot
+            else:
+                snapshot = _product_discovery.discover()
         except (OSError, RuntimeError, TypeError, ValueError):
             snapshot = unavailable_product_snapshot()
             unavailable = True
+        scope_result = None
         current_db = _get_db()
         try:
             receipts = record_discovery_snapshot(
@@ -296,8 +310,28 @@ def create_app(
                 snapshot,
                 recorded_at=datetime.now(UTC),
             )
+            if supports_workspace_authority:
+                resolved_scope = (
+                    resolve_host_workspace(authority_report)
+                    if authority_report is not None
+                    else ResolvedWorkspaceAuthority(
+                        status="UNAVAILABLE",
+                        reason_code="WORKSPACE_SCOPE_DISCOVERY_UNAVAILABLE",
+                    )
+                )
+                scope_result = WorkspaceScopeService(current_db).bind(
+                    resolved_scope,
+                    recorded_at=datetime.now(UTC),
+                    discovery_snapshot_id=snapshot.snapshot_id,
+                )
         finally:
             current_db.close()
+        affected_views = ["runtime", "agents", "supervision"]
+        evidence_refs = [receipt.event_id for receipt in receipts]
+        if scope_result is not None:
+            affected_views.extend(("changes", "recovery"))
+            if scope_result.ledger_event_id is not None:
+                evidence_refs.append(scope_result.ledger_event_id)
         return {
             "schema_version": "product-discovery-1",
             "status": snapshot.status.value,
@@ -308,10 +342,18 @@ def create_app(
             ),
             "snapshot_id": snapshot.snapshot_id,
             "observed_at": snapshot.observed_at.isoformat(),
-            "affected_views": ["runtime", "agents", "supervision"],
+            "affected_views": affected_views,
             "runtime_count": len(snapshot.runtimes),
             "agent_count": len(snapshot.agents),
-            "evidence_refs": [receipt.event_id for receipt in receipts],
+            "workspace_scope_status": (
+                scope_result.status if scope_result is not None else "NOT_SUPPORTED"
+            ),
+            "workspace_scope_reason_code": (
+                scope_result.reason_code
+                if scope_result is not None
+                else "WORKSPACE_SCOPE_NOT_OBSERVED"
+            ),
+            "evidence_refs": evidence_refs,
         }
 
     if product_startup_discovery:

@@ -456,6 +456,87 @@ class MigrationEngine:
             )
         )
 
+        self.register(
+            Migration(
+                9,
+                "Host-native workspace protection scope",
+                """
+            CREATE TABLE workspace_scope_observations (
+                observation_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                observation_id TEXT UNIQUE NOT NULL,
+                discovery_snapshot_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN (
+                    'BOUND', 'NOT_OBSERVED', 'UNAVAILABLE'
+                )),
+                reason_code TEXT NOT NULL,
+                workspace_id TEXT,
+                execution_domain_id TEXT,
+                root_path TEXT,
+                root_digest TEXT,
+                agent_ids_json TEXT NOT NULL,
+                process_instance_ids_json TEXT NOT NULL,
+                evidence_refs_json TEXT NOT NULL,
+                ledger_event_id TEXT UNIQUE NOT NULL,
+                CHECK(
+                    (status = 'BOUND' AND workspace_id IS NOT NULL
+                     AND execution_domain_id IS NOT NULL
+                     AND root_path IS NOT NULL AND root_digest IS NOT NULL)
+                    OR
+                    (status != 'BOUND' AND workspace_id IS NULL
+                     AND execution_domain_id IS NULL
+                     AND root_path IS NULL AND root_digest IS NULL)
+                )
+            );
+            CREATE INDEX idx_workspace_scope_latest
+                ON workspace_scope_observations(observation_sequence DESC);
+            CREATE INDEX idx_workspace_scope_workspace
+                ON workspace_scope_observations(workspace_id, observation_sequence DESC);
+            CREATE TRIGGER workspace_scope_observations_no_update
+            BEFORE UPDATE ON workspace_scope_observations
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_SCOPE_APPEND_ONLY'); END;
+            CREATE TRIGGER workspace_scope_observations_no_delete
+            BEFORE DELETE ON workspace_scope_observations
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_SCOPE_APPEND_ONLY'); END;
+
+            CREATE TABLE workspace_quarantine_records (
+                record_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                quarantine_id TEXT UNIQUE NOT NULL,
+                workspace_id TEXT NOT NULL,
+                checkpoint_id TEXT NOT NULL,
+                relative_path_digest TEXT NOT NULL,
+                quarantine_path TEXT NOT NULL,
+                content_digest TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+                status TEXT NOT NULL CHECK(status IN ('QUARANTINED', 'RESTORED')),
+                reason_code TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                ledger_event_id TEXT UNIQUE NOT NULL
+            );
+            CREATE INDEX idx_workspace_quarantine_workspace
+                ON workspace_quarantine_records(workspace_id, record_sequence DESC);
+            CREATE TRIGGER workspace_quarantine_records_no_update
+            BEFORE UPDATE ON workspace_quarantine_records
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_QUARANTINE_APPEND_ONLY'); END;
+            CREATE TRIGGER workspace_quarantine_records_no_delete
+            BEFORE DELETE ON workspace_quarantine_records
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_QUARANTINE_APPEND_ONLY'); END;
+        """,
+                """
+            DROP TRIGGER IF EXISTS workspace_quarantine_records_no_delete;
+            DROP TRIGGER IF EXISTS workspace_quarantine_records_no_update;
+            DROP INDEX IF EXISTS idx_workspace_quarantine_workspace;
+            DROP TABLE IF EXISTS workspace_quarantine_records;
+            DROP TRIGGER IF EXISTS workspace_scope_observations_no_delete;
+            DROP TRIGGER IF EXISTS workspace_scope_observations_no_update;
+            DROP INDEX IF EXISTS idx_workspace_scope_workspace;
+            DROP INDEX IF EXISTS idx_workspace_scope_latest;
+            DROP TABLE IF EXISTS workspace_scope_observations;
+        """,
+            )
+        )
+
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
 

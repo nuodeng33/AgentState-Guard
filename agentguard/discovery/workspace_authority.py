@@ -68,7 +68,7 @@ def resolve_host_workspace(
 
     root = next(iter(roots_by_key.values()))
     domain_id = next(iter(domain_ids))
-    root_digest = _root_digest(root, domain_id)
+    root_digest = workspace_root_digest(root, domain_id)
     return ResolvedWorkspaceAuthority(
         status="BOUND",
         reason_code="WORKSPACE_SCOPE_VERIFIED",
@@ -157,9 +157,34 @@ def _blocked_roots(
     return tuple(result)
 
 
-def _root_digest(root: Path, execution_domain_id: str) -> str:
+def workspace_root_digest(root: Path, execution_domain_id: str) -> str:
+    """Digest an exact local root without projecting the path itself."""
+
     material = f"workspace-root-v1\x1f{execution_domain_id}\x1f{_path_key(root)}".encode()
     return f"sha256:{hashlib.sha256(material).hexdigest()}"
+
+
+def validate_workspace_root_binding(
+    root: Path,
+    *,
+    execution_domain_id: str,
+    expected_digest: str,
+) -> Path | None:
+    """Revalidate a durable exact root without broad-root policy expansion."""
+
+    raw = Path(root)
+    try:
+        verified = _resolve_one_root(raw, ())
+        canonical = raw.resolve(strict=True)
+    except _UnsafeWorkspace:
+        return None
+    except (OSError, RuntimeError):
+        return None
+    if _path_key(verified) != _path_key(canonical):
+        return None
+    if workspace_root_digest(canonical, execution_domain_id) != expected_digest:
+        return None
+    return canonical
 
 
 def _path_key(path: Path) -> str:
@@ -170,4 +195,9 @@ def _unavailable(reason_code: str) -> ResolvedWorkspaceAuthority:
     return ResolvedWorkspaceAuthority(status="UNAVAILABLE", reason_code=reason_code)
 
 
-__all__ = ["ResolvedWorkspaceAuthority", "resolve_host_workspace"]
+__all__ = [
+    "ResolvedWorkspaceAuthority",
+    "resolve_host_workspace",
+    "validate_workspace_root_binding",
+    "workspace_root_digest",
+]
