@@ -424,7 +424,7 @@ class DeviceLinkGateway:
                 bound_uuid,
                 bound_pubkey,
                 display_name,
-                permissions=["read", "approve_once", "reject"],
+                permissions=["read", "approve_once", "reject", "self_unpair"],
                 protocol_version=1,
             )
         except ValueError as exc:
@@ -464,7 +464,7 @@ class DeviceLinkGateway:
         token = self._issue_product_token(android_uuid)
         self._invalidate_pairing(session_id)
         result["session_token"] = token
-        result["permissions"] = ["read", "approve_once", "reject"]
+        result["permissions"] = ["read", "approve_once", "reject", "self_unpair"]
         return result
 
     # ---- Auth ----
@@ -646,15 +646,20 @@ class DeviceLinkGateway:
     # ---- Device ----
 
     def revoke_device(self, device_uuid: str) -> dict:
-        if self.devices.remove(device_uuid):
-            to_del = [
-                t for t, s in self._sessions.items() if s["device_uuid"] == device_uuid
-            ]
-            for t in to_del:
-                del self._sessions[t]
-            for digest, record in list(self._product_tokens.items()):
-                if record["device_uuid"] == device_uuid:
-                    del self._product_tokens[digest]
+        removed = self.devices.remove(device_uuid)
+        for token, session in list(self._sessions.items()):
+            if session["device_uuid"] == device_uuid:
+                del self._sessions[token]
+        for digest, record in list(self._product_tokens.items()):
+            if record["device_uuid"] == device_uuid:
+                del self._product_tokens[digest]
+        for challenge_id, challenge in list(self._challenges.items()):
+            if challenge["device_uuid"] == device_uuid:
+                del self._challenges[challenge_id]
+        for challenge_id, challenge in list(self._product_challenges.items()):
+            if challenge["device_uuid"] == device_uuid:
+                del self._product_challenges[challenge_id]
+        if removed:
             return {"status": "revoked", "device_uuid": device_uuid}
         return {"error": "Device not found", "code": 404}
 

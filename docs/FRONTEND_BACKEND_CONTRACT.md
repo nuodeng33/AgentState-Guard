@@ -19,10 +19,13 @@ branding boundary.
   proxy to Core.
 - Every Core mutation target, execution domain, policy decision, checkpoint,
   action reference, and evidence relationship is server-owned.
-- Device Link exposes bounded, sanitized projections and only two remote
+- Device Link exposes bounded, sanitized projections and only two remote Core
   mutations: `APPROVE_ONCE` and `REJECT` for an existing Core supervision
   intent. It exposes no prepare/apply, checkpoint creation, test restore,
   restore, policy/baseline mutation, shell, file access, or generic Core route.
+- Device Link also exposes one authenticated lifecycle action, `SELF_UNPAIR`,
+  which may revoke only the bearer principal's own durable binding. It is not a
+  Core mutation and accepts no device identifier or other caller authority.
 - AI is advisory. `POST /api/ai/analyze` accepts exactly `{}`; Core constructs
   sanitized context from its own projections. API keys are never part of DTOs,
   evidence, or Android state.
@@ -58,7 +61,7 @@ branding boundary.
 | Pairing invitation | `POST /api/v1/device-link/pairings`; status/desktop confirm/cancel under returned session ID | pairing connect/SAS/Android confirm/complete under `/device/v1/pair/{session_id}` | Core actions use `{}` or `{ "confirm": bool }`; 8788 DTOs are strict and pairing-token scoped after connect | invitation fields listed below; while state is `sas_pending`, loopback Desktop status includes the exact server-owned formatted `sas` also returned to Android; terminal projections omit it; completion returns short-lived product token and permissions | Existing P-256/SAS state machine plus one-time memory ticket and durable binding store | created, first connection, SAS pending, confirmed both, consumed/rejected/cancelled/expired; explicit `PAIR_*` codes | Both devices explicitly confirm the same server-owned SAS; frontend must not derive or guess SAS; ticket and pairing tokens are memory-only/digest-keyed |
 | Auth / re-auth | — | `POST /device/v1/auth/challenge`, then `/auth/response` | bound Android UUID + protocol v1; response includes challenge ID and DER ECDSA signature | one-use challenge; short-lived session token; Desktop signature over the same domain-separated message | Durable Desktop and Android P-256 identities plus durable public binding | bound/not-bound, unknown/used/expired/mismatched challenge, invalid signature | Android verifies Desktop signature; session expiry triggers re-auth, not re-pairing |
 | Reconnect after IP change | Core `POST /api/v1/device-link/network/refresh` rebinds exposure | saved-UUID UDP rediscovery on exact address/port, then normal auth/read routes | discovery request names exact saved Desktop UUID | candidate endpoint contains exact UUID/port/TLS fingerprint | Existing durable binding and fingerprints; rediscovery response itself is not trust | connected/offline/last-known in repository | No generic LAN browsing, manual-IP onboarding, or silent new trust |
-| Revoke / unpair | `POST /api/v1/device-link/devices/{device_uuid}/revoke` | Android local repository `unpair()` | Core exactly `{}`; Android local action | revoked/removed state | Durable binding store and in-memory token invalidation | `revoked`, `DEVICE_NOT_FOUND` | Desktop revoke prevents old credentials reconnecting; Android unpair removes binding and KeyStore identity; both require new QR+SAS next time |
+| Revoke / unpair | `POST /api/v1/device-link/devices/{device_uuid}/revoke` | `POST /device/v1/self-unpair` through Android repository `unpair()` | exactly `{}`; Device Link derives the device UUID from the bearer principal | `device-link-self-unpair-1`: `SELF_UNPAIR`, `UNPAIRED`, stable reason code | Existing bearer identity, durable binding store, and in-memory token invalidation | `DEVICE_SELF_UNPAIRED`, `DEVICE_TOKEN_INVALID`, bounded `DEVICE_*` failures | Android revokes the desktop binding first and deletes its local binding/KeyStore identity only after success; failure preserves local trust for retry; success and Desktop revoke both require new QR+SAS |
 
 ## Pairing QR encoding
 
@@ -94,6 +97,14 @@ Field mapping from `POST /api/v1/device-link/pairings`:
   explicit/foreground refresh, last-known data with an offline transport state,
   session-expiry re-authentication, exact-bound-UUID rediscovery, endpoint
   update after identity/TLS/auth checks, approve/reject, and unpair.
+- Authenticated unpair is remote-first. The gateway invalidates all credentials
+  for the authenticated principal before returning the exact
+  `DEVICE_SELF_UNPAIRED` terminal DTO, including when the durable binding was
+  already absent.
+- Android may also clear local trust when re-authentication against the pinned
+  Desktop endpoint returns exact `DEVICE_NOT_BOUND`, which proves Desktop has
+  already revoked the binding. Network, timeout, 5xx, and ambiguous responses
+  retain the binding and KeyStore identity so the user can retry.
 - Cleartext localhost/emulator exceptions exist only in the debug resource
   overlay. The production manifest config is cleartext-disabled and the
   production transport itself is HTTPS-only.

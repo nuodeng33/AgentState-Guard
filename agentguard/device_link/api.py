@@ -124,6 +124,10 @@ class ApprovalIntent(_Strict):
     action_ref: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
+class EmptyRequest(_Strict):
+    pass
+
+
 def create_device_link_app(
     *,
     gateway,
@@ -225,12 +229,29 @@ def create_device_link_app(
             body.device_uuid, body.challenge_id, body.signature, body.protocol_version
         )
 
+    @app.post("/device/v1/self-unpair")
+    async def self_unpair(
+        _body: EmptyRequest,
+        device_uuid: str = Depends(identity),
+    ):
+        result = gateway.revoke_device(device_uuid)
+        if result.get("status") != "revoked" and result.get("code") != 404:
+            raise DeviceLinkError(
+                409, "DEVICE_SELF_UNPAIR_FAILED", "Device self-unpair failed"
+            )
+        return {
+            "schema_version": "device-link-self-unpair-1",
+            "action": "SELF_UNPAIR",
+            "status": "UNPAIRED",
+            "reason_code": "DEVICE_SELF_UNPAIRED",
+        }
+
     @app.get("/device/v1/status")
     async def status(_device_uuid: str = Depends(identity)):
         return {
             "schema_version": "device-link-status-1",
             **gateway.get_status(),
-            "permissions": ["read", "approve_once", "reject"],
+            "permissions": ["read", "approve_once", "reject", "self_unpair"],
         }
 
     @app.get("/device/v1/environment")

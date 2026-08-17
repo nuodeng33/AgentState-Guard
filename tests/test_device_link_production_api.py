@@ -89,7 +89,12 @@ def test_full_pairing_and_bounded_projection_auth(tmp_path):
             "/device/v1/status", headers={"Authorization": f"Bearer {token}"}
         )
         assert status.status_code == 200
-        assert status.json()["permissions"] == ["read", "approve_once", "reject"]
+        assert status.json()["permissions"] == [
+            "read",
+            "approve_once",
+            "reject",
+            "self_unpair",
+        ]
         assert (
             client.post(
                 "/device/v1/recovery/restore",
@@ -98,6 +103,79 @@ def test_full_pairing_and_bounded_projection_auth(tmp_path):
             ).status_code
             == 404
         )
+    finally:
+        database.close()
+
+
+def test_authenticated_self_unpair_revokes_binding_and_invalidates_token(tmp_path):
+    client, gateway, _identity, database = _product(tmp_path)
+    try:
+        revoke_calls = []
+        revoke_device = gateway.revoke_device
+
+        def traced_revoke(device_uuid):
+            revoke_calls.append(device_uuid)
+            return revoke_device(device_uuid)
+
+        gateway.revoke_device = traced_revoke
+        unauthenticated = client.post("/device/v1/self-unpair", json={})
+        assert unauthenticated.status_code == 401
+        assert unauthenticated.json()["error"]["code"] == "DEVICE_TOKEN_INVALID"
+        assert revoke_calls == []
+        _private, token = _pair(client, gateway)
+        headers = {"Authorization": f"Bearer {token}"}
+        registry = DeviceBindingStore(database)
+        assert registry.get("android-a") is not None
+
+        injected = client.post(
+            "/device/v1/self-unpair",
+            json={"device_uuid": "someone-else"},
+            headers=headers,
+        )
+        assert injected.status_code == 400
+        assert injected.json()["error"]["code"] == "DEVICE_INVALID_REQUEST"
+        assert registry.get("android-a") is not None
+        assert revoke_calls == []
+
+        unpaired = client.post("/device/v1/self-unpair", json={}, headers=headers)
+        assert unpaired.status_code == 200
+        assert unpaired.json() == {
+            "schema_version": "device-link-self-unpair-1",
+            "action": "SELF_UNPAIR",
+            "status": "UNPAIRED",
+            "reason_code": "DEVICE_SELF_UNPAIRED",
+        }
+        assert registry.get("android-a") is None
+        assert revoke_calls == ["android-a"]
+
+        replay = client.post("/device/v1/self-unpair", json={}, headers=headers)
+        assert replay.status_code == 401
+        assert replay.json()["error"]["code"] == "DEVICE_TOKEN_INVALID"
+        status = client.get("/device/v1/status", headers=headers)
+        assert status.status_code == 401
+        assert status.json()["error"]["code"] == "DEVICE_TOKEN_INVALID"
+        _new_private, new_token = _pair(client, gateway)
+        assert new_token != token
+        assert registry.get("android-a") is not None
+    finally:
+        database.close()
+
+
+def test_self_unpair_accepts_server_proven_already_absent_binding(tmp_path):
+    client, gateway, _identity, database = _product(tmp_path)
+    try:
+        _private, token = _pair(client, gateway)
+        headers = {"Authorization": f"Bearer {token}"}
+        registry = DeviceBindingStore(database)
+        assert registry.revoke("android-a") is True
+        assert registry.get("android-a") is None
+        assert gateway.validate_token(token) == "android-a"
+
+        terminal = client.post("/device/v1/self-unpair", json={}, headers=headers)
+
+        assert terminal.status_code == 200
+        assert terminal.json()["reason_code"] == "DEVICE_SELF_UNPAIRED"
+        assert gateway.validate_token(token) is None
     finally:
         database.close()
 

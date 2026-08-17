@@ -106,6 +106,54 @@ def test_mutual_auth_returns_desktop_signature_and_replay_fails(tmp_path):
         database.close()
 
 
+def test_revoke_invalidates_every_session_for_the_authenticated_device(tmp_path):
+    gateway, identity, database = _gateway(tmp_path)
+    device_private, device_public = generate_ecdsa_p256_keypair()
+    device_der = public_key_to_der(device_public)
+    try:
+        gateway.devices.add(
+            "android-a",
+            device_der,
+            "Phone",
+            ["read", "approve_once", "reject", "self_unpair"],
+            1,
+        )
+        legacy_challenge = gateway.auth_challenge("android-a")
+        challenge_bytes = bytes.fromhex(legacy_challenge["desktop_challenge"])
+        legacy_token = gateway.auth_response(
+            "android-a",
+            sign_challenge(device_private, challenge_bytes).hex(),
+            challenge_bytes.hex(),
+        )["session_token"]
+
+        product_challenge = gateway.auth_challenge_scoped("android-a", 1)
+        product_message = build_auth_message(
+            protocol_version=1,
+            desktop_uuid=identity.desktop_uuid,
+            device_uuid="android-a",
+            challenge_id=product_challenge["challenge_id"],
+            challenge=bytes.fromhex(product_challenge["desktop_challenge"]),
+        )
+        product_token = gateway.auth_response_scoped(
+            "android-a",
+            product_challenge["challenge_id"],
+            sign_challenge(device_private, product_message).hex(),
+            1,
+        )["session_token"]
+        assert gateway.validate_token(legacy_token) == "android-a"
+        assert gateway.validate_token(product_token) == "android-a"
+
+        assert gateway.revoke_device("android-a") == {
+            "status": "revoked",
+            "device_uuid": "android-a",
+        }
+        assert gateway.validate_token(legacy_token) is None
+        assert gateway.validate_token(product_token) is None
+        assert gateway.devices.get("android-a") is None
+    finally:
+        database.close()
+
+
 def test_pairing_capacity_and_protocol_errors_are_product_errors(tmp_path):
     gateway, _identity, database = _gateway(tmp_path)
     try:
