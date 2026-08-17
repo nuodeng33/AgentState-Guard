@@ -1,7 +1,8 @@
 """Tests for hasher module."""
 
 from pathlib import Path
-from agentguard.core.hasher import hash_file, hash_bytes, hash_text, check_known_hash
+
+from agentguard.core.hasher import check_known_hash, hash_bytes, hash_file, hash_text
 
 
 class TestHasher:
@@ -18,10 +19,15 @@ class TestHasher:
         h = hash_file(tmp_project)
         assert h is None
 
-    def test_hash_file_permission_denied(self):
-        # Attempt to hash /etc/shadow which should fail
-        h = hash_file(Path("/etc/shadow"))
-        assert h is None
+    def test_hash_file_permission_denied(self, tmp_path: Path, monkeypatch):
+        restricted = tmp_path / "restricted.txt"
+        restricted.write_text("content")
+
+        def deny_open(_path, *_args, **_kwargs):
+            raise PermissionError("synthetic permission denial")
+
+        monkeypatch.setattr(Path, "open", deny_open)
+        assert hash_file(restricted) is None
 
     def test_hash_bytes_consistency(self):
         data = b"test data"

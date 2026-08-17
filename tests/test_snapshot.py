@@ -3,9 +3,14 @@
 from pathlib import Path
 
 from agentguard.core.snapshot import (
-    create_snapshot, create_file_snapshot, classify_file,
-    serialize_snapshot, deserialize_snapshot, snapshot_is_valid,
-    diff_snapshots, restore_file_content,
+    classify_file,
+    create_file_snapshot,
+    create_snapshot,
+    deserialize_snapshot,
+    diff_snapshots,
+    restore_file_content,
+    serialize_snapshot,
+    snapshot_is_valid,
 )
 
 
@@ -34,8 +39,8 @@ class TestSnapshot:
     def test_deserialize_corrupted(self):
         assert deserialize_snapshot(b"garbage") is None
 
-    def test_snapshot_valid(self):
-        f = Path("/tmp/test_snap.txt")
+    def test_snapshot_valid(self, tmp_path: Path):
+        f = tmp_path / "test_snap.txt"
         f.write_text("content")
         entry = create_file_snapshot(f, "restorable")
         snap = create_snapshot("v", {str(f): entry}, {}, {}, {}, {}, {})
