@@ -20,6 +20,29 @@ _EXIT_REASONS = {
     21: "DEVICE_FIREWALL_SCOPE_CHANGED",
     30: "DEVICE_FIREWALL_MUTATION_FAILED",
 }
+# Rust std::fs::canonicalize() on Windows yields verbatim paths ("\\?\C:\...").
+_VERBATIM_PREFIX = "\\\\?\\"
+_VERBATIM_UNC_PREFIX = "\\\\?\\UNC\\"
+
+
+def _normalize_candidate(value: str) -> str:
+    """Strip the Windows verbatim prefix from a canonicalized path.
+
+    A drive-letter verbatim path (``\\\\?\\C:\\...``) is normalized so
+    ``resolve()`` can compare it with a plain sidecar path. UNC verbatim
+    paths lose only the ``UNC\\`` detour. Volume-GUID verbatim paths keep
+    their prefix: they cannot be compared reliably and therefore fail
+    closed at validation time.
+    """
+    text = value.strip().strip('"')
+    if text.startswith(_VERBATIM_UNC_PREFIX):
+        return "\\\\" + text[len(_VERBATIM_UNC_PREFIX):]
+    if text.startswith(_VERBATIM_PREFIX) and not text.startswith(
+        _VERBATIM_PREFIX + "Volume{"
+    ):
+        tail = text[len(_VERBATIM_PREFIX):]
+        return tail or value
+    return text
 
 
 class ElevationLaunchError(OSError):
@@ -45,9 +68,12 @@ class WindowsFirewallElevationRunner:
         sidecar_path: Path | None = None,
         launcher: Callable[[Path, tuple[str, ...]], int] | None = None,
     ) -> None:
-        configured = helper_path or (
-            Path(value) if (value := os.environ.get(_HELPER_ENV)) else None
-        )
+        if helper_path is not None:
+            configured = Path(_normalize_candidate(str(helper_path)))
+        elif value := os.environ.get(_HELPER_ENV):
+            configured = Path(_normalize_candidate(value))
+        else:
+            configured = None
         self._helper_path = configured
         self._sidecar_path = sidecar_path or Path(sys.executable)
         self._launcher = launcher or _shell_execute_elevated
@@ -118,6 +144,7 @@ class WindowsFirewallElevationRunner:
             or helper_info.st_size <= 0
             or helper.suffix.casefold() != ".exe"
             or helper.parent != sidecar.parent
+            or helper == sidecar  # the helper is never the sidecar itself
         ):
             return None
         return helper
