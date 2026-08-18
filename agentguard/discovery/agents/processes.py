@@ -768,6 +768,25 @@ def _basename(value: str) -> str:
     return value.replace("\\", "/").rsplit("/", 1)[-1]
 
 
+def bounded_launcher_anchors_for(backend: object, pid: int) -> tuple[str, ...]:
+    """Read bounded launcher anchors; absence or failure yields no anchors.
+
+    Backends may optionally implement ``bounded_launcher_anchors(pid)``. Any
+    backend that cannot supply anchors (or any failure while reading them)
+    yields no anchors — identity then stays UNKNOWN rather than guessed.
+    """
+    reader = getattr(backend, "bounded_launcher_anchors", None)
+    if not callable(reader):
+        return ()
+    try:
+        anchors = reader(int(pid))
+    except Exception:  # noqa: BLE001 - identity resolution stays fail-closed
+        return ()
+    if not isinstance(anchors, (list, tuple)):
+        return ()
+    return tuple(str(item) for item in anchors if isinstance(item, str))
+
+
 def _process_event_id(
     domain_id: str,
     pid: int,
@@ -852,5 +871,6 @@ __all__ = [
     "ProcessCollectorFailure",
     "ProcessHandle",
     "ProcessZombieError",
+    "bounded_launcher_anchors_for",
     "build_process_relationships",
 ]

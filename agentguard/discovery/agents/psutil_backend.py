@@ -12,6 +12,7 @@ except ModuleNotFoundError as exc:
         raise
     _psutil = None
 
+from .launcher_identity import is_package_identity_anchor
 from .processes import (
     ProcessAccessDeniedError,
     ProcessBackend,
@@ -128,6 +129,37 @@ class PsutilProcessBackend(ProcessBackend):
             PsutilProcessHandle(pid, psutil_module=self._psutil)
             for pid in sorted(candidate_pids)
         )
+
+    def bounded_launcher_anchors(self, pid: int) -> tuple[str, ...]:
+        """Best-effort bounded script anchors for launcher identity.
+
+        Although psutil's cmdline is consulted internally as the only OS
+        source of script paths, this method returns only bounded, on-disk
+        script anchors — never the raw command line, never flags, never
+        arguments. Anything that cannot be reduced to a bounded on-disk
+        anchor yields no anchors, so identity resolution stays UNKNOWN
+        instead of being guessed.
+        """
+        if self._psutil is None:
+            return ()
+        try:
+            lines = self._psutil.Process(int(pid)).cmdline()
+        except Exception:  # noqa: BLE001 - fail closed, identity stays UNKNOWN
+            return ()
+        if not isinstance(lines, (list, tuple)):
+            return ()
+        anchors: list[str] = []
+        for value in lines:
+            if not isinstance(value, str):
+                continue
+            candidate = value.strip().strip('"')
+            if not candidate or candidate.startswith("-"):
+                continue
+            if is_package_identity_anchor(candidate):
+                anchors.append(candidate)
+                if len(anchors) >= 2:
+                    break
+        return tuple(anchors)
 
     def _raise_bounded(self, exc: Exception) -> None:
         if isinstance(exc, self._psutil.NoSuchProcess):

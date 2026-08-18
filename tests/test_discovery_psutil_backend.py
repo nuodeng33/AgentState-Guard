@@ -506,7 +506,6 @@ def test_production_backend_ast_contains_no_forbidden_calls():
     )
     tree = ast.parse(backend_path.read_text(encoding="utf-8"))
     forbidden = {
-        "cmdline",
         "environ",
         "open_files",
         "net_connections",
@@ -528,6 +527,37 @@ def test_production_backend_ast_contains_no_forbidden_calls():
     }
 
     assert called.isdisjoint(forbidden)
+
+
+def test_production_backend_cmdline_is_confined_to_bounded_anchor_method():
+    """The sanctioned bounded-launcher exception never leaks raw argv.
+
+    Process command lines may be consulted only inside
+    ``bounded_launcher_anchors``, which reduces them to on-disk script
+    anchors; every other method must stay free of command-line reads.
+    """
+    backend_path = (
+        Path(__file__).parents[1]
+        / "agentguard"
+        / "discovery"
+        / "agents"
+        / "psutil_backend.py"
+    )
+    tree = ast.parse(backend_path.read_text(encoding="utf-8"))
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for sub in ast.walk(node):
+            if (
+                isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr in {"cmdline", "environ"}
+                and node.name != "bounded_launcher_anchors"
+            ):
+                offenders.append(node.name)
+
+    assert offenders == []
 
 
 @pytest.mark.parametrize(

@@ -25,6 +25,7 @@ from .base import (
     AgentAdapterRunResult,
     AgentDiscoveryAdapter,
 )
+from . import launcher_identity
 from .classifier import (
     AgentSignatureRule,
     classify_executable,
@@ -111,6 +112,7 @@ __all__ = [
     "create_verified_ccr_marker",
     "create_verified_cloudcli_marker",
     "deduplicate_workspace_candidates",
+    "launcher_identity",
     "make_process_instance_id",
     "normalize_process_create_time",
     "parse_ccr_pid_marker",

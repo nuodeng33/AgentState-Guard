@@ -16,7 +16,9 @@ from .agents import (
     ProcessState,
     ProcessWorkspaceAuthority,
     PsutilProcessBackend,
+    launcher_identity,
 )
+from .agents.processes import bounded_launcher_anchors_for
 from .capabilities import AgentLifecycleStatus, CapabilityStatus, EvidenceReliability
 from .domains import SelfRuntimeAdapter
 from .models import (
@@ -35,11 +37,37 @@ _AGENT_SIGNATURES: dict[str, tuple[str, AgentRole]] = {
     "ccr.exe": ("CCR", AgentRole.MODEL_ROUTER),
     "claude": ("CLAUDE", AgentRole.EXECUTION_AGENT),
     "claude.exe": ("CLAUDE", AgentRole.EXECUTION_AGENT),
+    "claude-code": ("CLAUDE", AgentRole.EXECUTION_AGENT),
+    "claude-code.exe": ("CLAUDE", AgentRole.EXECUTION_AGENT),
     "cloudcli": ("CLOUDCLI", AgentRole.AGENT_HOST),
     "cloudcli.exe": ("CLOUDCLI", AgentRole.AGENT_HOST),
     "codex": ("CODEX", AgentRole.EXECUTION_AGENT),
     "codex.exe": ("CODEX", AgentRole.EXECUTION_AGENT),
+    "kimi": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
+    "kimi.exe": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
+    "kimi-code": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
+    "kimi-code.exe": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
 }
+
+#: Generic runtimes that must never be guessed as Agents by basename alone.
+_GENERIC_RUNTIME_BASENAMES = frozenset({"node", "node.exe", "nodejs", "nodejs.exe"})
+
+#: Launcher identities this product formally recognizes from bounded metadata.
+_LAUNCHER_IDENTITY_ROLES: dict[str, AgentRole] = {
+    "CLAUDE": AgentRole.EXECUTION_AGENT,
+    "CODEX": AgentRole.EXECUTION_AGENT,
+    "KIMI_CODE": AgentRole.EXECUTION_AGENT,
+}
+
+
+def _resolve_bounded_launcher_identity(anchors: tuple[str, ...] | list[str]) -> str | None:
+    """Map bounded launcher anchors to a bounded Agent identity, or None.
+
+    Anchors are plain filesystem candidate paths supplied by a backend. The
+    raw process command line is never accepted, never returned, and never
+    persisted here. Unresolvable anchors yield ``None`` (UNKNOWN).
+    """
+    return launcher_identity.resolve_launcher_identity(list(anchors))
 
 
 @dataclass(frozen=True)
@@ -132,7 +160,17 @@ class ProductDiscoveryService:
         }
 
         for fact in processes.facts:
-            signature = _AGENT_SIGNATURES.get((fact.executable_basename or "").casefold())
+            basename = (fact.executable_basename or "").casefold()
+            signature = _AGENT_SIGNATURES.get(basename)
+            if signature is None and basename in _GENERIC_RUNTIME_BASENAMES:
+                # Node-hosted Agents resolve only through bounded launcher
+                # identity; unresolved runtimes stay unclassified.
+                launcher_token = _resolve_bounded_launcher_identity(
+                    bounded_launcher_anchors_for(self._process_backend, fact.pid)
+                )
+                launcher_role = _LAUNCHER_IDENTITY_ROLES.get(launcher_token or "")
+                if launcher_role is not None:
+                    signature = (launcher_token, launcher_role)
             if signature is None or fact.current_state is not ProcessState.RUNNING:
                 continue
             agent_type, role = signature
@@ -143,6 +181,7 @@ class ProductDiscoveryService:
             if source is None:
                 continue
             agent_id = _stable_id("external-agent", agent_type, fact.process_instance_id)
+            instance_label = f"{agent_type} {agent_id[-6:]}"
             agent_evidence_id = f"product-agent-{hashlib.sha256(agent_id.encode()).hexdigest()[:24]}-{nonce[:8]}"
             agent_status = (
                 CapabilityStatus.AVAILABLE
@@ -156,6 +195,7 @@ class ProductDiscoveryService:
                 value={
                     "agent_kind": agent_type,
                     "execution_domain_id": domain.domain_id,
+                    "instance_label": instance_label,
                     "lifecycle": AgentLifecycleStatus.RUNNING.value,
                     "role": role.value,
                 },
@@ -209,6 +249,7 @@ class ProductDiscoveryService:
                     lifecycle=AgentLifecycleStatus.RUNNING,
                     domain_id=domain.domain_id,
                     runtime_id=runtime_id,
+                    label=instance_label,
                     workspace_ids=workspace_ids,
                     evidence_ids=(agent_evidence_id,),
                     confidence=0.8,

@@ -17,6 +17,11 @@ from agentguard.supervision.service import SupervisionService
 
 _SAFE_ATOM = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 _SAFE_EVENT_ID = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
+_INSTANCE_LABEL = re.compile(r"[A-Z][A-Z0-9_]{1,15} [0-9a-f]{6}")
+
+
+def _instance_label(value: object) -> str | None:
+    return value if isinstance(value, str) and _INSTANCE_LABEL.fullmatch(value) else None
 _ACTIVITY_TYPES = frozenset(
     {
         "USER_APPROVED",
@@ -404,9 +409,11 @@ class R4ReadProjectionService:
                 connection,
                 agent_event_id=event_id,
             )
+            instance_label = _instance_label(value.get("instance_label"))
             items.append(
                 {
-                    "detected_identity": identity,
+                    "detected_identity": instance_label or identity,
+                    "instance_label": instance_label,
                     "role": _atom(value.get("role")) or "detected",
                     "lifecycle": lifecycle if available else "UNKNOWN",
                     "confidence": confidence,

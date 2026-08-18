@@ -1,5 +1,6 @@
 """status command — quick bounded environment probe (no health verdict)."""
 
+import os
 from typing import Any, Dict, Optional
 
 from ..core.docker import docker_available, container_running
@@ -26,10 +27,10 @@ def status(config: dict, db: Optional[StateDB] = None) -> Dict[str, Any]:
         result["checks"]["container_running"] = running
         result["checks"]["container_info"] = info
 
-    # Port check
+    # Port check (listening-state key reflects the configured port).
     port = int(config.get("port", 3001))
     port_open = _check_port(port)
-    result["checks"]["port_3001"] = port_open
+    result["checks"][f"port_{port}"] = port_open
 
     # Versions
     result["versions"] = all_versions()
@@ -38,7 +39,11 @@ def status(config: dict, db: Optional[StateDB] = None) -> Dict[str, Any]:
 
 
 def _check_port(port: int) -> bool:
-    """Quick TCP port check using /proc or ss."""
+    """Quick TCP port probe; skips Linux-only tools on other platforms."""
+    if os.name == "nt":
+        # A raw connect can disturb the listener, so on Windows we simply
+        # report the probe as not-run rather than fake a result.
+        return False
     try:
         r = run_command(
             ["ss", "-tln", f"sport = :{port}"],

@@ -236,6 +236,7 @@ def test_authoritative_snapshot_is_atomically_ledgered_and_projected(
         "items": [
             {
                 "detected_identity": "CLOUDCLI",
+                "instance_label": None,
                 "role": "AGENT_HOST",
                     "lifecycle": "RUNNING",
                 "confidence": 0.8,

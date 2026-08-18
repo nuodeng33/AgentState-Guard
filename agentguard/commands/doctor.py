@@ -1,8 +1,11 @@
 """doctor command — detailed diagnostic with PASS/WARN/FAIL/SKIP/UNREACHABLE."""
 
+import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+from ..core.versions import bundled_sidecar_active
 from ..core.runner import run_command, which
 
 
@@ -26,6 +29,43 @@ HOST_SERVICES = {"docker"}
 
 def doctor(config: dict) -> List[Dict[str, object]]:
     """Run comprehensive diagnostic checks."""
+    if os.name == "nt":
+        return _doctor_windows(config)
+    return _doctor_posix(config)
+
+
+def _doctor_windows(config: dict) -> List[Dict[str, object]]:
+    """Windows-native probes only; no Linux/container-era assumptions run."""
+    results: List[Dict[str, object]] = [
+        _info("platform", "Windows host detected; running Windows-native probes"),
+        *_bundled_runtime_checks(),
+    ]
+
+    # Docker Desktop is optional tooling on a physical Windows host; absence is
+    # a real fact but not a failure of the product itself.
+    if which("docker"):
+        _docker_checks(results, config, in_container=False)
+    else:
+        results.append(_warn("docker-cli", "Docker Desktop not detected (optional)"))
+
+    # Node.js — real Windows fact: node.exe present in PATH plus real version.
+    _check_windows_binary(results, "node", ["node", "--version"], "Node.js")
+
+    # Git — real Windows fact.
+    _check_windows_binary(results, "git", ["git", "--version"], "Git")
+
+    # External Python — real Windows interpreter semantics (py launcher,
+    # python.exe). Distinct from the bundled sidecar runtime reported above.
+    _windows_external_python(results)
+
+    # Port listing, Linux config-file and /workspace filesystem probes, and the
+    # historical container/CloudCLI assumptions do not apply to a native
+    # Windows host and are intentionally not probed here.
+    return results
+
+
+def _doctor_posix(config: dict) -> List[Dict[str, object]]:
+    """Existing Linux/container diagnostics (unchanged behavior)."""
     results: List[Dict[str, object]] = []
     container_name = config.get("container_name", "agent-dev")
     in_container = _in_container()
@@ -34,71 +74,10 @@ def doctor(config: dict) -> List[Dict[str, object]]:
     if in_container:
         results.append(_info("container", f"Running inside container (no Docker socket access)"))
 
+    results.extend(_bundled_runtime_checks())
+
     # --- Host services (UNREACHABLE when inside container) ---
-
-    # 2. Docker
-    docker_bin = which("docker")
-    if not docker_bin:
-        if in_container:
-            results.append(_unreachable("docker-cli",
-                "Container is isolated (no Docker socket mounted). "
-                "This is expected and correct — the sandbox must not control the host Docker daemon."))
-        else:
-            results.append(_fail("docker-cli", "Docker CLI not found in PATH"))
-
-    # 3. Docker daemon
-    if docker_bin:
-        try:
-            r = run_command(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=10)
-            if r.success:
-                results.append(_ok("docker-daemon", f"Docker daemon v{r.stdout}"))
-            else:
-                if in_container:
-                    results.append(_unreachable("docker-daemon",
-                        "Cannot reach Docker daemon from container (no socket). Expected."))
-                else:
-                    results.append(_warn("docker-daemon", f"Docker daemon not responding: {r.stderr}"))
-        except FileNotFoundError:
-            results.append(_unreachable("docker-daemon", "Docker CLI not available in container"))
-        except Exception as e:
-            results.append(_unreachable("docker-daemon", str(e)))
-
-    # 4. Container status
-    if docker_bin:
-        try:
-            r = run_command(
-                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.ID}}"],
-                timeout=10,
-            )
-            if r.success and r.stdout.strip():
-                results.append(_ok("container", f"{container_name} is running"))
-                # Security posture
-                try:
-                    r2 = run_command([
-                        "docker", "inspect", container_name,
-                        "--format", "{{.HostConfig.Privileged}}|{{.HostConfig.CapDrop}}",
-                    ], timeout=10)
-                    if r2.success:
-                        parts = r2.stdout.split("|")
-                        priv = parts[0].strip() if len(parts) > 0 else "?"
-                        if priv == "false":
-                            results.append(_ok("docker-security", "Container not privileged"))
-                        else:
-                            results.append(_warn("docker-security", f"Container privileged={priv}"))
-                except Exception:
-                    results.append(_skip("docker-security", "Cannot inspect container"))
-            else:
-                if in_container:
-                    results.append(_unreachable("container",
-                        f"Cannot check container '{container_name}' from inside container"))
-                else:
-                    results.append(_fail("container", f"{container_name} not running"))
-        except FileNotFoundError:
-            results.append(_unreachable("container", "Docker not available in container"))
-        except Exception as e:
-            results.append(_unreachable("container", str(e)))
-    else:
-        results.append(_unreachable("container", "Docker not available"))
+    _docker_checks(results, config, in_container=in_container)
 
     # 5. Port check
     port = int(config.get("port", 3001))
@@ -165,6 +144,112 @@ def doctor(config: dict) -> List[Dict[str, object]]:
             results.append(_fail("filesystem", "/workspace not writable"))
 
     return results
+
+
+def _docker_checks(results: list, config: dict, *, in_container: bool) -> None:
+    """Shared Docker daemon/container probes (valid on Linux and Windows)."""
+    container_name = config.get("container_name", "agent-dev")
+    docker_bin = which("docker")
+    if not docker_bin:
+        if in_container:
+            results.append(_unreachable("docker-cli",
+                "Container is isolated (no Docker socket mounted). "
+                "This is expected and correct — the sandbox must not control the host Docker daemon."))
+        else:
+            results.append(_fail("docker-cli", "Docker CLI not found in PATH"))
+
+    # Docker daemon
+    if docker_bin:
+        try:
+            r = run_command(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=10)
+            if r.success:
+                results.append(_ok("docker-daemon", f"Docker daemon v{r.stdout}"))
+            else:
+                if in_container:
+                    results.append(_unreachable("docker-daemon",
+                        "Cannot reach Docker daemon from container (no socket). Expected."))
+                else:
+                    results.append(_warn("docker-daemon", f"Docker daemon not responding: {r.stderr}"))
+        except FileNotFoundError:
+            results.append(_unreachable("docker-daemon", "Docker CLI not available in container"))
+        except Exception as e:
+            results.append(_unreachable("docker-daemon", str(e)))
+
+    # Container status
+    if docker_bin:
+        try:
+            r = run_command(
+                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.ID}}"],
+                timeout=10,
+            )
+            if r.success and r.stdout.strip():
+                results.append(_ok("container", f"{container_name} is running"))
+                # Security posture
+                try:
+                    r2 = run_command([
+                        "docker", "inspect", container_name,
+                        "--format", "{{.HostConfig.Privileged}}|{{.HostConfig.CapDrop}}",
+                    ], timeout=10)
+                    if r2.success:
+                        parts = r2.stdout.split("|")
+                        priv = parts[0].strip() if len(parts) > 0 else "?"
+                        if priv == "false":
+                            results.append(_ok("docker-security", "Container not privileged"))
+                        else:
+                            results.append(_warn("docker-security", f"Container privileged={priv}"))
+                except Exception:
+                    results.append(_skip("docker-security", "Cannot inspect container"))
+            else:
+                if in_container:
+                    results.append(_unreachable("container",
+                        f"Cannot check container '{container_name}' from inside container"))
+                else:
+                    results.append(_fail("container", f"{container_name} not running"))
+        except FileNotFoundError:
+            results.append(_unreachable("container", "Docker not available in container"))
+        except Exception as e:
+            results.append(_unreachable("container", str(e)))
+    else:
+        results.append(_unreachable("container", "Docker not available"))
+
+
+def _bundled_runtime_checks() -> List[Dict[str, object]]:
+    """Bundled sidecar runtime fact; distinct from any external Python."""
+    if bundled_sidecar_active():
+        return [_ok("bundled-runtime", "Bundled sidecar runtime active")]
+    return [_skip("bundled-runtime", "No bundled sidecar runtime (running from source)")]
+
+
+def _check_windows_binary(results: list, name: str, cmd: list, label: str) -> None:
+    """Version check whose absence is a real Windows fact, never spurious FAIL."""
+    if which(cmd[0]) is None:
+        results.append(_warn(name, f"{label} not detected in PATH"))
+        return
+    try:
+        r = run_command(cmd, timeout=5)
+    except Exception:
+        results.append(_unreachable(name, f"{label} detected but version probe failed"))
+        return
+    if r.success and r.stdout:
+        results.append(_ok(name, f"{label} {r.stdout.splitlines()[0]}"))
+    else:
+        results.append(_unreachable(name, f"{label} version unavailable"))
+
+
+def _windows_external_python(results: list) -> None:
+    """External interpreter via real Windows semantics (py launcher, python.exe)."""
+    for cmd in (["py", "-3"], ["python"], ["python3"]):
+        if which(cmd[0]) is None:
+            continue
+        try:
+            r = run_command([*cmd, "--version"], timeout=5)
+        except Exception:
+            continue
+        if r.success and r.stdout:
+            version = r.stdout.splitlines()[0].strip()
+            results.append(_ok("python", f"{version or 'Python'} (external interpreter)"))
+            return
+    results.append(_warn("python", "No external Python interpreter detected"))
 
 
 def _check_tool(results: list, name: str, cmd: list) -> None:
