@@ -1,7 +1,10 @@
 """Docker status checks — purely diagnostic, no mutations."""
 
-from typing import Dict, Optional, Tuple
-from .runner import run_command, CommandResult, which
+
+from . import host_tools
+from .runner import run_command, which
+
+DOCKER_UNKNOWN = "UNKNOWN"
 
 
 def docker_available() -> bool:
@@ -9,7 +12,21 @@ def docker_available() -> bool:
     return which("docker") is not None
 
 
-def docker_version() -> Optional[str]:
+def docker_presence() -> bool | str:
+    """Host-native Docker presence with truthful tri-state semantics.
+
+    Returns ``True`` (host-resolved or sidecar-callable), ``False`` (both
+    host-native sources and the sidecar PATH agree it is absent), or the
+    ``DOCKER_UNKNOWN`` marker when the host environment could not be probed.
+    A sidecar PATH miss is never reported as an authoritative host absence.
+    """
+    resolution = host_tools.host_tool_resolution("docker")
+    if resolution.presence == host_tools.UNKNOWN:
+        return DOCKER_UNKNOWN
+    return bool(resolution.path or resolution.sidecar_callable)
+
+
+def docker_version() -> str | None:
     """Return docker client version string or None."""
     try:
         r = run_command(["docker", "--version"], timeout=10)
@@ -20,7 +37,7 @@ def docker_version() -> Optional[str]:
     return None
 
 
-def container_running(name: str = "agent-dev") -> Tuple[bool, Optional[str]]:
+def container_running(name: str = "agent-dev") -> tuple[bool, str | None]:
     """Check if a named container is running.
 
     Returns (is_running, container_id_or_status_info).
@@ -40,9 +57,9 @@ def container_running(name: str = "agent-dev") -> Tuple[bool, Optional[str]]:
         return False, str(e)
 
 
-def container_info(name: str = "agent-dev") -> Dict[str, str]:
+def container_info(name: str = "agent-dev") -> dict[str, str]:
     """Return container metadata dict."""
-    info: Dict[str, str] = {}
+    info: dict[str, str] = {}
     if not docker_available():
         return {"error": "Docker not available"}
 

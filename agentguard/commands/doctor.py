@@ -1,16 +1,23 @@
 """doctor command — detailed diagnostic with PASS/WARN/FAIL/SKIP/UNREACHABLE."""
 
-import os
-import sys
 from pathlib import Path
-from typing import Any, Dict, List
 
-from ..core.versions import bundled_sidecar_active
+from ..core.host_tools import (
+    HOST_INSTALLED,
+    host_tool_resolution,
+    platform_is_windows,
+)
+from ..core.host_tools import (
+    UNKNOWN as PRESENCE_UNKNOWN,
+)
 from ..core.runner import run_command, which
+from ..core.versions import bundled_sidecar_active
 
 
 def _in_container() -> bool:
-    """Heuristic: check if running inside a container."""
+    """Heuristic: check if running inside a container (POSIX-only probe)."""
+    if platform_is_windows():
+        return False
     try:
         cgroup = Path("/proc/1/cgroup")
         if cgroup.is_file():
@@ -27,16 +34,16 @@ def _in_container() -> bool:
 HOST_SERVICES = {"docker"}
 
 
-def doctor(config: dict) -> List[Dict[str, object]]:
+def doctor(config: dict) -> list[dict[str, object]]:
     """Run comprehensive diagnostic checks."""
-    if os.name == "nt":
+    if platform_is_windows():
         return _doctor_windows(config)
     return _doctor_posix(config)
 
 
-def _doctor_windows(config: dict) -> List[Dict[str, object]]:
+def _doctor_windows(config: dict) -> list[dict[str, object]]:
     """Windows-native probes only; no Linux/container-era assumptions run."""
-    results: List[Dict[str, object]] = [
+    results: list[dict[str, object]] = [
         _info("platform", "Windows host detected; running Windows-native probes"),
         *_bundled_runtime_checks(),
     ]
@@ -64,15 +71,15 @@ def _doctor_windows(config: dict) -> List[Dict[str, object]]:
     return results
 
 
-def _doctor_posix(config: dict) -> List[Dict[str, object]]:
+def _doctor_posix(config: dict) -> list[dict[str, object]]:
     """Existing Linux/container diagnostics (unchanged behavior)."""
-    results: List[Dict[str, object]] = []
+    results: list[dict[str, object]] = []
     container_name = config.get("container_name", "agent-dev")
     in_container = _in_container()
 
     # 1. Kernel / container detection
     if in_container:
-        results.append(_info("container", f"Running inside container (no Docker socket access)"))
+        results.append(_info("container", "Running inside container (no Docker socket access)"))
 
     results.extend(_bundled_runtime_checks())
 
@@ -213,22 +220,39 @@ def _docker_checks(results: list, config: dict, *, in_container: bool) -> None:
         results.append(_unreachable("container", "Docker not available"))
 
 
-def _bundled_runtime_checks() -> List[Dict[str, object]]:
+def _bundled_runtime_checks() -> list[dict[str, object]]:
     """Bundled sidecar runtime fact; distinct from any external Python."""
     if bundled_sidecar_active():
         return [_ok("bundled-runtime", "Bundled sidecar runtime active")]
     return [_skip("bundled-runtime", "No bundled sidecar runtime (running from source)")]
 
 
-def _check_windows_binary(results: list, name: str, cmd: list, label: str) -> None:
-    """Version check whose absence is a real Windows fact, never spurious FAIL."""
-    if which(cmd[0]) is None:
-        results.append(_warn(name, f"{label} not detected in PATH"))
+def _check_windows_binary(
+    results: list, name: str, cmd: list, label: str
+) -> None:
+    """Host-native Windows version check; never a spurious FAIL.
+
+    Uses the host-native resolver — the sidecar's inherited PATH subset does
+    not define host truth.
+    """
+    resolution = host_tool_resolution(cmd[0])
+    if resolution.presence == PRESENCE_UNKNOWN:
+        results.append(
+            _unreachable(name, f"{label} presence could not be probed; treating as UNKNOWN")
+        )
         return
+    if not (resolution.path or resolution.sidecar_callable):
+        results.append(_warn(name, f"{label} not detected on host"))
+        return
+
+    executable = resolution.path or which(cmd[0]) or cmd[0]
     try:
-        r = run_command(cmd, timeout=5)
+        r = run_command([executable, *cmd[1:]], timeout=5)
     except Exception:
-        results.append(_unreachable(name, f"{label} detected but version probe failed"))
+        presence = "installed" if resolution.presence == HOST_INSTALLED else "sidecar-only"
+        results.append(
+            _unreachable(name, f"{label} {presence} but version probe failed")
+        )
         return
     if r.success and r.stdout:
         results.append(_ok(name, f"{label} {r.stdout.splitlines()[0]}"))
@@ -238,18 +262,20 @@ def _check_windows_binary(results: list, name: str, cmd: list, label: str) -> No
 
 def _windows_external_python(results: list) -> None:
     """External interpreter via real Windows semantics (py launcher, python.exe)."""
-    for cmd in (["py", "-3"], ["python"], ["python3"]):
-        if which(cmd[0]) is None:
+    for candidate in ("py", "python", "python3"):
+        resolution = host_tool_resolution(candidate)
+        if not (resolution.path or resolution.sidecar_callable):
             continue
+        executable = resolution.path or which(candidate) or candidate
         try:
-            r = run_command([*cmd, "--version"], timeout=5)
+            r = run_command([executable, "--version"], timeout=5)
         except Exception:
             continue
         if r.success and r.stdout:
             version = r.stdout.splitlines()[0].strip()
             results.append(_ok("python", f"{version or 'Python'} (external interpreter)"))
             return
-    results.append(_warn("python", "No external Python interpreter detected"))
+    results.append(_warn("python", "No external Python interpreter detected on host"))
 
 
 def _check_tool(results: list, name: str, cmd: list) -> None:
@@ -269,20 +295,20 @@ def _check_tool(results: list, name: str, cmd: list) -> None:
         results.append(_warn(name, f"{cmd[0]} not found"))
 
 
-def _ok(check_id: str, msg: str) -> Dict[str, object]:
+def _ok(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "PASS", "message": msg}
 
-def _warn(check_id: str, msg: str) -> Dict[str, object]:
+def _warn(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "WARN", "message": msg}
 
-def _fail(check_id: str, msg: str) -> Dict[str, object]:
+def _fail(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "FAIL", "message": msg}
 
-def _skip(check_id: str, msg: str) -> Dict[str, object]:
+def _skip(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "SKIP", "message": msg}
 
-def _unreachable(check_id: str, msg: str) -> Dict[str, object]:
+def _unreachable(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "UNREACHABLE", "message": msg}
 
-def _info(check_id: str, msg: str) -> Dict[str, object]:
+def _info(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "INFO", "message": msg}

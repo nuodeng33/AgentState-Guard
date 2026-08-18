@@ -1,10 +1,10 @@
 """Software version and local product provenance detection."""
 
-import os
 import re
 import sys
 from pathlib import Path
 
+from .host_tools import host_tool_resolution, platform_is_windows
 from .runner import run_command, which
 
 try:
@@ -55,19 +55,43 @@ def bundled_sidecar_active() -> bool:
     return bool(getattr(sys, "_MEIPASS", None) or getattr(sys, "frozen", False))
 
 
-def _python_version() -> str | None:
-    """Detect the external Python interpreter with truthful per-OS semantics.
+def _resolved_command(name: str, extra_args: tuple[str, ...] = ()) -> list[str] | None:
+    """Host-native executable command for *name*, or ``None`` if unresolvable.
 
-    Windows uses real interpreter semantics: the ``py`` launcher first, then
-    ``python.exe``. POSIX keeps ``python3`` first, then ``python``. An
-    undetected interpreter stays ``None`` (unknown), never a false ABSENT.
+    Prefers the host-native resolved absolute path; falls back to the
+    sidecar's own PATH entry only when the tool is genuinely sidecar-only.
+    The absolute path is used only for this bounded version probe and is
+    never serialized into any DTO.
     """
-    if os.name == "nt":
-        candidates = (["py", "-3"], ["python"], ["python3"])
+    resolution = host_tool_resolution(name)
+    if resolution.path is not None:
+        base = [resolution.path]
+    elif resolution.sidecar_callable:
+        sidecar_path = which(name)
+        if sidecar_path is None:
+            return None
+        base = [sidecar_path]
     else:
-        candidates = (["python3"], ["python"])
-    for cmd in candidates:
-        if which(cmd[0]) is None:
+        return None
+    return [*base, *extra_args]
+
+
+def _external_python() -> str | None:
+    """Detect the external interpreter with truthful per-OS semantics.
+
+    Windows uses real interpreter semantics (the ``py`` launcher first, then
+    ``python.exe``) resolved against the *host* environment — the sidecar's
+    inherited PATH alone never decides truth. POSIX keeps ``python3`` first,
+    then ``python``. An undetected interpreter stays ``None`` (unknown),
+    never a false ABSENT.
+    """
+    if platform_is_windows():
+        candidates = (("py", ("-3",)), ("python", ()), ("python3", ()))
+    else:
+        candidates = (("python3", ()), ("python", ()))
+    for name, extra in candidates:
+        cmd = _resolved_command(name, extra)
+        if cmd is None:
             continue
         version = _get_version(cmd)
         if version:
@@ -76,19 +100,28 @@ def _python_version() -> str | None:
 
 
 def all_versions() -> dict[str, str | None]:
-    """Detect all relevant software versions."""
-    versions = {
-        "docker": _get_version(["docker"]) if which("docker") else None,
-        "node": _get_version(["node"]) if which("node") else None,
-        "claude": _get_version(["claude"]) if which("claude") else None,
-        "cloudcli": _get_version(["cloudcli"]) if which("cloudcli") else None,
-        "ccr": _get_version(["ccr"]) if which("ccr") else None,
-        "git": _get_version(["git"]) if which("git") else None,
-    }
+    """Detect all relevant software versions.
+
+    The Agent CLIs the product documentedly supports (Claude Code, Codex,
+    Kimi Code) are probed truthfully per platform. version-unavailability
+    stays ``None`` (unknown); the bundled sidecar runtime is reported
+    distinctly and never replaces the external probe.
+    """
+    versions: dict[str, str | None] = {}
+    for name in ("docker", "node", "git"):
+        cmd = _resolved_command(name)
+        versions[name] = _get_version(cmd) if cmd is not None else None
+    versions["python"] = _external_python()
     if bundled_sidecar_active():
-        # The packaged runtime is the sidecar's own interpreter; it must be
-        # reported distinctly and never conflated with an external Python.
+        # The packaged runtime is the sidecar's own interpreter, reported
+        # distinctly and never conflated with an external Python.
         versions["python_bundled"] = "bundled"
+    if platform_is_windows():
+        for name in ("claude", "codex", "kimi"):
+            cmd = _resolved_command(name)
+            versions[name] = _get_version(cmd) if cmd is not None else None
     else:
-        versions["python"] = _python_version()
+        for name in ("claude", "cloudcli", "ccr"):
+            cmd = _resolved_command(name)
+            versions[name] = _get_version(cmd) if cmd is not None else None
     return versions
