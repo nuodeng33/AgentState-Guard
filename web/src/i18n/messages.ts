@@ -317,7 +317,7 @@ export type Messages = Record<MessageKey, string>;
 
 const enUS: Messages = {
   'app.brand.name': 'AgentState Guard',
-  'app.brand.sub': 'R4 Operations Console',
+  'app.brand.sub': 'AI agent runtime console',
   'app.nav.primary': 'Primary',
   'nav.home': 'Home',
   'nav.environment': 'Environment',
@@ -353,10 +353,10 @@ const enUS: Messages = {
   'common.close': 'Close',
   'state.degraded.title': '{label} view degraded',
   'state.degraded.body':
-    'The backend could not project authoritative {label} state ({reasonCode}). Nothing below is projected authority.',
+    'The backend could not project authoritative {label} state right now. Nothing below is projected authority.',
   'state.unknown.title': '{label} state unknown',
   'state.unknown.body':
-    'The backend reports this view as UNKNOWN ({reasonCode}). Do not treat it as healthy.',
+    'The backend reports this view as UNKNOWN. Do not treat it as healthy.',
   'home.subtitle': 'Authoritative state across the four read views.',
   'home.section.overview': 'Overview',
   'runtime.empty.title': 'No runtime records',
@@ -379,10 +379,10 @@ const enUS: Messages = {
   'recovery.empty.detail': 'The backend holds no checkpoint records. Recovery level is R0.',
   'recovery.degraded.title': 'Recovery view degraded — fail closed',
   'recovery.degraded.body':
-    'The backend could not project authoritative recovery state ({reasonCode}). Recoverability cannot be confirmed.',
+    'The backend could not project authoritative recovery state. Recoverability cannot be confirmed.',
   'recovery.unknown.title': 'Recovery state unknown — fail closed',
   'recovery.unknown.body':
-    'The backend reports this view as UNKNOWN ({reasonCode}). Recoverability cannot be confirmed.',
+    'The backend reports this view as UNKNOWN. Recoverability cannot be confirmed.',
   'recovery.r0.title': 'No verified recovery (R0) — fail closed',
   'recovery.r0.body':
     'No checkpoint currently meets a verified recovery level. Treat restore capability as unavailable.',
@@ -633,7 +633,7 @@ const enUS: Messages = {
 
 const zhCN: Messages = {
   'app.brand.name': 'AgentState Guard',
-  'app.brand.sub': 'R4 运营控制台',
+  'app.brand.sub': 'AI Agent 运行监管台',
   'app.nav.primary': '主导航',
   'nav.home': '首页',
   'nav.environment': '环境',
@@ -666,10 +666,9 @@ const zhCN: Messages = {
   'common.items': '{count} 条记录',
   'common.close': '关闭',
   'state.degraded.title': '{label}视图已降级',
-  'state.degraded.body':
-    '后端无法投影权威的{label}状态（{reasonCode}）。下方内容均非权威投影。',
+  'state.degraded.body': '后端暂时无法投影权威的{label}状态。下方内容均非权威投影。',
   'state.unknown.title': '{label}状态未知',
-  'state.unknown.body': '后端报告该视图为 UNKNOWN（{reasonCode}），请勿视为健康。',
+  'state.unknown.body': '后端报告该视图为 UNKNOWN，请勿视为健康。',
   'home.subtitle': '四个只读视图的权威状态总览。',
   'home.section.overview': '总览',
   'runtime.empty.title': '暂无运行环境记录',
@@ -691,9 +690,9 @@ const zhCN: Messages = {
   'recovery.empty.title': '暂无恢复检查点',
   'recovery.empty.detail': '后端没有检查点记录，恢复级别为 R0。',
   'recovery.degraded.title': '恢复视图已降级 —— 按不可恢复处理',
-  'recovery.degraded.body': '后端无法投影权威恢复状态（{reasonCode}），无法确认可恢复性。',
+  'recovery.degraded.body': '后端暂时无法投影权威恢复状态，无法确认可恢复性。',
   'recovery.unknown.title': '恢复状态未知 —— 按不可恢复处理',
-  'recovery.unknown.body': '后端报告该视图为 UNKNOWN（{reasonCode}），无法确认可恢复性。',
+  'recovery.unknown.body': '后端报告该视图为 UNKNOWN，无法确认可恢复性。',
   'recovery.r0.title': '无已验证恢复（R0）—— 按不可恢复处理',
   'recovery.r0.body': '当前没有检查点达到已验证恢复级别，请将恢复能力视为不可用。',
   'recovery.section.scope': '恢复范围与验证',

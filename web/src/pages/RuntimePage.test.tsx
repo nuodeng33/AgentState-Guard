@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { RuntimeView } from '../api/types';
@@ -74,7 +74,14 @@ describe('RuntimePage AVAILABLE state', () => {
     expect(screen.getByText('UNREACHABLE')).toBeTruthy();
     expect(screen.getByText('self-runtime')).toBeTruthy();
     expect(screen.getByText('local-exec')).toBeTruthy();
-    expect(screen.getByText('DISCOVERY_PROBE_UNREACHABLE')).toBeTruthy();
     expect(screen.getByText('uncertain')).toBeTruthy();
+  });
+
+  it('keeps the machine reason_code in collapsed secondary diagnostics', () => {
+    render(<RuntimeViewBody data={AVAILABLE} />);
+    expect(screen.queryByText('R4_RUNTIME_AVAILABLE')).toBeNull();
+    expect(screen.queryByText('DISCOVERY_PROBE_UNREACHABLE')).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: /Evidence/ })[1]);
+    expect(screen.getByText('DISCOVERY_PROBE_UNREACHABLE')).toBeTruthy();
   });
 });

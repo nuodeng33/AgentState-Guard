@@ -152,9 +152,8 @@ describe('SupervisionPage observed_agents projection', () => {
     };
     render(<SupervisionViewBody data={view} />);
     expect(screen.getByText('Observed agents (backend projection)')).toBeTruthy();
-    expect(screen.getByText('claude-code')).toBeTruthy();
+    expect(screen.getByText('Claude Code')).toBeTruthy();
     expect(screen.getByText('DETECTED')).toBeTruthy();
-    expect(screen.getByText('AGENT_DETECTED')).toBeTruthy();
   });
 });
 

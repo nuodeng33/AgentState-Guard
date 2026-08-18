@@ -71,9 +71,6 @@ function ViewSummaryCard({
   const data = state.data;
   return (
     <StatusCard label={label} badge={{ label: data.status, tone: viewStatusTone(data.status) }}>
-      <p className="status-card-meta">
-        <code>{data.reason_code}</code>
-      </p>
       <p className="status-card-meta muted">{t('common.items', { count: data.items.length })}</p>
       {data.observed_at && (
         <p className="status-card-meta muted">{t('env.observedAt', { time: data.observed_at })}</p>

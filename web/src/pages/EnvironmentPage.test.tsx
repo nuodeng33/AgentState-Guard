@@ -114,9 +114,12 @@ describe('EnvironmentPage real backend wiring', () => {
 
     // Runtime + Agents projection bodies (unchanged K3 presentation).
     expect((await screen.findAllByText('python')).length).toBeGreaterThan(0);
-    expect(screen.getByText('claude-code')).toBeTruthy();
-    expect(screen.getByText('R4_RUNTIME_AVAILABLE')).toBeTruthy();
-    expect(screen.getByText('R4_AGENTS_AVAILABLE')).toBeTruthy();
+    // Agent identities render in product language from the bounded backend
+    // token ('claude-code' → 'Claude Code'); view-level status badges keep
+    // the backend authority token verbatim.
+    expect(screen.getByText('Claude Code')).toBeTruthy();
+    expect(screen.queryByText('claude-code')).toBeNull();
+    expect(screen.getAllByText('AVAILABLE').length).toBeGreaterThan(0);
     // Source times come from the backend projection, never from elapsed-time math.
     expect(screen.getAllByText(/observed at 2025-05-17T14:05/).length).toBeGreaterThan(0);
 

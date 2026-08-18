@@ -529,10 +529,10 @@ def test_production_backend_ast_contains_no_forbidden_calls():
     assert called.isdisjoint(forbidden)
 
 
-def test_production_backend_cmdline_is_confined_to_bounded_anchor_method():
+def test_production_backend_cmdline_read_is_confined_to_bounded_anchor_method():
     """The sanctioned bounded-launcher exception never leaks raw argv.
 
-    Process command lines may be consulted only inside
+    Process command lines may be read only inside
     ``bounded_launcher_anchors``, which reduces them to on-disk script
     anchors; every other method must stay free of command-line reads.
     """

@@ -13,9 +13,6 @@ export function RuntimeViewBody({ data }: { data: RuntimeView }) {
     <div>
       <div className="view-head">
         <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
-        <span className="reason">
-          reason_code: <code>{data.reason_code}</code>
-        </span>
       </div>
 
       {data.status === 'EMPTY' && (
@@ -68,9 +65,8 @@ function RuntimeCard({ item }: { item: RuntimeItem }) {
             )
           }
         />
-        <KeyValue k="reason_code" v={<code>{item.reason_code}</code>} />
       </KeyValueGrid>
-      <EvidenceRefs refs={item.evidence_refs} />
+      <EvidenceRefs refs={item.evidence_refs} diagnostics={[item.reason_code]} />
     </section>
   );
 }

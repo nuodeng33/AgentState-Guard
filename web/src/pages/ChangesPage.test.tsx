@@ -152,7 +152,10 @@ describe('ChangesPage real wiring', () => {
     expect(screen.getAllByText('APPROVED')[0]).toBeTruthy();
     // affected_objects are bounded digests, rendered verbatim
     expect(screen.getAllByText('d'.repeat(64)).length).toBeGreaterThan(0);
-    // view-level status + reason stay machine tokens
+    // view-level status stays the backend authority token; the machine
+    // reason_code moves to secondary diagnostics (collapsed evidence).
+    expect(screen.getAllByText('AVAILABLE').length).toBeGreaterThan(0);
+    expect(screen.queryByText('R4_CHANGES_AVAILABLE')).toBeNull();
     expect(screen.getAllByText('windows-current').length).toBeGreaterThan(0);
     expect(screen.getAllByText('UNATTRIBUTED').length).toBeGreaterThan(0);
     expect(screen.getAllByText('MODIFIED').length).toBeGreaterThan(0);
@@ -161,7 +164,6 @@ describe('ChangesPage real wiring', () => {
     expect(screen.getAllByText('AUDIT_ONLY').length).toBeGreaterThan(0);
     expect(screen.getAllByText('workspace-safe-id').length).toBeGreaterThan(0);
     expect(screen.getByText('AVAILABLE')).toBeTruthy();
-    expect(screen.getByText('R4_CHANGES_AVAILABLE')).toBeTruthy();
   });
 
   it('opens evidence by canonical event_id and renders sanitized detail', async () => {

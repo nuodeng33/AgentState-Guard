@@ -150,9 +150,6 @@ export function SupervisionViewBody({
     <div>
       <div className="view-head">
         <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
-        <span className="reason">
-          reason_code: <code>{data.reason_code}</code>
-        </span>
       </div>
 
       {data.status === 'EMPTY' && (

@@ -50,6 +50,12 @@ export interface AgentWorkspace {
 
 export interface AgentItem {
   detected_identity: string;
+  /**
+   * Bounded backend instance label (e.g. "KIMI_CODE a1b2c3"); rendered as the
+   * primary display identity when present so multiple same-product instances
+   * stay distinguishable. Never leaks workspace or user paths.
+   */
+  instance_label?: string | null;
   role: string;
   /** Backend-owned lifecycle (e.g. DETECTED | UNKNOWN). Rendered verbatim. */
   lifecycle: string;

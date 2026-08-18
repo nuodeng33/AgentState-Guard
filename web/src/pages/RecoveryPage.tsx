@@ -138,9 +138,6 @@ export function RecoveryViewBody({
     <div>
       <div className="view-head">
         <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
-        <span className="reason">
-          reason_code: <code>{data.reason_code}</code>
-        </span>
       </div>
 
       {data.status === 'EMPTY' && (
@@ -153,13 +150,19 @@ export function RecoveryViewBody({
       {data.status === 'DEGRADED' && (
         <div className="panel panel-bad" role="alert">
           <p className="panel-title">{t('recovery.degraded.title')}</p>
-          <p>{t('recovery.degraded.body', { reasonCode: data.reason_code })}</p>
+          <p className="panel-body">{t('recovery.degraded.body')}</p>
+          <p className="panel-diagnostics muted">
+            reason_code: <code>{data.reason_code}</code>
+          </p>
         </div>
       )}
       {data.status === 'UNKNOWN' && (
         <div className="panel panel-warn" role="alert">
           <p className="panel-title">{t('recovery.unknown.title')}</p>
-          <p>{t('recovery.unknown.body', { reasonCode: data.reason_code })}</p>
+          <p className="panel-body">{t('recovery.unknown.body')}</p>
+          <p className="panel-diagnostics muted">
+            reason_code: <code>{data.reason_code}</code>
+          </p>
         </div>
       )}
       {data.status === 'AVAILABLE' && data.recovery_level === 'R0' && (
