@@ -217,8 +217,9 @@ internal object ProjectionTruthMapper {
         val array = arrayFact(key) ?: return null
         val values = ArrayList<String>(array.length())
         for (index in 0 until array.length()) {
-            val value = array.opt(index) as? String ?: continue
-            if (value.isNotBlank()) values += value
+            val value = array.opt(index) as? String ?: return null
+            if (value.isBlank()) return null
+            values += value
         }
         return values
     }

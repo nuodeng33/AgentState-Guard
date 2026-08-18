@@ -186,6 +186,24 @@ class ProjectionTruthMapperTest {
     }
 
     @Test
+    fun `malformed authoritative string list remains unknown instead of partial`() {
+        val item = JSONObject(
+            """
+            {
+              "event_id":"event-malformed",
+              "type":"OBSERVED_CHANGE",
+              "affected_objects":["opaque-valid",7]
+            }
+            """.trimIndent(),
+        )
+
+        val mapped = ProjectionTruthMapper.change(item)
+
+        assertNull(mapped.affectedObjects)
+        assertEquals("event-malformed", mapped.file)
+    }
+
+    @Test
     fun `evidence maps sanitized workspace facts without raw payload`() {
         val dto = JSONObject(
             """
