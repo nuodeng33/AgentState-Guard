@@ -19,6 +19,18 @@ const KNOWN_IDENTITIES: Record<string, string> = {
   cloudcli: 'CloudCLI Shell',
 };
 
+const KNOWN_ROLES: Record<string, string> = {
+  EXECUTION_AGENT: 'Execution agent',
+  AGENT_HOST: 'Agent host',
+  MODEL_ROUTER: 'Model router',
+};
+
+const KNOWN_WORKSPACE_STATUS: Record<string, string> = {
+  BOUND: 'Linked',
+  UNBOUND: 'Not linked',
+  UNKNOWN: 'Unknown',
+};
+
 function identityToken(token: string): string | undefined {
   return KNOWN_IDENTITIES[token.toLowerCase().replace(/_/g, '-')];
 }
@@ -31,4 +43,21 @@ export function agentDisplayName(identity: string | null | undefined): string {
   const mapped = identityToken(base);
   if (!mapped) return trimmed;
   return rest.length > 0 ? `${mapped} ${rest.join(' ')}` : mapped;
+}
+
+/**
+ * Bounded backend role tokens rendered as product language. Unknown values
+ * render verbatim — presentation never upgrades or fabricates semantics.
+ */
+export function agentRoleDisplay(role: string | null | undefined): string {
+  if (!role) return '';
+  return KNOWN_ROLES[role] ?? role;
+}
+
+/**
+ * Bounded workspace-association badges rendered as product language.
+ */
+export function workspaceStatusDisplay(status: string | null | undefined): string {
+  if (!status) return '';
+  return KNOWN_WORKSPACE_STATUS[status] ?? status;
 }

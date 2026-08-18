@@ -5,7 +5,7 @@ import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { StateBadge, viewStatusTone, type BadgeTone } from '../components/StateBadge';
 import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
 import { useT } from '../i18n/I18nProvider';
-import { agentDisplayName } from '../presentation/productLanguage';
+import { agentDisplayName, agentRoleDisplay, workspaceStatusDisplay } from '../presentation/productLanguage';
 
 /**
  * Lifecycle is rendered verbatim from the backend. The UI never upgrades a
@@ -72,12 +72,17 @@ export function AgentCard({ item }: { item: AgentItem }) {
         </span>
       </div>
       <KeyValueGrid>
-        <KeyValue k={t('kv.role')} v={item.role} />
+        <KeyValue k={t('kv.role')} v={agentRoleDisplay(item.role)} />
         <KeyValue k={t('kv.confidence')} v={item.confidence.toFixed(2)} />
         <KeyValue k={t('kv.executionDomain')} v={orDash(item.execution_domain_id)} />
         <KeyValue
           k={t('kv.workspaceStatus')}
-          v={<StateBadge label={item.workspace.status} tone={item.workspace.status === 'UNKNOWN' ? 'unknown' : 'neutral'} />}
+          v={
+            <StateBadge
+              label={workspaceStatusDisplay(item.workspace.status)}
+              tone={item.workspace.status === 'UNKNOWN' ? 'unknown' : 'neutral'}
+            />
+          }
         />
       </KeyValueGrid>
       <EvidenceRefs refs={item.evidence_refs} diagnostics={[item.reason_code]} />

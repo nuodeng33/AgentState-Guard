@@ -41,7 +41,7 @@ const ENABLED_LINK = {
   active_pair_sessions: 0,
   firewall: {
     operation: 'APPLY',
-    status: 'APPLIED',
+    status: 'AVAILABLE',
     reason_code: 'DEVICE_FIREWALL_APPLIED',
     scope_digest: '12'.repeat(32),
     recorded_at: '2026-08-16T09:59:00Z',
@@ -69,7 +69,7 @@ const DEGRADED_LINK = {
   bound_devices: undefined,
   firewall: {
     operation: 'REMOVE',
-    status: 'FAILED',
+    status: 'ERROR',
     reason_code: 'DEVICE_FIREWALL_REMOVE_FAILED',
     scope_digest: '34'.repeat(32),
     recorded_at: '2026-08-16T11:00:00Z',
@@ -104,7 +104,6 @@ describe('DeviceLinkSection', () => {
     render(<DeviceLinkSection client={buildLinkFetch(ENABLED_LINK, posts)} />);
 
     expect(await screen.findByText('ENABLED')).toBeTruthy();
-    expect(screen.getByText('DEVICE_LINK_ENABLED')).toBeTruthy();
     expect(screen.getByText('https://192.168.1.42:8788')).toBeTruthy();
     expect(screen.getByText('192.168.1.0/24')).toBeTruthy();
     expect(screen.getByText('uuid-desktop-1')).toBeTruthy();
@@ -114,8 +113,16 @@ describe('DeviceLinkSection', () => {
     expect(screen.getByText(/2026-08-16T10:00:00Z/)).toBeTruthy();
     expect(screen.getByText(/keeps the durable binding/)).toBeTruthy();
     expect(screen.queryByText(/VPN|cloud|relay/)).toBeNull();
+    // Machine vocabulary stays out of the primary surface.
+    expect(screen.queryByText('DEVICE_LINK_ENABLED')).toBeNull();
+    expect(screen.queryByText('DEVICE_FIREWALL_APPLIED')).toBeNull();
+    // The primary surface shows the product-language firewall state.
+    expect(screen.getByText('Protection applied')).toBeTruthy();
+    // Raw backend authority fields stay verbatim in collapsed diagnostics.
+    fireEvent.click(screen.getByRole('button', { name: 'Firewall diagnostics' }));
+    expect(screen.getByText('DEVICE_LINK_ENABLED')).toBeTruthy();
     expect(screen.getByText('APPLY')).toBeTruthy();
-    expect(screen.getByText('APPLIED')).toBeTruthy();
+    expect(screen.getByText('AVAILABLE')).toBeTruthy();
     expect(screen.getByText('DEVICE_FIREWALL_APPLIED')).toBeTruthy();
     expect(screen.getByText('12'.repeat(32))).toBeTruthy();
     expect(screen.getByText('2026-08-16T09:59:00Z')).toBeTruthy();
@@ -142,9 +149,14 @@ describe('DeviceLinkSection', () => {
     expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Disable' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Refresh network' })).toBeNull();
+    // Primary surface: product language, never the machine reason code.
+    expect(screen.getByText('Needs attention')).toBeTruthy();
+    expect(screen.queryByText('DEVICE_FIREWALL_REMOVE_FAILED')).toBeNull();
+    // Collapsed diagnostics keep the raw backend authority fields verbatim.
+    fireEvent.click(screen.getByRole('button', { name: 'Firewall diagnostics' }));
     expect(screen.getAllByText('DEVICE_FIREWALL_REMOVE_FAILED').length).toBeGreaterThan(0);
     expect(screen.getByText('REMOVE')).toBeTruthy();
-    expect(screen.getByText('FAILED')).toBeTruthy();
+    expect(screen.getByText('ERROR')).toBeTruthy();
     expect(screen.getByText('34'.repeat(32))).toBeTruthy();
     expect(screen.queryByText('No mobile device is currently bound.')).toBeNull();
     const boundDevices = screen.getByText('Bound devices').closest('.card')?.querySelector('.bound-device-facts');

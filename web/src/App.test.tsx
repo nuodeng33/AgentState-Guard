@@ -187,7 +187,7 @@ describe('App smoke (product IA)', () => {
             bound_devices: [],
             firewall: {
               operation: 'REMOVE',
-              status: 'FAILED',
+              status: 'ERROR',
               reason_code: 'DEVICE_FIREWALL_REMOVE_FAILED',
               scope_digest: null,
               recorded_at: null,
@@ -202,8 +202,13 @@ describe('App smoke (product IA)', () => {
 
     expect(await screen.findByText('DEGRADED')).toBeTruthy();
     expect(screen.queryByText('DISABLED')).toBeNull();
+    // Primary card: product language, never the machine reason code.
+    expect(screen.getByText(/Needs attention/)).toBeTruthy();
+    expect(screen.queryByText('DEVICE_FIREWALL_REMOVE_FAILED')).toBeNull();
+    // Collapsed diagnostics keep the raw backend authority fields verbatim.
+    fireEvent.click(screen.getByRole('button', { name: 'Firewall diagnostics' }));
     expect(screen.getAllByText('DEVICE_FIREWALL_REMOVE_FAILED').length).toBeGreaterThan(0);
-    expect(screen.getByText('FAILED')).toBeTruthy();
+    expect(screen.getByText('ERROR')).toBeTruthy();
     expect(screen.queryByText('Latest advisory')).toBeNull();
     expect(screen.queryByText('No advisory yet.')).toBeNull();
   });

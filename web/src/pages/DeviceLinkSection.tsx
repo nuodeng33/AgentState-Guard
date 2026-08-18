@@ -1,9 +1,11 @@
 /**
  * Device Link binding/lifecycle section of the Devices page.
  *
- * Renders GET /api/v1/devices verbatim: enabled flag, status, endpoint,
- * address, subnet, durable desktop identity (uuid + fingerprints), bound
- * devices, and active pair-session count. Enable / Disable / Refresh post
+ * Renders GET /api/v1/devices: enabled flag, status, endpoint, address,
+ * subnet, durable desktop identity (uuid + fingerprints), bound devices, and
+ * active pair-session count. Machine reason codes and raw firewall records
+ * stay verbatim inside collapsed secondary diagnostics; the primary section
+ * language is user-readable product language. Enable / Disable / Refresh post
  * exactly {}; Revoke posts exactly {} to the device's own revoke route.
  *
  * Disable ≠ Unpair: disable removes exposure but keeps the binding (the
@@ -29,6 +31,8 @@ import { SectionHeader } from '../components/SectionHeader';
 import { StateBadge, type BadgeTone } from '../components/StateBadge';
 import { ViewGate } from '../components/ViewGate';
 import { useT, type Translate } from '../i18n/I18nProvider';
+import { DeviceFirewallDiagnostics } from './HomePage';
+import { deviceFirewallLabelKey, deviceFirewallState } from '../presentation/deviceFirewall';
 
 function linkTone(status: DeviceLinkStatus['status']): BadgeTone {
   switch (status) {
@@ -65,6 +69,7 @@ function DeviceLinkBody({
 }) {
   const t = useT();
   const bound = data.bound_devices;
+  const firewallState = deviceFirewallState(data.firewall);
   return (
     <section className="card">
       <div className="card-head">
@@ -72,7 +77,15 @@ function DeviceLinkBody({
         <StateBadge label={data.status} tone={linkTone(data.status)} />
       </div>
       <KeyValueGrid>
-        <KeyValue k="reason_code" v={<code>{data.reason_code}</code>} />
+        <KeyValue
+          k={t('devices.firewall.state')}
+          v={
+            <StateBadge
+              label={t(deviceFirewallLabelKey(firewallState))}
+              tone={firewallState === 'APPLIED' ? 'ok' : firewallState === 'ATTENTION' ? 'warn' : 'neutral'}
+            />
+          }
+        />
         <KeyValue k={t('devices.endpoint')} v={orDash(data.endpoint)} />
         <KeyValue k={t('devices.address')} v={orDash(data.address)} />
         <KeyValue k={t('devices.subnet')} v={orDash(data.subnet)} />
@@ -83,12 +96,8 @@ function DeviceLinkBody({
           k={t('devices.activeSessions')}
           v={data.active_pair_sessions === undefined ? <span className="muted">—</span> : <code>{String(data.active_pair_sessions)}</code>}
         />
-        <KeyValue k="firewall.operation" v={orDash(data.firewall?.operation)} />
-        <KeyValue k="firewall.status" v={orDash(data.firewall?.status)} />
-        <KeyValue k="firewall.reason_code" v={orDash(data.firewall?.reason_code)} />
-        <KeyValue k="firewall.scope_digest" v={orDash(data.firewall?.scope_digest)} />
-        <KeyValue k="firewall.recorded_at" v={orDash(data.firewall?.recorded_at)} />
       </KeyValueGrid>
+      <DeviceFirewallDiagnostics data={data} t={t} />
       <LifecycleActions
         enabled={data.enabled}
         client={client}

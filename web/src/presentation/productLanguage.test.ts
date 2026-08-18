@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { agentDisplayName } from './productLanguage';
+import { agentDisplayName, agentRoleDisplay, workspaceStatusDisplay } from './productLanguage';
 
 /**
  * Bounded backend identity tokens render as user-readable product language;
@@ -30,5 +30,33 @@ describe('agentDisplayName', () => {
     expect(agentDisplayName('')).toBe('');
     expect(agentDisplayName(null)).toBe('');
     expect(agentDisplayName(undefined)).toBe('');
+  });
+});
+
+describe('agentRoleDisplay', () => {
+  it('maps bounded role tokens to product language', () => {
+    expect(agentRoleDisplay('EXECUTION_AGENT')).toBe('Execution agent');
+    expect(agentRoleDisplay('AGENT_HOST')).toBe('Agent host');
+    expect(agentRoleDisplay('MODEL_ROUTER')).toBe('Model router');
+  });
+
+  it('never fabricates a role for unknown tokens', () => {
+    expect(agentRoleDisplay('SUPER_ADMIN')).toBe('SUPER_ADMIN');
+    expect(agentRoleDisplay('')).toBe('');
+    expect(agentRoleDisplay(null)).toBe('');
+  });
+});
+
+describe('workspaceStatusDisplay', () => {
+  it('maps bounded workspace association tokens to product language', () => {
+    expect(workspaceStatusDisplay('BOUND')).toBe('Linked');
+    expect(workspaceStatusDisplay('UNBOUND')).toBe('Not linked');
+    expect(workspaceStatusDisplay('UNKNOWN')).toBe('Unknown');
+  });
+
+  it('never fabricates a status for unknown tokens', () => {
+    expect(workspaceStatusDisplay('PINNED')).toBe('PINNED');
+    expect(workspaceStatusDisplay('')).toBe('');
+    expect(workspaceStatusDisplay(undefined)).toBe('');
   });
 });

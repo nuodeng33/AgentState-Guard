@@ -311,7 +311,13 @@ export type MessageKey =
   | 'devices.actionFailed'
   | 'devices.enableRunning'
   | 'devices.disableRunning'
-  | 'devices.refreshRunning';
+  | 'devices.refreshRunning'
+  | 'devices.firewall.state'
+  | 'devices.firewall.stateApplied'
+  | 'devices.firewall.stateIdle'
+  | 'devices.firewall.stateAttention'
+  | 'devices.firewall.stateUnknown'
+  | 'devices.firewall.diagnostics';
 
 export type Messages = Record<MessageKey, string>;
 
@@ -629,6 +635,12 @@ const enUS: Messages = {
   'devices.enableRunning': 'Enabling…',
   'devices.disableRunning': 'Disabling…',
   'devices.refreshRunning': 'Refreshing…',
+  'devices.firewall.state': 'Firewall',
+  'devices.firewall.stateApplied': 'Protection applied',
+  'devices.firewall.stateIdle': 'Not applied',
+  'devices.firewall.stateAttention': 'Needs attention',
+  'devices.firewall.stateUnknown': 'Status unavailable',
+  'devices.firewall.diagnostics': 'Firewall diagnostics',
 };
 
 const zhCN: Messages = {
@@ -928,6 +940,12 @@ const zhCN: Messages = {
   'devices.enableRunning': '正在启用…',
   'devices.disableRunning': '正在停用…',
   'devices.refreshRunning': '正在刷新…',
+  'devices.firewall.state': '防火墙',
+  'devices.firewall.stateApplied': '防护已应用',
+  'devices.firewall.stateIdle': '未应用',
+  'devices.firewall.stateAttention': '需要注意',
+  'devices.firewall.stateUnknown': '状态不可用',
+  'devices.firewall.diagnostics': '防火墙诊断',
 };
 
 export const MESSAGES: Record<Locale, Messages> = {
