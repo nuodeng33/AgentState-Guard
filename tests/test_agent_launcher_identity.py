@@ -109,6 +109,75 @@ class _AnchorFakePsutil:
         return _AnchorFakeProcess(self._argv)
 
 
+class TestWindowsLauncherShapes:
+    """Real Windows launcher forms from the physical MSI dogfood."""
+
+    @staticmethod
+    def _install_package(root, package, script_relpath, manifest_name):
+        script = root / script_relpath
+        script.parent.mkdir(parents=True)
+        script.write_text("// cli")
+        manifest = root / manifest_name
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps({"name": package, "version": "1.0.0"}))
+        return script
+
+    def test_npm_cmd_shim_shape_resolves_codex(self, tmp_path):
+        script = self._install_package(
+            tmp_path,
+            "@openai/codex",
+            "npm-prefix/node_modules/@openai/codex/dist/cli.js",
+            "npm-prefix/node_modules/@openai/codex/package.json",
+        )
+        assert launcher_identity.resolve_launcher_identity([str(script)]) == "CODEX"
+
+    def test_node_script_entry_shape_resolves_kimi(self, tmp_path):
+        script = self._install_package(
+            tmp_path,
+            "@moonshot-ai/kimi-code",
+            "npm-prefix/node_modules/@moonshot-ai/kimi-code/cli.js",
+            "npm-prefix/node_modules/@moonshot-ai/kimi-code/package.json",
+        )
+        assert launcher_identity.resolve_launcher_identity([str(script)]) == "KIMI_CODE"
+
+    def test_package_bin_launcher_resolves_claude(self, tmp_path):
+        script = self._install_package(
+            tmp_path,
+            "@anthropic-ai/claude-code",
+            "npm-prefix/node_modules/@anthropic-ai/claude-code/cli.js",
+            "npm-prefix/node_modules/@anthropic-ai/claude-code/package.json",
+        )
+        assert launcher_identity.resolve_launcher_identity([str(script)]) == "CLAUDE"
+
+    def test_bundled_wrapper_tree_resolves_via_wrapper_directory(self, tmp_path):
+        script = tmp_path / "tools" / "claude" / "cli.js"
+        script.parent.mkdir(parents=True)
+        script.write_text("// cli")
+        assert launcher_identity.resolve_launcher_identity([str(script)]) == "CLAUDE"
+
+    def test_versioned_wrapper_directory_resolves(self, tmp_path):
+        script = tmp_path / "runtime" / "codex-0.41.0" / "cli.js"
+        script.parent.mkdir(parents=True)
+        script.write_text("// cli")
+        assert launcher_identity.resolve_launcher_identity([str(script)]) == "CODEX"
+
+    def test_ambiguous_generic_node_stays_unclassified(self, tmp_path):
+        script = tmp_path / "tools" / "serve" / "server.js"
+        script.parent.mkdir(parents=True)
+        script.write_text("// server")
+        assert launcher_identity.resolve_launcher_identity([str(script)]) is None
+
+    def test_unowned_wrapper_directory_stays_unclassified(self, tmp_path):
+        script = tmp_path / "tools" / "watcher" / "cli.js"
+        script.parent.mkdir(parents=True)
+        script.write_text("// cli")
+        assert launcher_identity.resolve_launcher_identity([str(script)]) is None
+
+    def test_wrapper_anchor_requires_real_file(self, tmp_path):
+        missing = tmp_path / "tools" / "kimi" / "cli.js"
+        assert launcher_identity.resolve_launcher_identity([str(missing)]) is None
+
+
 class TestBackendBoundedLauncherAnchors:
     def _backend(self, argv):
         from agentguard.discovery.agents.psutil_backend import PsutilProcessBackend
@@ -131,6 +200,23 @@ class TestBackendBoundedLauncherAnchors:
         argv = ["node", str(plain), "--flag"]
         assert self._backend(argv).bounded_launcher_anchors(4242) == ()
         assert self._backend(RuntimeError("boom")).bounded_launcher_anchors(4242) == ()
+
+    def test_wrapper_shape_anchor_extracted_from_argv(self, tmp_path):
+        script = tmp_path / "tools" / "claude" / "cli.js"
+        script.parent.mkdir(parents=True)
+        script.write_text("//")
+        argv = ["node.exe", str(script), "--quiet"]
+        anchors = self._backend(argv).bounded_launcher_anchors(4242)
+        assert anchors == (str(script),)
+
+    def test_verbatim_prefixed_anchor_normalized(self, tmp_path):
+        script = tmp_path / "node_modules" / "@openai" / "codex" / "cli.js"
+        script.parent.mkdir(parents=True)
+        script.write_text("//")
+        verbatim = "\\\\?\\" + str(script)
+        argv = ["node.exe", verbatim]
+        anchors = self._backend(argv).bounded_launcher_anchors(4242)
+        assert anchors == (str(script),)
 
 
 class TestNodeHostedFailClosedDiscovery:

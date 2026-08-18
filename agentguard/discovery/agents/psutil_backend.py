@@ -12,7 +12,10 @@ except ModuleNotFoundError as exc:
         raise
     _psutil = None
 
-from .launcher_identity import is_package_identity_anchor
+from .launcher_identity import (
+    is_package_identity_anchor,
+    is_package_wrapper_anchor,
+)
 from .processes import (
     ProcessAccessDeniedError,
     ProcessBackend,
@@ -25,6 +28,8 @@ from .processes import (
 _PROCESS_ITER_ATTRS = ("pid", "ppid", "name", "create_time", "status")
 _DEFAULT_PSUTIL = object()
 _T = TypeVar("_T")
+# Rust std::fs::canonicalize() style verbatim prefix on process image paths.
+_VERBATIM_PREFIX = "\\\\?\\"
 
 
 class PsutilProcessHandle(ProcessHandle):
@@ -155,7 +160,10 @@ class PsutilProcessBackend(ProcessBackend):
             candidate = value.strip().strip('"')
             if not candidate or candidate.startswith("-"):
                 continue
-            if is_package_identity_anchor(candidate):
+            candidate = candidate.removeprefix(_VERBATIM_PREFIX)
+            if is_package_identity_anchor(candidate) or is_package_wrapper_anchor(
+                candidate
+            ):
                 anchors.append(candidate)
                 if len(anchors) >= 2:
                     break
