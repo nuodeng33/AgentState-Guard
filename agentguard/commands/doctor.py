@@ -48,10 +48,18 @@ def _doctor_windows(config: dict) -> list[dict[str, object]]:
         *_bundled_runtime_checks(),
     ]
 
-    # Docker Desktop is optional tooling on a physical Windows host; absence is
-    # a real fact but not a failure of the product itself.
-    if which("docker"):
-        _docker_checks(results, config, in_container=False)
+    # Docker Desktop is optional tooling on a physical Windows host; resolve it
+    # from host-native facts, not only the sidecar's inherited PATH.
+    docker_resolution = host_tool_resolution("docker")
+    if docker_resolution.presence == PRESENCE_UNKNOWN:
+        results.append(_unreachable("docker-cli", "Docker presence could not be probed; UNKNOWN"))
+    elif docker_resolution.path or docker_resolution.sidecar_callable:
+        _docker_checks(
+            results,
+            config,
+            in_container=False,
+            docker_bin=docker_resolution.path or which("docker"),
+        )
     else:
         results.append(_warn("docker-cli", "Docker Desktop not detected (optional)"))
 
@@ -153,10 +161,16 @@ def _doctor_posix(config: dict) -> list[dict[str, object]]:
     return results
 
 
-def _docker_checks(results: list, config: dict, *, in_container: bool) -> None:
+def _docker_checks(
+    results: list,
+    config: dict,
+    *,
+    in_container: bool,
+    docker_bin: str | None = None,
+) -> None:
     """Shared Docker daemon/container probes (valid on Linux and Windows)."""
     container_name = config.get("container_name", "agent-dev")
-    docker_bin = which("docker")
+    docker_bin = docker_bin or which("docker")
     if not docker_bin:
         if in_container:
             results.append(_unreachable("docker-cli",
@@ -168,7 +182,7 @@ def _docker_checks(results: list, config: dict, *, in_container: bool) -> None:
     # Docker daemon
     if docker_bin:
         try:
-            r = run_command(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=10)
+            r = run_command([docker_bin, "info", "--format", "{{.ServerVersion}}"], timeout=10)
             if r.success:
                 results.append(_ok("docker-daemon", f"Docker daemon v{r.stdout}"))
             else:
@@ -186,7 +200,7 @@ def _docker_checks(results: list, config: dict, *, in_container: bool) -> None:
     if docker_bin:
         try:
             r = run_command(
-                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.ID}}"],
+                [docker_bin, "ps", "--filter", f"name={container_name}", "--format", "{{.ID}}"],
                 timeout=10,
             )
             if r.success and r.stdout.strip():
@@ -194,7 +208,7 @@ def _docker_checks(results: list, config: dict, *, in_container: bool) -> None:
                 # Security posture
                 try:
                     r2 = run_command([
-                        "docker", "inspect", container_name,
+                        docker_bin, "inspect", container_name,
                         "--format", "{{.HostConfig.Privileged}}|{{.HostConfig.CapDrop}}",
                     ], timeout=10)
                     if r2.success:

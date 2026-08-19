@@ -56,6 +56,43 @@ class TestWindowsDoctor:
             for token in _WIN_ONLY_TOKENS:
                 assert token not in str(item["message"])
 
+    def test_docker_host_resolution_is_used_when_sidecar_path_is_missing(self):
+        resolved = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+
+        def resolve(name, **_kw):
+            if name == "docker":
+                return type(
+                    "R",
+                    (),
+                    {"presence": "HOST_INSTALLED", "path": resolved, "sidecar_callable": False},
+                )()
+            return type(
+                "R", (), {"presence": "UNKNOWN", "path": None, "sidecar_callable": False}
+            )()
+
+        def run(command, **_kwargs):
+            assert command[0] == resolved
+            if command[1] == "info":
+                return type("R", (), {"success": True, "stdout": "27.0", "stderr": ""})()
+            if command[1] == "ps":
+                return type("R", (), {"success": True, "stdout": "container-id", "stderr": ""})()
+            return type("R", (), {"success": True, "stdout": "false|[]", "stderr": ""})()
+
+        with (
+            patch("agentguard.commands.doctor.platform_is_windows", return_value=True),
+            patch.object(doctor_module, "run_command", side_effect=run),
+            patch.object(doctor_module, "which", return_value=None),
+            patch.object(doctor_module, "host_tool_resolution", side_effect=resolve),
+        ):
+            results = doctor({})
+
+        checks = _by_check(results)
+        assert checks["docker-daemon"]["status"] == "PASS"
+        assert not any(
+            item["check"] == "docker-cli" and item["status"] in {"WARN", "FAIL"}
+            for item in results
+        )
+
     def test_tool_presence_unknown_or_absent_never_spurious_fail(self):
         with (
             patch("agentguard.commands.doctor.platform_is_windows", return_value=True),
