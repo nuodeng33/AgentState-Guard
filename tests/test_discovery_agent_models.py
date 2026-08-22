@@ -4,10 +4,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentguard.discovery import AgentLifecycleStatus, CapabilityStatus
+from agentguard.discovery import CapabilityStatus
 from agentguard.discovery.agents import (
-    AgentCandidateType,
-    AgentClassification,
     AgentRole,
     ExecutableIdentityKind,
     ProcessFact,
@@ -188,43 +186,6 @@ def test_unknown_optional_fields_degrade_without_breaking_old_reader():
     assert "future_process_detail" not in restored.to_dict()
 
 
-@pytest.mark.parametrize(
-    "forbidden_lifecycle",
-    [AgentLifecycleStatus.INTEGRATED, AgentLifecycleStatus.ENFORCED],
-)
-def test_p3a_classification_refuses_integrated_and_enforced(forbidden_lifecycle):
-    with pytest.raises(ValueError, match="P3A"):
-        AgentClassification(
-            candidate_id="candidate-1",
-            candidate_type=AgentCandidateType.PROCESS,
-            role=AgentRole.EXECUTION_AGENT,
-            lifecycle=forbidden_lifecycle,
-            confidence=0.8,
-            evidence_refs=("process:410",),
-        )
-
-
-def test_classification_keeps_uncertainties_required_checks_and_evidence():
-    result = AgentClassification(
-        candidate_id="candidate-1",
-        candidate_type=AgentCandidateType.PROCESS,
-        role=AgentRole.EXECUTION_AGENT,
-        lifecycle=AgentLifecycleStatus.RUNNING,
-        confidence=0.8,
-        evidence_refs=("process:410", "signature:generic-exec"),
-        uncertainties=("PRODUCT_IDENTITY_UNVERIFIED",),
-        required_checks=("ADAPTER_CONFIRMATION",),
-        process_instance_id=_process_fact().process_instance_id,
-    )
-
-    payload = result.to_dict()
-    assert payload["lifecycle"] == "RUNNING"
-    assert payload["evidence_refs"] == ["process:410", "signature:generic-exec"]
-    assert payload["uncertainties"] == ["PRODUCT_IDENTITY_UNVERIFIED"]
-    assert payload["required_checks"] == ["ADAPTER_CONFIRMATION"]
-    assert "allow" not in payload
-
-
 def test_workspace_candidate_cannot_be_promoted_to_final_binding():
     with pytest.raises(ValueError):
         WorkspaceCandidate(
@@ -264,9 +225,8 @@ def test_sensitive_fixed_fact_name_is_rejected_before_serialization():
         _process_fact(fixed_facts={"api_key_present": True})
 
 
-def test_all_p3a_public_models_are_exported_from_discovery_package():
+def test_live_process_and_workspace_models_are_exported_from_discovery_package():
     from agentguard import discovery
 
     assert discovery.ProcessFact is ProcessFact
-    assert discovery.AgentClassification is AgentClassification
     assert discovery.WorkspaceCandidate is WorkspaceCandidate

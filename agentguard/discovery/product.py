@@ -32,40 +32,39 @@ from .models import (
 )
 
 _COLLECTOR = "product-discovery"
-_AGENT_SIGNATURES: dict[str, tuple[str, AgentRole]] = {
-    "ccr": ("CCR", AgentRole.MODEL_ROUTER),
-    "ccr.exe": ("CCR", AgentRole.MODEL_ROUTER),
-    "claude": ("CLAUDE", AgentRole.EXECUTION_AGENT),
-    "claude.exe": ("CLAUDE", AgentRole.EXECUTION_AGENT),
-    "claude-code": ("CLAUDE", AgentRole.EXECUTION_AGENT),
-    "claude-code.exe": ("CLAUDE", AgentRole.EXECUTION_AGENT),
-    "cloudcli": ("CLOUDCLI", AgentRole.AGENT_HOST),
-    "cloudcli.exe": ("CLOUDCLI", AgentRole.AGENT_HOST),
-    "codex": ("CODEX", AgentRole.EXECUTION_AGENT),
-    "codex.exe": ("CODEX", AgentRole.EXECUTION_AGENT),
-    "kimi": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
-    "kimi.exe": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
-    "kimi-code": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
-    "kimi-code.exe": ("KIMI_CODE", AgentRole.EXECUTION_AGENT),
+_BASENAME_IDENTITY_EVIDENCE: dict[str, str] = {
+    **dict.fromkeys(("ccr", "ccr.exe"), "CCR"),
+    **dict.fromkeys(
+        ("claude", "claude.exe", "claude-code", "claude-code.exe"), "CLAUDE"
+    ),
+    **dict.fromkeys(("cloudcli", "cloudcli.exe"), "CLOUDCLI"),
+    **dict.fromkeys(("codex", "codex.exe"), "CODEX"),
+    **dict.fromkeys(("kimi", "kimi.exe", "kimi-code", "kimi-code.exe"), "KIMI_CODE"),
 }
 
 #: Generic runtimes that must never be guessed as Agents by basename alone.
 _GENERIC_RUNTIME_BASENAMES = frozenset({"node", "node.exe", "nodejs", "nodejs.exe"})
 
-#: Launcher identities this product formally recognizes from bounded metadata.
-_LAUNCHER_IDENTITY_ROLES: dict[str, AgentRole] = {
+#: Canonical role enrichment for identities established by bounded evidence.
+_IDENTITY_ROLE_ENRICHMENT: dict[str, AgentRole] = {
+    "CCR": AgentRole.MODEL_ROUTER,
     "CLAUDE": AgentRole.EXECUTION_AGENT,
+    "CLOUDCLI": AgentRole.AGENT_HOST,
     "CODEX": AgentRole.EXECUTION_AGENT,
     "KIMI_CODE": AgentRole.EXECUTION_AGENT,
 }
 
+# V1 passive discovery admits only identities established by bounded evidence.
+# Workspace binding and mutation authority remain separate and fail closed.
+_V1_PASSIVE_ADMISSION_IDENTITIES = frozenset(
+    ("CCR", "CLAUDE", "CLOUDCLI", "CODEX", "KIMI_CODE")
+)
+
 
 def _resolve_bounded_launcher_identity(anchors: tuple[str, ...] | list[str]) -> str | None:
-    """Map bounded launcher anchors to a bounded Agent identity, or None.
+    """Map bounded filesystem anchors to Agent identity, or ``None``.
 
-    Anchors are plain filesystem candidate paths supplied by a backend. The
-    raw process command line is never accepted, never returned, and never
-    persisted here. Unresolvable anchors yield ``None`` (UNKNOWN).
+    Raw process command lines are never accepted, returned, or persisted.
     """
     return launcher_identity.resolve_launcher_identity(list(anchors))
 
@@ -161,19 +160,19 @@ class ProductDiscoveryService:
 
         for fact in processes.facts:
             basename = (fact.executable_basename or "").casefold()
-            signature = _AGENT_SIGNATURES.get(basename)
-            if signature is None and basename in _GENERIC_RUNTIME_BASENAMES:
+            identity = _BASENAME_IDENTITY_EVIDENCE.get(basename)
+            if identity is None and basename in _GENERIC_RUNTIME_BASENAMES:
                 # Node-hosted Agents resolve only through bounded launcher
                 # identity; unresolved runtimes stay unclassified.
-                launcher_token = _resolve_bounded_launcher_identity(
+                identity = _resolve_bounded_launcher_identity(
                     bounded_launcher_anchors_for(self._process_backend, fact.pid)
                 )
-                launcher_role = _LAUNCHER_IDENTITY_ROLES.get(launcher_token or "")
-                if launcher_role is not None:
-                    signature = (launcher_token, launcher_role)
-            if signature is None or fact.current_state is not ProcessState.RUNNING:
+            if fact.current_state is not ProcessState.RUNNING:
                 continue
-            agent_type, role = signature
+            if not identity or identity not in _V1_PASSIVE_ADMISSION_IDENTITIES:
+                continue
+            agent_type = identity
+            role = _IDENTITY_ROLE_ENRICHMENT[identity]
             source = next(
                 (process_evidence.get(ref) for ref in fact.evidence_refs if ref in process_evidence),
                 None,

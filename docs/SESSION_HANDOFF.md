@@ -7,6 +7,18 @@
 - P7 changes are staged for the atomic commit; the ignored `.claude/retry-guard-state.json` is runtime state.
 - Frozen legacy workspace `/workspace/projects/agentstate-guard` was not accessed.
 
+## V1 Passive Discovery Route
+
+The authoritative V1 route admits passive Agent candidates only from bounded
+known identity evidence. Arbitrary unknown harness discovery from generic
+process metadata is deferred because current observable facts cannot reliably
+distinguish it from ordinary tooling. Future explicit authoritative provenance
+may enable managed unknown targets, but is not a V1 requirement.
+
+Generic runtimes and ordinary tooling remain unclassified without bounded
+identity evidence; current Codex, Claude, and Kimi detection remains protected.
+Workspace binding and mutation permission remain separate and fail closed.
+
 ## Evidence
 
 - `.venv/bin/python -m pytest -q`: 753 passed in 26.58s.

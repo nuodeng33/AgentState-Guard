@@ -14,7 +14,8 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from agentguard.discovery.agents import launcher_identity
+import agentguard.discovery.product as product_module
+from agentguard.discovery.agents import AgentRole, launcher_identity
 from agentguard.discovery.product import ProductDiscoveryService
 from tests.test_product_discovery import (
     _ProcessBackend,
@@ -245,8 +246,19 @@ class TestNodeHostedFailClosedDiscovery:
             "agentguard.discovery.product._resolve_bounded_launcher_identity",
             return_value="KIMI_CODE",
         ):
-            snapshot = self._snapshot([_ProcessHandle(201, "node.exe", cwd=str(tmp_path))])
+            snapshot = self._snapshot(
+                [_ProcessHandle(201, "node.exe", cwd=str(tmp_path))]
+            )
         assert [agent.agent_type for agent in snapshot.agents] == ["KIMI_CODE"]
+        metadata = next(
+            item.value
+            for item in snapshot.evidence
+            if item.fact_type == "agent.metadata"
+        )
+        assert (metadata["agent_kind"], metadata["role"]) == (
+            "KIMI_CODE",
+            "EXECUTION_AGENT",
+        )
 
     def test_plain_node_is_never_an_agent(self):
         snapshot = self._snapshot([_ProcessHandle(202, "node.exe")])
@@ -262,8 +274,52 @@ class TestNodeHostedFailClosedDiscovery:
             )
         assert snapshot.agents == ()
 
+    def test_v1_passive_discovery_does_not_auto_detect_generic_tooling(self):
+        handles = [
+            _ProcessHandle(205, "node.exe"),
+            _ProcessHandle(206, "python.exe"),
+            _ProcessHandle(207, "npm.exe"),
+            _ProcessHandle(208, "vite.exe"),
+            _ProcessHandle(209, "webpack.exe"),
+            _ProcessHandle(210, "typescript-language-server.exe"),
+            _ProcessHandle(211, "pytest.exe"),
+            _ProcessHandle(212, "powershell.exe"),
+            _ProcessHandle(213, "cursor-helper.exe"),
+            _ProcessHandle(214, "cursor.exe"),
+            _ProcessHandle(215, "opencode.exe"),
+        ]
+
+        snapshot = self._snapshot(handles)
+
+        assert snapshot.agents == ()
+        assert not any(item.fact_type == "agent.metadata" for item in snapshot.evidence)
+
 
 class TestProductDiscoveryWindowsFleet(TestNodeHostedFailClosedDiscovery):
+    def test_direct_and_launcher_paths_share_identity_role_enrichment(self):
+        role_enrichment = getattr(product_module, "_IDENTITY_ROLE_ENRICHMENT", {})
+        with patch.dict(
+            role_enrichment,
+            {"CODEX": AgentRole.MODEL_ROUTER},
+        ):
+            direct = self._snapshot([_ProcessHandle(300, "codex.exe")])
+            with patch(
+                "agentguard.discovery.product._resolve_bounded_launcher_identity",
+                return_value="CODEX",
+            ):
+                launcher = self._snapshot([_ProcessHandle(301, "node.exe")])
+
+        metadata = [
+            item.value
+            for snapshot in (direct, launcher)
+            for item in snapshot.evidence
+            if item.fact_type == "agent.metadata"
+        ]
+        assert [(item["agent_kind"], item["role"]) for item in metadata] == [
+            ("CODEX", "MODEL_ROUTER"),
+            ("CODEX", "MODEL_ROUTER"),
+        ]
+
     def test_full_agent_fleet_discovered(self):
         handles = [
             _ProcessHandle(301, "Codex.exe"),
@@ -272,13 +328,29 @@ class TestProductDiscoveryWindowsFleet(TestNodeHostedFailClosedDiscovery):
             _ProcessHandle(304, "claude-code.exe"),
             _ProcessHandle(305, "kimi.exe"),
             _ProcessHandle(306, "kimi-code.exe"),
-            _ProcessHandle(307, "notepad.exe"),
+            _ProcessHandle(307, "ccr.exe"),
+            _ProcessHandle(308, "cloudcli.exe"),
+            _ProcessHandle(309, "notepad.exe"),
         ]
         snapshot = self._snapshot(handles)
         types = [agent.agent_type for agent in snapshot.agents]
         assert types.count("CODEX") == 2
         assert types.count("CLAUDE") == 2
         assert types.count("KIMI_CODE") == 2
+        assert types.count("CCR") == 1
+        assert types.count("CLOUDCLI") == 1
+        roles = {
+            (item.value["agent_kind"], item.value["role"])
+            for item in snapshot.evidence
+            if item.fact_type == "agent.metadata"
+        }
+        assert roles == {
+            ("CCR", "MODEL_ROUTER"),
+            ("CLAUDE", "EXECUTION_AGENT"),
+            ("CLOUDCLI", "AGENT_HOST"),
+            ("CODEX", "EXECUTION_AGENT"),
+            ("KIMI_CODE", "EXECUTION_AGENT"),
+        }
         assert "notepad" not in json.dumps(snapshot.to_dict()).lower()
 
     def test_multiple_codex_instances_stay_distinct_and_distinguishable(self):

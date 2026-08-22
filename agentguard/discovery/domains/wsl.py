@@ -8,7 +8,17 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
 
-from ..command_runner import validate_distro_name
+_DISTRO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._()+-]{0,127}\Z")
+
+
+def validate_distro_name(name: object) -> str:
+    """Validate a WSL distribution name as data, never command text."""
+
+    if not isinstance(name, str) or not _DISTRO_RE.fullmatch(name):
+        raise ValueError("distribution name is invalid")
+    if name != name.strip() or any(ord(character) < 32 for character in name):
+        raise ValueError("distribution name is invalid")
+    return name
 
 
 class WslDistroState(str, Enum):
@@ -129,5 +139,6 @@ __all__ = [
     "WslWorkspaceLocation",
     "distro_domain_id",
     "parse_wsl_list",
+    "validate_distro_name",
     "workspace_location",
 ]

@@ -417,7 +417,6 @@ def blocked_import(name, *args, **kwargs):
 builtins.__import__ = blocked_import
 import agentguard.discovery.models
 import agentguard.discovery.domains.self_runtime
-import agentguard.discovery.host.models
 from agentguard.discovery import ProcessCollector, PsutilProcessBackend
 
 result = ProcessCollector(

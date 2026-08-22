@@ -1,39 +1,7 @@
 """Public R4-P3A Agent discovery contracts."""
 
-from .adapters import (
-    CcrAdapter,
-    CcrDetectionLevel,
-    CcrDiscoveryResult,
-    CcrMarker,
-    CcrMarkerKind,
-    CcrMarkerSource,
-    CcrMarkerVerification,
-    CloudCliAdapter,
-    CloudCliDetectionLevel,
-    CloudCliDiscoveryResult,
-    CloudCliMarker,
-    CloudCliMarkerKind,
-    CloudCliMarkerSource,
-    CloudCliMarkerVerification,
-    create_verified_ccr_marker,
-    create_verified_cloudcli_marker,
-    parse_ccr_pid_marker,
-    parse_cloudcli_pid_marker,
-)
-from .base import (
-    AgentAdapterRegistry,
-    AgentAdapterRunResult,
-    AgentDiscoveryAdapter,
-)
 from . import launcher_identity
-from .classifier import (
-    AgentSignatureRule,
-    classify_executable,
-    classify_process,
-)
 from .models import (
-    AgentCandidateType,
-    AgentClassification,
     AgentRole,
     ExecutableIdentityKind,
     ProcessFact,
@@ -66,27 +34,7 @@ from .workspaces import (
 )
 
 __all__ = [
-    "AgentAdapterRegistry",
-    "AgentAdapterRunResult",
-    "AgentCandidateType",
-    "AgentClassification",
-    "AgentDiscoveryAdapter",
     "AgentRole",
-    "AgentSignatureRule",
-    "CcrAdapter",
-    "CcrDetectionLevel",
-    "CcrDiscoveryResult",
-    "CcrMarker",
-    "CcrMarkerKind",
-    "CcrMarkerSource",
-    "CcrMarkerVerification",
-    "CloudCliAdapter",
-    "CloudCliDetectionLevel",
-    "CloudCliDiscoveryResult",
-    "CloudCliMarker",
-    "CloudCliMarkerKind",
-    "CloudCliMarkerSource",
-    "CloudCliMarkerVerification",
     "ExecutableIdentityKind",
     "ProcessAccessDeniedError",
     "ProcessBackend",
@@ -107,16 +55,10 @@ __all__ = [
     "WorkspacePathKind",
     "WorkspaceSource",
     "build_process_relationships",
-    "classify_executable",
-    "classify_process",
-    "create_verified_ccr_marker",
-    "create_verified_cloudcli_marker",
     "deduplicate_workspace_candidates",
     "launcher_identity",
     "make_process_instance_id",
     "normalize_process_create_time",
-    "parse_ccr_pid_marker",
-    "parse_cloudcli_pid_marker",
     "unavailable_workspace_candidate",
     "workspace_candidate_from_path",
 ]

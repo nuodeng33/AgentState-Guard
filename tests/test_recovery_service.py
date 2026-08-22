@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from agentguard.discovery.capabilities import CapabilityStatus
-from agentguard.discovery.domains import SelfRuntimeAdapter, WindowsAdapter
+from agentguard.discovery.domains import SelfRuntimeAdapter
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.recovery.contracts import (
     RecoveryOperation,
@@ -155,21 +155,6 @@ def test_verify_legacy_snapshot_is_read_only_and_does_not_migrate(tmp_path):
         assert database.get_checkpoint(checkpoint_id)["snapshot_path"] == relative
     finally:
         database.close()
-
-
-def test_windows_adapter_never_treats_wsl_as_a_restore_target():
-    adapter = WindowsAdapter(os_name="posix", platform_system=lambda: "Linux")
-
-    result = adapter.snapshot(
-        RecoveryRequest(
-            operation=RecoveryOperation.SNAPSHOT,
-            execution_domain_id="windows-current",
-            target_path=Path("/tmp/example"),
-        )
-    )
-
-    assert result.status is CapabilityStatus.UNSUPPORTED
-    assert result.reason_code == "WINDOWS_RECOVERY_OUT_OF_SCOPE_P6"
 
 
 class _FixedAdapter:

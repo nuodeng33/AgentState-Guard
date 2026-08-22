@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from ..capabilities import (
-    AgentLifecycleStatus,
     CapabilityStatus,
     _enum_or_unknown,
     validate_confidence,
@@ -26,12 +25,6 @@ class AgentRole(str, Enum):
     AGENT_HOST = "AGENT_HOST"
     MODEL_ROUTER = "MODEL_ROUTER"
     TOOL_PROCESS = "TOOL_PROCESS"
-    UNKNOWN = "UNKNOWN"
-
-
-class AgentCandidateType(str, Enum):
-    PROCESS = "PROCESS"
-    EXECUTABLE = "EXECUTABLE"
     UNKNOWN = "UNKNOWN"
 
 
@@ -349,47 +342,6 @@ class ProcessRelationship:
 
 
 @dataclass(frozen=True)
-class AgentClassification:
-    candidate_id: str
-    candidate_type: AgentCandidateType
-    role: AgentRole
-    lifecycle: AgentLifecycleStatus
-    confidence: float | None = None
-    evidence_refs: tuple[str, ...] = ()
-    uncertainties: tuple[str, ...] = ()
-    required_checks: tuple[str, ...] = ()
-    process_instance_id: str | None = None
-
-    def __post_init__(self) -> None:
-        lifecycle = _enum_or_unknown(AgentLifecycleStatus, self.lifecycle)
-        if lifecycle in {
-            AgentLifecycleStatus.INTEGRATED,
-            AgentLifecycleStatus.ENFORCED,
-        }:
-            raise ValueError("P3A classification cannot assert INTEGRATED or ENFORCED")
-        object.__setattr__(self, "candidate_type", _enum_or_unknown(AgentCandidateType, self.candidate_type))
-        object.__setattr__(self, "role", _enum_or_unknown(AgentRole, self.role))
-        object.__setattr__(self, "lifecycle", lifecycle)
-        object.__setattr__(self, "confidence", validate_confidence(self.confidence))
-        object.__setattr__(self, "evidence_refs", tuple(str(item) for item in self.evidence_refs))
-        object.__setattr__(self, "uncertainties", tuple(str(item) for item in self.uncertainties))
-        object.__setattr__(self, "required_checks", tuple(str(item) for item in self.required_checks))
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "candidate_id": self.candidate_id,
-            "candidate_type": self.candidate_type.value,
-            "role": self.role.value,
-            "lifecycle": self.lifecycle.value,
-            "confidence": self.confidence,
-            "evidence_refs": list(self.evidence_refs),
-            "uncertainties": list(self.uncertainties),
-            "required_checks": list(self.required_checks),
-            "process_instance_id": self.process_instance_id,
-        }
-
-
-@dataclass(frozen=True)
 class WorkspaceCandidate:
     candidate_id: str
     source: WorkspaceSource
@@ -482,8 +434,6 @@ class ProcessWorkspaceAuthority:
 
 
 __all__ = [
-    "AgentCandidateType",
-    "AgentClassification",
     "AgentRole",
     "ExecutableIdentityKind",
     "ProcessFact",

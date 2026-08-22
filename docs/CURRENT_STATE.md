@@ -4,6 +4,19 @@
 **Branch:** feat/device-link
 **HEAD:** local R4-P7 recovery trust boundary series (verify with `git rev-parse HEAD`)
 
+## V1 Passive Agent Discovery Closeout — 2026-08-22
+
+V1 passive discovery only admits bounded known identity evidence. Arbitrary
+unknown harness discovery from generic process metadata is deferred because
+current observable facts cannot distinguish it reliably from ordinary tooling.
+Future explicit authoritative provenance may enable managed unknown targets,
+but is not a V1 requirement.
+
+- Codex, Claude, and Kimi bounded passive detection remains required.
+- Generic process/tooling metadata, Cursor, and OpenCode do not receive passive
+  admission without bounded identity evidence.
+- Workspace binding and mutation permission remain independent and fail closed.
+
 ## R4-P7 Recovery Trust Boundary
 
 - Schema v7 stores recovery-drill and trusted-baseline candidate bindings to durable Supervision sessions plus expiry/nonce/consume-bound recovery authorizations.

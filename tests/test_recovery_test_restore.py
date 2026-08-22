@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from agentguard.discovery.capabilities import CapabilityStatus
-from agentguard.discovery.domains import SelfRuntimeAdapter, WindowsAdapter
+from agentguard.discovery.domains import SelfRuntimeAdapter
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
 from agentguard.recovery.manifest import manifest_digest
@@ -221,14 +221,3 @@ def test_production_restore_fails_closed_without_target_and_approval(tmp_path):
         assert result.reason_code == "RECOVERY_TARGET_SCOPE_INVALID"
     finally:
         database.close()
-
-
-    adapter = WindowsAdapter(os_name="posix", platform_system=lambda: "Linux")
-    result = adapter.test_restore(
-        RecoveryRequest(
-            operation=RecoveryOperation.TEST_RESTORE,
-            execution_domain_id="windows-current",
-        )
-    )
-    assert result.status is CapabilityStatus.UNSUPPORTED
-    assert result.reason_code == "WINDOWS_RECOVERY_OUT_OF_SCOPE_P7"
