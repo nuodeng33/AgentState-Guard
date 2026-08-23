@@ -4,7 +4,11 @@ import re
 import sys
 from pathlib import Path
 
-from .host_tools import host_tool_resolution, platform_is_windows
+from .host_tools import (
+    host_tool_resolution,
+    platform_is_windows,
+    windows_registered_tool_version,
+)
 from .runner import run_command, which
 
 try:
@@ -119,7 +123,10 @@ def all_versions() -> dict[str, str | None]:
     if platform_is_windows():
         for name in ("claude", "codex", "kimi"):
             cmd = _resolved_command(name)
-            versions[name] = _get_version(cmd) if cmd is not None else None
+            version = _get_version(cmd) if cmd is not None else None
+            if name == "codex" and cmd is not None and version is None:
+                version = windows_registered_tool_version(name)
+            versions[name] = version
     else:
         for name in ("claude", "cloudcli", "ccr"):
             cmd = _resolved_command(name)

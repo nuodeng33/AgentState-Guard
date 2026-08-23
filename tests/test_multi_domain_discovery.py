@@ -107,6 +107,55 @@ class TestDockerDomainObservation:
         facts = [e.fact_type for e in observation.evidence]
         assert "runtime.metadata" in facts and "agent.metadata" in facts
 
+    def test_real_dogfood_launchers_are_admitted_without_generic_widening(self):
+        top = (
+            "PID ARGS\n"
+            "11 kimi-code\n"
+            "12 ttyd -W -p 7681 -t enableZmodem=true -c user:redacted "
+            "/usr/local/bin/codex-main\n"
+            "13 node /usr/local/bin/cloudcli\n"
+            "14 node server.js --label /usr/local/bin/cloudcli\n"
+            "15 cat /usr/local/bin/codex-main\n"
+        )
+        observation = observe_docker_domains(
+            admit_process=_admit_container_process,
+            clock=lambda: NOW,
+            runner=self._runner_with_top(top),
+            presence=lambda: True,
+        )
+
+        assert sorted(agent.agent_type for agent in observation.agents) == [
+            "CLOUDCLI",
+            "CODEX",
+            "KIMI_CODE",
+        ]
+
+    def test_resolved_docker_executable_is_used_for_every_observer_stage(self):
+        resolved = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+        calls: list[list[str]] = []
+
+        def runner(cmd: list[str]) -> CommandResult:
+            calls.append(cmd)
+            assert cmd[0] == resolved
+            if cmd[1] == "ps":
+                return _result(PS_OUTPUT)
+            if cmd[1] == "top":
+                return _result("PID ARGS\n11 kimi-code\n")
+            if cmd[1] == "inspect":
+                return _result(INSPECT_MOUNTED)
+            raise AssertionError(f"unexpected command {cmd}")
+
+        observation = observe_docker_domains(
+            admit_process=_admit_container_process,
+            clock=lambda: NOW,
+            runner=runner,
+            presence=lambda: True,
+            docker_executable=resolved,
+        )
+
+        assert [command[1] for command in calls] == ["ps", "top", "inspect"]
+        assert [agent.agent_type for agent in observation.agents] == ["KIMI_CODE"]
+
     def test_generic_and_unrelated_processes_stay_out(self):
         top = (
             "PID ARGS\n"

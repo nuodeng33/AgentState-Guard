@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import agentguard.core.docker as docker_mod
 import agentguard.core.host_tools as host_tools_mod
 import agentguard.core.versions as versions_mod
 from agentguard.commands.status import status
@@ -105,6 +106,72 @@ class TestHostNativeSearchPath:
         assert resolution.presence == "HOST_INSTALLED"
         assert resolution.sidecar_callable is False
 
+    def test_windows_registered_location_is_used_when_path_misses(self, tmp_path):
+        registered = tmp_path / "GitHubDesktop" / "app-3.5.12" / "git.exe"
+        registered.parent.mkdir(parents=True)
+        registered.write_bytes(b"MZ")
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", lambda: True),
+            patch.object(host_tools_mod.os, "environ", {"PATH": "C:\\sidecar-only"}),
+            patch.object(host_tools_mod, "which", lambda _n: None),
+            patch.object(host_tools_mod, "host_search_path", return_value=[]),
+            patch.object(
+                host_tools_mod,
+                "_windows_registered_tool_paths",
+                return_value=[str(registered)],
+                create=True,
+            ),
+        ):
+            resolution = host_tools_mod.host_tool_resolution("git")
+
+        assert resolution.presence == "HOST_INSTALLED"
+        assert resolution.path == str(registered)
+
+    def test_stale_registered_location_does_not_create_false_presence(self, tmp_path):
+        stale = tmp_path / "removed" / "git.exe"
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", lambda: True),
+            patch.object(host_tools_mod.os, "environ", {"PATH": "C:\\sidecar-only"}),
+            patch.object(host_tools_mod, "which", lambda _n: None),
+            patch.object(host_tools_mod, "host_search_path", return_value=[]),
+            patch.object(
+                host_tools_mod,
+                "_windows_registered_tool_paths",
+                return_value=[str(stale)],
+                create=True,
+            ),
+        ):
+            resolution = host_tools_mod.host_tool_resolution("git")
+
+        assert resolution.presence == "HOST_NOT_FOUND"
+        assert resolution.path is None
+
+    def test_registered_codex_package_version_survives_denied_binary_probe(self):
+        resolution = host_tools_mod.ToolResolution(
+            host_tools_mod.HOST_INSTALLED,
+            False,
+            r"C:\Program Files\WindowsApps\OpenAI.Codex\codex.exe",
+        )
+        with (
+            patch.object(versions_mod, "platform_is_windows", return_value=True),
+            patch.object(
+                versions_mod,
+                "host_tool_resolution",
+                return_value=resolution,
+            ),
+            patch.object(versions_mod, "_get_version", return_value=None),
+            patch.object(
+                versions_mod,
+                "windows_registered_tool_version",
+                return_value="Codex 26.814.5167.0",
+                create=True,
+            ),
+        ):
+            versions = versions_mod.all_versions()
+
+        assert versions["codex"] == "Codex 26.814.5167.0"
+
     def test_stale_host_path_entry_is_searched_not_crashed(self, tmp_path):
         """Physical dogfood ground truth: registry PATH entries can point at
         moved/removed installs (e.g. a deleted D:\\...\\Git\\cmd, an empty
@@ -184,6 +251,50 @@ class TestHostNativeSearchPath:
             resolution = host_tools_mod.host_tool_resolution("git", search=[str(tool_dir)])
         assert resolution.presence == "HOST_INSTALLED"
         assert resolution.sidecar_callable is True
+
+
+class TestResolvedDockerCommand:
+    def test_status_docker_commands_use_host_resolved_absolute_executable(self):
+        resolved = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+        calls: list[list[str]] = []
+
+        def run(command, **_kwargs):
+            calls.append(command)
+            if command[1] == "--version":
+                return type(
+                    "R", (), {"success": True, "stdout": "Docker version 29.6.2"}
+                )()
+            if command[1] == "ps":
+                return type(
+                    "R", (), {"success": True, "stdout": "abc123 Up"}
+                )()
+            if command[1] == "inspect":
+                return type(
+                    "R",
+                    (),
+                    {"success": True, "stdout": "running|now|image|false"},
+                )()
+            raise AssertionError(command)
+
+        resolution = host_tools_mod.ToolResolution(
+            host_tools_mod.HOST_INSTALLED, False, resolved
+        )
+        with (
+            patch.object(
+                docker_mod.host_tools,
+                "host_tool_resolution",
+                return_value=resolution,
+            ),
+            patch.object(docker_mod, "which", return_value=None),
+            patch.object(docker_mod, "run_command", side_effect=run),
+        ):
+            assert docker_mod.docker_presence() is True
+            assert docker_mod.docker_version() == "Docker version 29.6.2"
+            assert docker_mod.container_running("agent-dev")[0] is True
+            assert docker_mod.container_info("agent-dev")["status"] == "running"
+
+        assert calls
+        assert all(command[0] == resolved for command in calls)
 
 
 class TestPortTriState:

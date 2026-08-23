@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from ..core.docker import resolved_docker_executable
 from .agents import (
     AgentRole,
     ProcessBackend,
@@ -44,12 +45,17 @@ _BASENAME_IDENTITY_EVIDENCE: dict[str, str] = {
         ("claude", "claude.exe", "claude-code", "claude-code.exe"), "CLAUDE"
     ),
     **dict.fromkeys(("cloudcli", "cloudcli.exe"), "CLOUDCLI"),
-    **dict.fromkeys(("codex", "codex.exe"), "CODEX"),
+    **dict.fromkeys(("codex", "codex.exe", "codex-main", "codex-main.exe"), "CODEX"),
     **dict.fromkeys(("kimi", "kimi.exe", "kimi-code", "kimi-code.exe"), "KIMI_CODE"),
 }
 
 #: Generic runtimes that must never be guessed as Agents by basename alone.
 _GENERIC_RUNTIME_BASENAMES = frozenset({"node", "node.exe", "nodejs", "nodejs.exe"})
+
+#: Exact terminal wrapper used by the supervised Codex container. It is not
+#: itself an Agent identity; only an absolute, final known launcher path can
+#: supply the bounded identity evidence.
+_TERMINAL_WRAPPER_BASENAMES = frozenset({"ttyd", "ttyd.exe"})
 
 #: Canonical role enrichment for identities established by bounded evidence.
 _IDENTITY_ROLE_ENRICHMENT: dict[str, AgentRole] = {
@@ -100,7 +106,13 @@ def _admit_container_process(tokens: Sequence[str]) -> tuple[str, str] | None:
     basename = executable.replace("\\", "/").rsplit("/", 1)[-1].casefold()
     identity = _BASENAME_IDENTITY_EVIDENCE.get(basename)
     if identity is None and basename in _GENERIC_RUNTIME_BASENAMES:
+        if len(tokens) > 1:
+            script = str(tokens[1]).replace("\\", "/")
+            script_basename = script.rsplit("/", 1)[-1].casefold()
+            identity = _BASENAME_IDENTITY_EVIDENCE.get(script_basename)
         for token in tokens[1:4]:
+            if identity is not None:
+                break
             match = _PACKAGE_PATH_RE.search(str(token))
             if match is not None:
                 identity = launcher_identity.KNOWN_PACKAGE_IDENTITIES.get(
@@ -119,6 +131,12 @@ def _admit_container_process(tokens: Sequence[str]) -> tuple[str, str] | None:
                 identity = _WRAPPER_PATH_TOKENS.get(token)
                 if identity is not None:
                     break
+    if identity is None and basename in _TERMINAL_WRAPPER_BASENAMES:
+        launcher = str(tokens[-1]).replace("\\", "/")
+        if launcher.startswith("/") or re.match(r"[A-Za-z]:/", launcher):
+            identity = _BASENAME_IDENTITY_EVIDENCE.get(
+                launcher.rsplit("/", 1)[-1].casefold()
+            )
     if identity is None or identity not in _V1_PASSIVE_ADMISSION_IDENTITIES:
         return None
     return identity, _IDENTITY_ROLE_ENRICHMENT[identity].value
@@ -165,7 +183,9 @@ class ProductDiscoveryService:
 
         return (
             lambda: observe_docker_domains(
-                admit_process=_admit_container_process, clock=clock
+                admit_process=_admit_container_process,
+                clock=clock,
+                docker_executable=resolved_docker_executable() or "docker",
             ),
             lambda: observe_wsl_domains(clock=clock),
         )

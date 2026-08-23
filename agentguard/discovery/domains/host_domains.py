@@ -230,6 +230,7 @@ def observe_docker_domains(
     clock: Callable[[], datetime],
     runner: Callable[[list[str]], CommandResult] = _RUN,
     presence: Callable[[], object] = docker_presence,
+    docker_executable: str = "docker",
     collector: str = "product-discovery",
 ) -> HostDomainObservation:
     """Observe Docker container domains from the host, read-only.
@@ -256,7 +257,9 @@ def observe_docker_domains(
         # not unreachability and produces no fake surfaces.
         return HostDomainObservation()
 
-    list_result = runner(["docker", "ps", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}"])
+    list_result = runner(
+        [docker_executable, "ps", "--format", "{{.ID}}\t{{.Names}}\t{{.Status}}"]
+    )
     if not list_result.success:
         return HostDomainObservation(
             evidence=(
@@ -315,7 +318,9 @@ def observe_docker_domains(
             )
         )
 
-        top_result = runner(["docker", "top", container_id, "-o", "pid,args"])
+        top_result = runner(
+            [docker_executable, "top", container_id, "-o", "pid,args"]
+        )
         admitted: list[tuple[str, str, str]] = []
         top_available = top_result.success
         if top_available:
@@ -392,7 +397,7 @@ def observe_docker_domains(
         # ambiguity, blocked roots, or unverifiable inspect output.
         inspect_result = runner(
             [
-                "docker",
+                docker_executable,
                 "inspect",
                 container_id,
                 "--format",

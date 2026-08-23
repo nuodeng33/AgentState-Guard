@@ -234,6 +234,8 @@ def _docker_checks(
             results.append(_unreachable("container", "Docker not available in container"))
         except Exception as e:
             results.append(_unreachable("container", str(e)))
+    elif not container_name:
+        results.append(_skip("container", "No product-owned container configured"))
     else:
         results.append(_unreachable("container", "Docker not available"))
 

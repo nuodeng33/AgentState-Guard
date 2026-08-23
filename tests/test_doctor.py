@@ -1,10 +1,40 @@
 """Tests for doctor command."""
 
 from unittest.mock import patch
-from agentguard.commands.doctor import doctor, _ok, _warn, _fail, _skip, _unreachable
+
+from agentguard.commands.doctor import (
+    _docker_checks,
+    _fail,
+    _ok,
+    _skip,
+    _unreachable,
+    _warn,
+    doctor,
+)
 
 
 class TestDoctor:
+    def test_unconfigured_named_container_is_skipped_not_docker_unavailable(self):
+        results = []
+
+        with patch(
+            "agentguard.commands.doctor.run_command",
+            return_value=type("R", (), {"success": True, "stdout": "29.6.2"})(),
+        ):
+            _docker_checks(
+                results,
+                {},
+                in_container=False,
+                docker_bin=r"C:\Program Files\Docker\docker.exe",
+            )
+
+        container = next(row for row in results if row["check"] == "container")
+        assert container == {
+            "check": "container",
+            "status": "SKIP",
+            "message": "No product-owned container configured",
+        }
+
     def test_doctor_returns_list(self):
         config = {"container_name": "agent-dev", "port": 3001}
         results = doctor(config)

@@ -9,7 +9,17 @@ DOCKER_UNKNOWN = "UNKNOWN"
 
 def docker_available() -> bool:
     """Check if docker CLI is available and responsive."""
-    return which("docker") is not None
+    return resolved_docker_executable() is not None
+
+
+def resolved_docker_executable() -> str | None:
+    """Return one absolute Docker CLI identity for host-side operations."""
+    resolution = host_tools.host_tool_resolution("docker")
+    if resolution.path is not None:
+        return resolution.path
+    if resolution.sidecar_callable:
+        return which("docker")
+    return None
 
 
 def docker_presence() -> bool | str:
@@ -28,8 +38,11 @@ def docker_presence() -> bool | str:
 
 def docker_version() -> str | None:
     """Return docker client version string or None."""
+    executable = resolved_docker_executable()
+    if executable is None:
+        return None
     try:
-        r = run_command(["docker", "--version"], timeout=10)
+        r = run_command([executable, "--version"], timeout=10)
         if r.success:
             return r.stdout
     except (FileNotFoundError, PermissionError, RuntimeError):
@@ -42,12 +55,20 @@ def container_running(name: str = "agent-dev") -> tuple[bool, str | None]:
 
     Returns (is_running, container_id_or_status_info).
     """
-    if not docker_available():
+    executable = resolved_docker_executable()
+    if executable is None:
         return False, "Docker not available"
 
     try:
         r = run_command(
-            ["docker", "ps", "--filter", f"name={name}", "--format", "{{.ID}} {{.Status}}"],
+            [
+                executable,
+                "ps",
+                "--filter",
+                f"name={name}",
+                "--format",
+                "{{.ID}} {{.Status}}",
+            ],
             timeout=10,
         )
         if r.success and r.stdout:
@@ -60,13 +81,17 @@ def container_running(name: str = "agent-dev") -> tuple[bool, str | None]:
 def container_info(name: str = "agent-dev") -> dict[str, str]:
     """Return container metadata dict."""
     info: dict[str, str] = {}
-    if not docker_available():
+    executable = resolved_docker_executable()
+    if executable is None:
         return {"error": "Docker not available"}
 
     try:
         r = run_command([
-            "docker", "inspect", name,
-            "--format", "{{.State.Status}}|{{.State.StartedAt}}|{{.Config.Image}}|{{.HostConfig.Privileged}}",
+            executable,
+            "inspect",
+            name,
+            "--format",
+            "{{.State.Status}}|{{.State.StartedAt}}|{{.Config.Image}}|{{.HostConfig.Privileged}}",
         ], timeout=10)
         if r.success and r.stdout:
             parts = r.stdout.split("|")
@@ -74,6 +99,6 @@ def container_info(name: str = "agent-dev") -> dict[str, str]:
             info["started_at"] = parts[1] if len(parts) > 1 else ""
             info["image"] = parts[2] if len(parts) > 2 else ""
             info["privileged"] = parts[3] if len(parts) > 3 else ""
-    except Exception:
+    except (FileNotFoundError, PermissionError, RuntimeError):
         info["error"] = "Inspect failed"
     return info
