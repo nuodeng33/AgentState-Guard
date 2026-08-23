@@ -15,7 +15,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from agentguard.core.versions import exact_product_sha, is_exact_git_sha
-from agentguard.evidence.canonical import canonical_json
+from agentguard.evidence.canonical import (
+    canonical_json,
+    flatten_bounded_digest_tree,
+)
 from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
@@ -1627,6 +1630,9 @@ class SupervisionService:
                 payload = self._json_payload(event[7])
             except SupervisionActionError:
                 return None
+            actual_target_digests = flatten_bounded_digest_tree(
+                payload.get("target_ref_digests")
+            )
             if (
                 event[3] != "AVAILABLE"
                 or event[4] != domain
@@ -1634,7 +1640,8 @@ class SupervisionService:
                 or event[6] != f"manifest:{manifest_digest}"
                 or payload.get("manifest_digest") != manifest_digest
                 or payload.get("product_sha") != self._product_sha
-                or payload.get("target_ref_digests") != expected_target_digests
+                or actual_target_digests is None
+                or list(actual_target_digests) != expected_target_digests
             ):
                 return None
         if (

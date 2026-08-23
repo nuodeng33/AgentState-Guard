@@ -476,6 +476,17 @@ class HostWorkspaceRecoveryAdapter:
                     raise RuntimeError("WORKSPACE_RESTORE_TARGET_UNSAFE")
                 proof = PermissionProof.from_dict(entry["permission_proof"])
                 content = blobs[entry["content_digest"]]
+                if _verify_file(
+                    target,
+                    expected_digest=entry["content_digest"],
+                    expected_size=len(content),
+                    proof=proof,
+                    permission_backend=self._permission_backend,
+                ):
+                    prepared.append(
+                        (target, None, entry["content_digest"], len(content), proof)
+                    )
+                    continue
                 temporary = _prepare_verified_temp(
                     target,
                     content,
@@ -486,7 +497,8 @@ class HostWorkspaceRecoveryAdapter:
                     (target, temporary, entry["content_digest"], len(content), proof)
                 )
             for index, (target, temporary, digest, size, proof) in enumerate(prepared):
-                assert temporary is not None
+                if temporary is None:
+                    continue
                 os.replace(temporary, target)
                 prepared[index] = (target, None, digest, size, proof)
             for target, _temporary, digest, size, proof in prepared:

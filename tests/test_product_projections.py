@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 
@@ -127,6 +128,48 @@ def test_changes_and_supervision_share_verified_activity_projection(tmp_path):
         assert projected_session["current_task"] is None
         assert projected_session["current_phase"] is None
         assert projected_session["current_action"] is None
+    finally:
+        database.close()
+
+
+def test_activity_projection_flattens_recursive_target_ref_digest_tree(tmp_path):
+    database, projector = _projector(tmp_path)
+    target_digests = tuple(
+        hashlib.sha256(f"target-{index}".encode()).hexdigest()
+        for index in range(65)
+    )
+    target_tree = [list(target_digests[:64]), list(target_digests[64:])]
+    try:
+        with database.transaction() as connection:
+            EvidenceLedger().append(
+                connection,
+                EvidenceEvent(
+                    schema_version=1,
+                    event_id="recursive-target-tree",
+                    recorded_at=OBSERVED_AT,
+                    observed_at=OBSERVED_AT,
+                    event_family=EventFamily.RECOVERY,
+                    event_type=EventType.CHECKPOINT_CREATED,
+                    source="recovery-service",
+                    result="AVAILABLE",
+                    execution_domain_id="windows-current",
+                    supervision_session_id=None,
+                    transaction_id=None,
+                    checkpoint_id="65",
+                    subject_ref="manifest:" + "a" * 64,
+                    evidence_refs=(),
+                    payload_safe={
+                        "manifest_digest": "a" * 64,
+                        "target_ref_digests": target_tree,
+                    },
+                ),
+            )
+
+        activities = projector.changes()["items"]
+        projected = next(
+            item for item in activities if item["event_id"] == "recursive-target-tree"
+        )
+        assert projected["affected_objects"] == sorted(target_digests)
     finally:
         database.close()
 

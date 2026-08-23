@@ -125,6 +125,28 @@ def test_empty_checkpoint_request_uses_active_host_workspace(tmp_path):
     )
 
 
+def test_workspace_recovery_projection_supports_over_64_restorable_targets(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    for index in range(65):
+        (workspace / f"source-{index:03d}.txt").write_text(
+            f"safe-{index}", encoding="utf-8"
+        )
+    client, headers, _product_state = _client(tmp_path, workspace)
+    checkpoint = client.post(
+        "/api/v1/recovery/checkpoints", json={}, headers=headers
+    ).json()
+
+    projection = client.get("/api/v1/recovery", headers=headers).json()
+
+    assert projection["status"] == "AVAILABLE"
+    assert projection["latest_checkpoint"]["checkpoint_id"] == checkpoint[
+        "checkpoint_id"
+    ]
+    assert projection["latest_checkpoint"]["requested_targets"] == 65
+    assert projection["latest_checkpoint"]["authorized_snapshot_targets"] == 65
+
+
 def test_ambiguous_observed_workspaces_do_not_fall_back_to_product_config(tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"
@@ -160,6 +182,41 @@ def test_workspace_checkpoint_rejects_caller_path_and_domain(tmp_path):
 
     assert response.status_code == 422
     assert response.json()["reason_code"] == "RECOVERY_REQUEST_INVALID"
+
+
+def test_truncated_workspace_checkpoint_fails_closed_as_corrupt(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "source.txt").write_text("safe", encoding="utf-8")
+    client, headers, product_state = _client(tmp_path, workspace)
+    checkpoint = client.post(
+        "/api/v1/recovery/checkpoints", json={}, headers=headers
+    ).json()
+    database = StateDB(product_state / "state.db")
+    database.connect()
+    try:
+        stored = database.get_checkpoint(int(checkpoint["checkpoint_id"]))
+        artifact_path = (
+            Config(product_state).snapshot_dir()
+            / stored["snapshot_path"].split("/")[-1]
+        )
+    finally:
+        database.close()
+    original = artifact_path.read_bytes()
+    try:
+        artifact_path.write_bytes(original[:-1])
+        response = client.post(
+            f"/api/v1/recovery/{checkpoint['checkpoint_id']}/test",
+            json={},
+            headers=headers,
+        )
+    finally:
+        artifact_path.write_bytes(original)
+
+    assert response.status_code == 409
+    assert response.json()["reason_code"] == "RECOVERY_MANIFEST_INVALID"
+    projection = client.get("/api/v1/recovery", headers=headers).json()
+    assert projection["recovery_verified"] is False
 
 
 def test_refresh_records_checkpoint_diff_without_agent_attribution(tmp_path):
@@ -255,9 +312,14 @@ def test_workspace_test_restore_then_restore_quarantines_created_restorable(tmp_
     workspace.mkdir()
     modified = workspace / "modified.txt"
     deleted = workspace / "deleted.txt"
+    unchanged = workspace / "unchanged.txt"
+    permission_drift = workspace / "permission-drift.txt"
     sensitive = workspace / ".env"
     modified.write_text("before", encoding="utf-8")
     deleted.write_text("restore me", encoding="utf-8")
+    unchanged.write_text("do not rewrite", encoding="utf-8")
+    permission_drift.write_text("same bytes", encoding="utf-8")
+    permission_drift.chmod(0o640)
     sensitive.write_text("API_KEY=before", encoding="utf-8")
     dependency = workspace / "node_modules"
     dependency.mkdir()
@@ -267,9 +329,11 @@ def test_workspace_test_restore_then_restore_quarantines_created_restorable(tmp_
     checkpoint = client.post(
         "/api/v1/recovery/checkpoints", json={}, headers=headers
     ).json()
+    unchanged_identity = (unchanged.stat().st_ino, unchanged.stat().st_mtime_ns)
 
     modified.write_text("after", encoding="utf-8")
     deleted.unlink()
+    permission_drift.chmod(0o600)
     created = workspace / "created.txt"
     created.write_text("quarantine me", encoding="utf-8")
     sensitive.write_text("API_KEY=after", encoding="utf-8")
@@ -283,10 +347,11 @@ def test_workspace_test_restore_then_restore_quarantines_created_restorable(tmp_
 
     assert tested.status_code == 200
     assert tested.json()["reason_code"] == "TEST_RESTORE_VERIFIED"
-    assert tested.json()["verified_targets"] == 2
+    assert tested.json()["verified_targets"] == 4
     assert modified.read_text(encoding="utf-8") == "after"
     assert not deleted.exists()
     assert created.read_text(encoding="utf-8") == "quarantine me"
+    assert permission_drift.stat().st_mode & 0o777 == 0o600
 
     restored = client.post(
         f"/api/v1/recovery/{checkpoint['checkpoint_id']}/restore",
@@ -298,11 +363,17 @@ def test_workspace_test_restore_then_restore_quarantines_created_restorable(tmp_
     body = restored.json()
     assert body["reason_code"] == "WORKSPACE_RESTORED_AND_VERIFIED"
     assert body["post_restore_status"] == "POST_RESTORE_VERIFIED"
-    assert body["verified_targets"] == 2
+    assert body["verified_targets"] == 4
     assert body["quarantined_targets"] == 1
     assert body["residue_targets"] == 0
     assert modified.read_text(encoding="utf-8") == "before"
     assert deleted.read_text(encoding="utf-8") == "restore me"
+    assert unchanged.read_text(encoding="utf-8") == "do not rewrite"
+    assert permission_drift.read_text(encoding="utf-8") == "same bytes"
+    assert permission_drift.stat().st_mode & 0o777 == 0o640
+    assert (unchanged.stat().st_ino, unchanged.stat().st_mtime_ns) == (
+        unchanged_identity
+    )
     assert not created.exists()
     assert sensitive.read_text(encoding="utf-8") == "API_KEY=after"
     assert generated.read_text(encoding="utf-8") == "after excluded"

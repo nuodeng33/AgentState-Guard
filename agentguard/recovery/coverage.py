@@ -8,7 +8,11 @@ import sqlite3
 from dataclasses import dataclass
 from enum import Enum
 
-from agentguard.evidence.canonical import canonical_json
+from agentguard.evidence.canonical import (
+    canonical_json,
+    canonical_json_unbounded,
+    flatten_bounded_digest_tree,
+)
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
@@ -269,7 +273,9 @@ class RecoveryCoverageService:
         trusted_status, trusted_id = self._trusted_baseline(
             connection, checkpoint_id, execution_domain_id, checkpoint["hash_sha256"],
             hashlib.sha256(
-                canonical_json(sorted(self._target_digest(value) for value in requested)).encode("utf-8")
+                canonical_json_unbounded(
+                    sorted(self._target_digest(value) for value in requested)
+                ).encode("utf-8")
             ).hexdigest(),
             r3_evidence_digest,
         )
@@ -319,19 +325,19 @@ class RecoveryCoverageService:
                 payload = json.loads(payload_json)
             except (TypeError, json.JSONDecodeError):
                 continue
-            hashes = payload.get("target_ref_digests")
+            flattened = flatten_bounded_digest_tree(
+                payload.get("target_ref_digests")
+            )
+            if flattened is None:
+                continue
+            current_hashes = set(flattened)
             if (
                 result != "AVAILABLE"
                 or domain != execution_domain_id
                 or subject_ref != f"manifest:{manifest_digest}"
                 or payload.get("manifest_digest") != manifest_digest
-                or not isinstance(hashes, list)
-                or not all(
-                    isinstance(value, str) and len(value) == 64 for value in hashes
-                )
             ):
                 continue
-            current_hashes = set(hashes)
             if target_hashes is not None and target_hashes != current_hashes:
                 return (), set()
             target_hashes = current_hashes

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -9,13 +10,18 @@ from datetime import UTC, datetime
 import pytest
 
 from agentguard.discovery.domains import SelfRuntimeAdapter
+from agentguard.discovery.workspace_authority import workspace_root_digest
+from agentguard.evidence.canonical import flatten_bounded_digest_tree
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.policy.models import Decision, PolicyInput
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
 from agentguard.recovery.coverage import RecoveryCoverageService, RecoveryCoverageStatus
 from agentguard.recovery.policy import RestorePolicy
-from agentguard.recovery.service import RecoveryService
+from agentguard.recovery.service import RecoveryService, _target_ref_digest_payload
+from agentguard.recovery.workspace_adapter import HostWorkspaceRecoveryAdapter
+from agentguard.recovery.workspace_permissions import PosixPermissionBackend
+from agentguard.recovery.workspace_scope import DurableWorkspaceScope
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
 from agentguard.supervision.service import SupervisionService
@@ -133,6 +139,132 @@ def _recovery(tmp_path):
         )
     )
     return target, database, snapshots, created
+
+
+def test_recursive_target_ref_tree_preserves_and_validates_all_refs(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    for index in range(65):
+        (workspace / f"target-{index:03d}.txt").write_text(
+            f"target-{index}", encoding="utf-8"
+        )
+    database = StateDB(tmp_path / "state.db")
+    database.connect()
+    snapshots = SnapshotStore(tmp_path / "snapshots")
+    scope = DurableWorkspaceScope(
+        observation_id="target-tree-observation",
+        discovery_snapshot_id="target-tree-discovery",
+        observed_at=datetime(2026, 8, 9, 10, 0, tzinfo=UTC),
+        recorded_at=datetime(2026, 8, 9, 10, 0, tzinfo=UTC),
+        workspace_id="workspace-target-tree",
+        execution_domain_id="local-domain",
+        root_path=workspace.resolve(),
+        root_digest=workspace_root_digest(workspace.resolve(), "local-domain"),
+    )
+    recovery = RecoveryService(
+        database=database,
+        snapshots=snapshots,
+        adapters={
+            "local-domain": HostWorkspaceRecoveryAdapter(
+                scope=scope,
+                permission_backend=PosixPermissionBackend(),
+                quarantine_root=tmp_path / "quarantine",
+            )
+        },
+    )
+    created = recovery.snapshot(
+        RecoveryRequest(
+            operation=RecoveryOperation.SNAPSHOT,
+            execution_domain_id="local-domain",
+            user_approved=True,
+        )
+    )
+    assert created.ok
+    assert created.checkpoint_id is not None
+    assert created.manifest_digest is not None
+    checkpoint = database.get_checkpoint(int(created.checkpoint_id))
+    artifact = snapshots.load_recovery_v3(checkpoint["snapshot_path"])
+    target_refs = recovery._target_ref_digests(artifact)
+    assert len(target_refs) == 65
+    tree = _target_ref_digest_payload(target_refs)
+    assert len(tree) == 2
+    assert sum(len(branch) for branch in tree) == 65
+    assert sorted(item for branch in tree for item in branch) == sorted(target_refs)
+
+    try:
+        rows = database._conn.execute(
+            """SELECT event_type, payload_safe_json
+               FROM evidence_ledger_events
+               WHERE checkpoint_id = ?
+                 AND event_type IN ('CHECKPOINT_CREATED', 'MANIFEST_VERIFIED')
+               ORDER BY sequence""",
+            (created.checkpoint_id,),
+        ).fetchall()
+        assert [row[0] for row in rows] == [
+            "CHECKPOINT_CREATED",
+            "MANIFEST_VERIFIED",
+        ]
+        assert all(json.loads(row[1])["target_ref_digests"] == tree for row in rows)
+        assert verify_ledger(database._conn) == []
+
+        refs, authorized = RecoveryCoverageService._snapshot_evidence(
+            database._conn,
+            created.checkpoint_id,
+            "local-domain",
+            created.manifest_digest,
+        )
+        assert len(refs) == 2
+        assert authorized == set(target_refs)
+
+        tampered = _target_ref_digest_payload(("0" * 64, *target_refs[1:]))
+        with database.transaction() as connection:
+            EvidenceLedger().append(
+                connection,
+                EvidenceEvent(
+                    schema_version=1,
+                    event_id="tree-mismatch",
+                    recorded_at=datetime(2026, 8, 9, 10, 1, tzinfo=UTC),
+                    observed_at=None,
+                    event_family=EventFamily.RECOVERY,
+                    event_type=EventType.MANIFEST_VERIFIED,
+                    source="test-recovery",
+                    result="AVAILABLE",
+                    execution_domain_id="local-domain",
+                    supervision_session_id=None,
+                    transaction_id=None,
+                    checkpoint_id=created.checkpoint_id,
+                    subject_ref=f"manifest:{created.manifest_digest}",
+                    evidence_refs=(),
+                    payload_safe={
+                        "manifest_digest": created.manifest_digest,
+                        "target_ref_digests": tampered,
+                    },
+                ),
+            )
+        refs, authorized = RecoveryCoverageService._snapshot_evidence(
+            database._conn,
+            created.checkpoint_id,
+            "local-domain",
+            created.manifest_digest,
+        )
+        assert refs == ()
+        assert authorized == set()
+        assert verify_ledger(database._conn) == []
+    finally:
+        database.close()
+
+
+def test_target_ref_digest_tree_recurses_beyond_two_levels_without_truncation():
+    target_refs = tuple(
+        hashlib.sha256(f"deep-target-{index}".encode()).hexdigest()
+        for index in range(4_097)
+    )
+
+    tree = _target_ref_digest_payload(target_refs)
+
+    assert len(tree) == 2
+    assert flatten_bounded_digest_tree(tree) == target_refs
+    assert flatten_bounded_digest_tree([*tree, ["not-a-digest"]]) is None
 
 
 def test_coverage_distinguishes_snapshot_integrity_and_unrun_test_restore(tmp_path):

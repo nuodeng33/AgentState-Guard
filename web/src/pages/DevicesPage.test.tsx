@@ -106,6 +106,48 @@ describe('DevicesPage pairing flow', () => {
     expect(document.querySelector('.qr-card svg')).toBeNull();
   });
 
+  it('keeps the live invitation QR across polling transitions while pairing still waits', async () => {
+    // Mirrors the real backend adapter contract: poll results report the
+    // phase only and never repeat invitation metadata (qrPayload/expires/
+    // desktopName). Regression for the physical dogfood failure where the
+    // first ~800ms poll erased the QR and the UI fell back to "QR pending".
+    const { adapter, calls } = scriptedAdapter({
+      start: BASE,
+      polls: [
+        { phase: 'WAITING_FOR_MOBILE', pairingId: 'p-1' },
+        { phase: 'WAITING_FOR_MOBILE', pairingId: 'p-1' },
+      ],
+    });
+    render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
+
+    expect(await screen.findByText('Pair a mobile device')).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.qr-card svg')).not.toBeNull());
+    await waitFor(() => expect(calls.filter((c) => c === 'poll').length).toBeGreaterThanOrEqual(1));
+    // QR, identity and expiry survive real polling transitions untouched.
+    expect(document.querySelector('.qr-card svg')).not.toBeNull();
+    expect(screen.queryByText('QR payload pending…')).toBeNull();
+    expect(screen.getByText('DESKTOP-K3')).toBeTruthy();
+    expect(screen.getByText(/expires in/)).toBeTruthy();
+  });
+
+  it('does not leak the previous invitation QR into a terminal phase', async () => {
+    const { adapter } = scriptedAdapter({
+      start: BASE,
+      polls: [{ phase: 'EXPIRED', pairingId: 'p-1', reasonCode: 'PAIRING_EXPIRED' }],
+    });
+    render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
+
+    await waitFor(() => expect(screen.getByText('The pairing offer expired.')).toBeTruthy());
+    // Terminal phase replaces the invitation wholesale: no QR card, no
+    // identity metadata, no lingering countdown from the dead invitation.
+    expect(document.querySelector('.qr-card svg')).toBeNull();
+    expect(screen.queryByText('DESKTOP-K3')).toBeNull();
+    expect(screen.queryByText(/expires in/)).toBeNull();
+    expect(screen.getByText('PAIRING_EXPIRED')).toBeTruthy();
+  });
+
   it('moves to SAS_PENDING via polling, renders the backend-supplied SAS, and never invents one', async () => {
     const { adapter } = scriptedAdapter({
       start: BASE,

@@ -82,7 +82,6 @@ def _doctor_windows(config: dict) -> list[dict[str, object]]:
 def _doctor_posix(config: dict) -> list[dict[str, object]]:
     """Existing Linux/container diagnostics (unchanged behavior)."""
     results: list[dict[str, object]] = []
-    container_name = config.get("container_name", "agent-dev")
     in_container = _in_container()
 
     # 1. Kernel / container detection
@@ -169,7 +168,12 @@ def _docker_checks(
     docker_bin: str | None = None,
 ) -> None:
     """Shared Docker daemon/container probes (valid on Linux and Windows)."""
-    container_name = config.get("container_name", "agent-dev")
+    # A named container is doctor truth only when this installation
+    # explicitly configures one; the historical dev default never applies.
+    # Tolerant read: legacy flat keys and the nested [checks] table both count.
+    container_name = config.get("container_name") or (config.get("checks") or {}).get(
+        "container_name"
+    )
     docker_bin = docker_bin or which("docker")
     if not docker_bin:
         if in_container:
@@ -196,8 +200,8 @@ def _docker_checks(
         except Exception as e:
             results.append(_unreachable("docker-daemon", str(e)))
 
-    # Container status
-    if docker_bin:
+    # Container status — only for an explicitly configured, product-owned name
+    if docker_bin and container_name:
         try:
             r = run_command(
                 [docker_bin, "ps", "--filter", f"name={container_name}", "--format", "{{.ID}}"],

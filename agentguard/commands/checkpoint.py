@@ -1,17 +1,18 @@
 """checkpoint command — record environment state snapshot."""
 
 import hashlib
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-from ..core.hasher import hash_file
-from ..core.snapshot import (
-    create_snapshot, create_file_snapshot, classify_file, serialize_snapshot,
-)
 from ..core.docker import container_info
-from ..core.versions import all_versions
 from ..core.runner import run_command
+from ..core.snapshot import (
+    classify_file,
+    create_file_snapshot,
+    create_snapshot,
+    serialize_snapshot,
+)
+from ..core.versions import all_versions
 from ..storage.db import StateDB
 from ..storage.snapshots import SnapshotStore
 
@@ -21,18 +22,24 @@ def cmd_checkpoint(
     config: dict,
     db: StateDB,
     snapshots: SnapshotStore,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Create a new environment checkpoint with full file snapshots."""
     git_branch, git_commit = _git_info()
     versions = all_versions()
-    container_state = container_info(config.get("container_name", "agent-dev"))
+    # Record container facts only for an explicitly configured container;
+    # an unset name records an empty dict (no facts), never the historical
+    # dev default. Tolerant read: flat or nested [checks] keys both count.
+    configured_container = config.get("container_name") or (
+        config.get("checks") or {}
+    ).get("container_name")
+    container_state = container_info(configured_container) if configured_container else {}
     # No security facts are honestly derivable here; record none rather than
     # inventing one. Docker reachability is not evidence of privilege mode.
-    security_state: Dict[str, bool] = {}
+    security_state: dict[str, bool] = {}
 
     # Build file snapshots
     restorable_paths = config.get("security", {}).get("restore_whitelist", [])
-    file_snapshots: Dict[str, Dict[str, Any]] = {}
+    file_snapshots: dict[str, dict[str, Any]] = {}
     tracked_paths = _get_tracked_paths(config)
 
     for path in tracked_paths:
@@ -100,7 +107,7 @@ def cmd_checkpoint(
     }
 
 
-def _git_info() -> Tuple[Optional[str], Optional[str]]:
+def _git_info() -> tuple[str | None, str | None]:
     branch, commit = None, None
     for cmd, out_key in [(["git", "rev-parse", "--abbrev-ref", "HEAD"], "branch"),
                           (["git", "rev-parse", "HEAD"], "commit")]:

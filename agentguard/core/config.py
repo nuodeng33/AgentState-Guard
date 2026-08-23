@@ -10,7 +10,10 @@ from ..core.sanitizer import sanitize_dict
 DEFAULT_CONFIG: dict[str, Any] = {
     "checks": {
         "commands": ["docker", "node", "python3", "git"],
-        "container_name": "agent-dev",
+        # No default container name: a historical dev-rig name ("agent-dev")
+        # must not become product environment truth. A named container is
+        # reported only when a user config explicitly sets one.
+        "container_name": None,
         "port": 3001,
     },
     "security": {
@@ -35,12 +38,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
 }
 
+#: Historical dev-rig container name that pre-v2 MSI templates wrote into
+#: every install; auto-retired when found in an unmarked legacy config.
+_RETIRED_LEGACY_CONTAINER = "agent-dev"
+
 PRODUCT_CONFIG_TEMPLATE = """# AgentState Guard product configuration
+# asg-config-schema: v2
 
 [checks]
 commands = ["docker", "node", "python3", "git"]
-container_name = "agent-dev"
 port = 3001
+# Optionally name a container this installation actually cares about.
+# Unset (default): Docker capability is reported without naming any container.
+# container_name = "your-container"
 
 [security]
 restore_whitelist = []
@@ -77,12 +87,26 @@ class Config:
         merged = dict(DEFAULT_CONFIG)
 
         if toml_path.is_file():
+            legacy_generated = False
             try:
                 with toml_path.open("rb") as f:
-                    user_config = tomllib.load(f)
+                    raw_toml = f.read()
+                user_config = tomllib.loads(raw_toml.decode("utf-8", "replace"))
                 self._deep_merge(merged, user_config)
-            except (tomllib.TOMLDecodeError, OSError):
+                # Legacy-default retirement: the pre-v2 MSI auto-generated
+                # `container_name = "agent-dev"` into every install. A file
+                # without the v2 schema marker carrying exactly that
+                # historical value is treated as generated default, never as
+                # an explicit user choice. v2-marked files keep their value.
+                legacy_generated = (
+                    b"asg-config-schema: v2" not in raw_toml
+                    and merged.get("checks", {}).get("container_name")
+                    == _RETIRED_LEGACY_CONTAINER
+                )
+            except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError):
                 pass
+            if legacy_generated:
+                merged["checks"]["container_name"] = None
         elif yaml_path.is_file():
             # Fallback: try PyYAML
             try:
@@ -133,8 +157,10 @@ class Config:
         return self._data.get("security", {}).get("restore_whitelist", [])
 
     @property
-    def container_name(self) -> str:
-        return self._data.get("checks", {}).get("container_name", "agent-dev")
+    def container_name(self) -> str | None:
+        """Configured container name, or None when no product-owned name exists."""
+        value = self._data.get("checks", {}).get("container_name")
+        return value if value else None
 
     @property
     def port(self) -> int:

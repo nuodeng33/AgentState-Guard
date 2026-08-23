@@ -118,6 +118,7 @@ def test_product_discovery_separates_self_runtime_from_external_agents():
         ),
         clock=lambda: NOW,
         home_path="C:\\Users\\private-user",
+        host_domain_observers=(),
     )
 
     snapshot = service.discover()
@@ -138,6 +139,7 @@ def test_product_discovery_preserves_agent_probe_permission_denied():
         runtime_adapter=_RuntimeAdapter(),
         process_backend=_ProcessBackend(failure=ProcessAccessDeniedError()),
         clock=lambda: NOW,
+        host_domain_observers=(),
     )
 
     snapshot = service.discover()

@@ -105,6 +105,50 @@ class TestHostNativeSearchPath:
         assert resolution.presence == "HOST_INSTALLED"
         assert resolution.sidecar_callable is False
 
+    def test_stale_host_path_entry_is_searched_not_crashed(self, tmp_path):
+        """Physical dogfood ground truth: registry PATH entries can point at
+        moved/removed installs (e.g. a deleted D:\\...\\Git\\cmd, an empty
+        npm dir, a python dir without the exe). A stale entry must simply
+        not match; a remaining valid entry still resolves; if every entry is
+        stale the result is an authoritative HOST_NOT_FOUND, never a guess
+        and never a crash."""
+        stale = tmp_path / "gone"  # listed in PATH but does not exist
+        valid = tmp_path / "real"
+        valid.mkdir()
+        (valid / "git.exe").write_bytes(b"MZ")
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", lambda: True),
+            patch.object(host_tools_mod.os, "environ", {"PATH": "C:\\sidecar-only", "PATHEXT": ".COM;.EXE"}),
+            patch.object(host_tools_mod, "which", lambda _n: None),
+        ):
+            found = host_tools_mod.host_tool_resolution("git", search=[str(stale), str(valid)])
+            all_stale = host_tools_mod.host_tool_resolution("git", search=[str(stale)])
+
+        assert found.presence == "HOST_INSTALLED"
+        assert found.path == str(valid / "git.exe")
+        assert all_stale.presence == "HOST_NOT_FOUND"
+        assert all_stale.path is None
+
+    def test_empty_real_directory_entry_is_stale_not_found(self, tmp_path):
+        """A PATH entry that exists but lacks the executable (physical case:
+        Python311 dir holding only Lib/Scripts, npm dir holding no shims)
+        is a truthful HOST_NOT_FOUND for that tool."""
+        empty_dir = tmp_path / "Python311"
+        empty_dir.mkdir()
+        (empty_dir / "Lib").mkdir()
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", lambda: True),
+            patch.object(host_tools_mod.os, "environ", {"PATH": "C:\\sidecar-only", "PATHEXT": ".COM;.EXE"}),
+            patch.object(host_tools_mod, "which", lambda _n: None),
+        ):
+            resolution = host_tools_mod.host_tool_resolution(
+                "python", search=[str(empty_dir)]
+            )
+
+        assert resolution.presence == "HOST_NOT_FOUND"
+
     def test_sidecar_only_is_honest(self):
         """Tool visible only to the sidecar PATH is SIDECAR_ONLY, not HOST."""
         with (

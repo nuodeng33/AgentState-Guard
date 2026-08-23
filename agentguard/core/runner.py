@@ -2,9 +2,11 @@
 
 import shutil
 import subprocess
-import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+
+# 0 on POSIX; CREATE_NO_WINDOW (0x08000000) on Windows so bounded probes
+# launched from the packaged GUI sidecar never flash visible console windows.
+_NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class CommandResult:
@@ -26,11 +28,11 @@ class CommandResult:
 
 
 def run_command(
-    cmd: List[str],
+    cmd: list[str],
     timeout: int = 15,
-    cwd: Optional[Path] = None,
+    cwd: Path | None = None,
     check: bool = False,
-    env: Optional[dict] = None,
+    env: dict | None = None,
 ) -> CommandResult:
     """Execute a command with timeout.
 
@@ -56,6 +58,7 @@ def run_command(
             timeout=timeout,
             cwd=str(cwd) if cwd else None,
             env=env,
+            creationflags=_NO_WINDOW_FLAGS,
         )
         result = CommandResult(proc.returncode, proc.stdout.strip(), proc.stderr.strip())
     except subprocess.TimeoutExpired as e:
@@ -73,6 +76,6 @@ def run_command(
     return result
 
 
-def which(binary: str) -> Optional[str]:
+def which(binary: str) -> str | None:
     """Return path to binary or None if not found."""
     return shutil.which(binary)

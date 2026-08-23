@@ -232,6 +232,7 @@ class TestNodeHostedFailClosedDiscovery:
             process_backend=_ProcessBackend(tuple(handles)),
             clock=lambda: NOW,
             home_path="C:\\Users\\private-user",
+            host_domain_observers=(),
         )
         return service.discover()
 

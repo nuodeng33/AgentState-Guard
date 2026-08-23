@@ -104,6 +104,8 @@ class SnapshotStore:
             return None, "RECOVERY_DOMAIN_UNREACHABLE"
         except ValueError:
             return None, "RECOVERY_MANIFEST_INVALID"
+        if artifact is None:
+            return None, "RECOVERY_MANIFEST_INVALID"
         if not isinstance(artifact, dict) or artifact.get("format_version") != 3:
             return None, "LEGACY_SNAPSHOT_READ_ONLY"
         blobs = artifact.get("blobs")

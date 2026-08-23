@@ -1,8 +1,10 @@
 """Tests for runner module."""
 
-import pytest
 from pathlib import Path
-from agentguard.core.runner import run_command, CommandResult, which
+
+import pytest
+
+from agentguard.core.runner import CommandResult, run_command, which
 
 
 class TestRunner:
@@ -61,3 +63,83 @@ class TestRunner:
         result = run_command(["ls", "/"], timeout=5)
         assert result.success is True
         assert "etc" in result.stdout or "usr" in result.stdout
+
+
+class TestNoConsoleWindowsInvocation:
+    """Windows packaged-GUI contract: bounded probes must never flash consoles.
+
+    The central runner passes CREATE_NO_WINDOW on Windows so child docker/node/
+    git/python/agent-CLI probes launched by the GUI sidecar open no visible
+    console window. POSIX passes the neutral 0 flag with behavior unchanged.
+    """
+
+    def test_run_command_always_passes_creationflags(self, monkeypatch):
+        import subprocess
+
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured.update(kwargs)
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        result = run_command(["docker", "--version"], timeout=5)
+        assert result.success is True
+        assert result.stdout == "ok"
+        assert "creationflags" in captured, "runner must set console creation flags"
+
+    def test_windows_constant_wires_create_no_window(self):
+        import importlib
+        import subprocess
+
+        # Simulate the Windows-only constant, verify the runner picks it up,
+        # then restore the module exactly as found (suite-order safety).
+        original = getattr(subprocess, "CREATE_NO_WINDOW", None)
+        subprocess.CREATE_NO_WINDOW = 0x08000000
+        import agentguard.core.runner as runner_mod
+
+        reloaded = importlib.reload(runner_mod)
+        try:
+            assert reloaded._NO_WINDOW_FLAGS == 0x08000000
+
+            seen: dict = {}
+            real_run = subprocess.run
+
+            def fake_run(cmd, **kwargs):
+                seen.update(kwargs)
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            subprocess.run = fake_run
+            try:
+                reloaded.run_command(["node", "--version"], timeout=5)
+            finally:
+                subprocess.run = real_run
+            assert seen["creationflags"] == 0x08000000
+        finally:
+            if original is None:
+                del subprocess.CREATE_NO_WINDOW
+            else:
+                subprocess.CREATE_NO_WINDOW = original
+            importlib.reload(runner_mod)
+
+    def test_posix_flag_is_neutral_zero(self):
+        import sys
+
+        import agentguard.core.runner as runner_mod
+
+        if sys.platform.startswith("win"):
+            pytest.skip("POSIX-neutral check only applies off Windows")
+        assert runner_mod._NO_WINDOW_FLAGS == 0
+
+    def test_real_invocation_still_captures_output_and_code(self):
+        # Behavior preservation through the central flag change on the
+        # platform running the suite: stdout/stderr/returncode contract.
+        ok = run_command(["bash", "-c", "echo out-line; echo err-line >&2; exit 0"], timeout=5)
+        assert ok.returncode == 0
+        assert ok.stdout == "out-line"
+        assert ok.stderr == "err-line"
+
+        bad = run_command(["bash", "-c", "echo boom >&2; exit 7"], timeout=5)
+        assert bad.returncode == 7
+        assert bad.stderr == "boom"

@@ -152,7 +152,13 @@ def deserialize_snapshot(raw: bytes) -> Optional[Dict[str, Any]]:
     try:
         decompressed = gzip.decompress(raw)
         return json.loads(decompressed.decode("utf-8"))
-    except (json.JSONDecodeError, gzip.BadGzipFile, UnicodeDecodeError, OSError):
+    except (
+        json.JSONDecodeError,
+        gzip.BadGzipFile,
+        EOFError,
+        UnicodeDecodeError,
+        OSError,
+    ):
         return None
 
 

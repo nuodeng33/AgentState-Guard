@@ -7,6 +7,7 @@ import re
 import sqlite3
 from typing import Any
 
+from agentguard.evidence.canonical import flatten_bounded_digest_tree
 from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
 from agentguard.evidence.ledger import verify_ledger
 from agentguard.recovery.coverage import RecoveryCoverageService
@@ -106,12 +107,9 @@ def _activity_detail(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(single, str) and re.fullmatch(r"[0-9a-f]{64}", single):
         affected.append(single)
     multiple = payload.get("target_ref_digests")
-    if isinstance(multiple, list):
-        affected.extend(
-            item
-            for item in multiple
-            if isinstance(item, str) and re.fullmatch(r"[0-9a-f]{64}", item)
-        )
+    flattened = flatten_bounded_digest_tree(multiple)
+    if flattened is not None:
+        affected.extend(flattened)
     verification = payload.get("verification")
     verification_result = (
         _safe_result(verification.get("result"))

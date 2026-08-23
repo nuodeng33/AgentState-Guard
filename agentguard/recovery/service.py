@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from agentguard.core.versions import exact_product_sha, is_exact_git_sha
 from agentguard.discovery.capabilities import CapabilityStatus
-from agentguard.evidence.canonical import canonical_json
+from agentguard.evidence.canonical import canonical_json, encode_bounded_digest_tree
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.storage.db import StateDB
@@ -23,6 +23,10 @@ from agentguard.storage.snapshots import SnapshotStore
 
 from .contracts import RecoveryOperation, RecoveryOperationResult, RecoveryRequest
 from .manifest import validate_snapshot_v3
+
+
+def _target_ref_digest_payload(target_ref_digests: tuple[str, ...]) -> list:
+    return encode_bounded_digest_tree(target_ref_digests)
 
 
 class RecoveryService:
@@ -2025,7 +2029,7 @@ class RecoveryService:
                     "reason_code": outcome.reason_code,
                     "manifest_digest": digest,
                     "file_count": file_count,
-                    "target_ref_digests": list(target_ref_digests),
+                    "target_ref_digests": _target_ref_digest_payload(target_ref_digests),
                     "product_sha": self._product_sha,
                 },
             ),

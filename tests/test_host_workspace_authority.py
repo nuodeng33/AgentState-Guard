@@ -221,6 +221,7 @@ def test_product_discovery_keeps_exact_path_out_of_serialized_snapshot(tmp_path)
         process_backend=_Backend(workspace),
         clock=lambda: NOW,
         home_path=str(home),
+        host_domain_observers=(),
     )
 
     report = service.discover_with_authority()

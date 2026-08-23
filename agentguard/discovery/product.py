@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,11 @@ from .agents import (
 from .agents.processes import bounded_launcher_anchors_for
 from .capabilities import AgentLifecycleStatus, CapabilityStatus, EvidenceReliability
 from .domains import SelfRuntimeAdapter
+from .domains.host_domains import (
+    HostDomainObservation,
+    observe_docker_domains,
+    observe_wsl_domains,
+)
 from .models import (
     AgentDescriptor,
     DiscoverySnapshot,
@@ -60,6 +66,63 @@ _V1_PASSIVE_ADMISSION_IDENTITIES = frozenset(
     ("CCR", "CLAUDE", "CLOUDCLI", "CODEX", "KIMI_CODE")
 )
 
+#: Unambiguous wrapper-directory tokens for container executable paths.
+#: Mirrors the admitted identities only — no new identity is invented for
+#: cross-filesystem (docker top) rows, where on-disk anchors cannot exist.
+_WRAPPER_PATH_TOKENS: dict[str, str] = {
+    "claude": "CLAUDE",
+    "codex": "CODEX",
+    "kimi": "KIMI_CODE",
+}
+_VERSIONED_TAIL = re.compile(r"\d+(\.\d+)*(-[0-9a-z._-]+)?\Z")
+#: ``node_modules/<scope>/<name>`` path segment → identity; exact package
+#: names only (the string form of the manifest identity the host flow
+#: reads on disk), so generic names never match.
+_PACKAGE_PATH_RE = re.compile(
+    r"node_modules[/\\]((?:@[^/\\]+/)?[^/\\]+)", re.IGNORECASE
+)
+
+
+def _admit_container_process(tokens: Sequence[str]) -> tuple[str, str] | None:
+    """Admit a container process row using bounded, reduced argv evidence.
+
+    ``tokens`` are the argv tokens of one ``docker top`` row. Only the
+    executable (first token) and, for generic script hosts such as node,
+    the leading script arguments are consulted — via the admitted basename
+    map, the exact ``node_modules`` package-path identity, or unambiguous
+    wrapper-directory path tokens. Deeper argument tokens are never used,
+    the raw command line is never persisted, and unknown executables stay
+    unclassified.
+    """
+    if not tokens:
+        return None
+    executable = str(tokens[0])
+    basename = executable.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+    identity = _BASENAME_IDENTITY_EVIDENCE.get(basename)
+    if identity is None and basename in _GENERIC_RUNTIME_BASENAMES:
+        for token in tokens[1:4]:
+            match = _PACKAGE_PATH_RE.search(str(token))
+            if match is not None:
+                identity = launcher_identity.KNOWN_PACKAGE_IDENTITIES.get(
+                    match.group(1).casefold()
+                )
+                if identity is not None:
+                    break
+        if identity is None:
+            for part in executable.replace("\\", "/").split("/"):
+                token = part.casefold()
+                if not token:
+                    continue
+                base, _, tail = token.rpartition("-")
+                if base and tail and _VERSIONED_TAIL.fullmatch(tail):
+                    token = base
+                identity = _WRAPPER_PATH_TOKENS.get(token)
+                if identity is not None:
+                    break
+    if identity is None or identity not in _V1_PASSIVE_ADMISSION_IDENTITIES:
+        return None
+    return identity, _IDENTITY_ROLE_ENRICHMENT[identity].value
+
 
 def _resolve_bounded_launcher_identity(anchors: tuple[str, ...] | list[str]) -> str | None:
     """Map bounded filesystem anchors to Agent identity, or ``None``.
@@ -87,11 +150,25 @@ class ProductDiscoveryService:
         process_backend: ProcessBackend | None = None,
         clock: Callable[[], datetime] | None = None,
         home_path: str | None = None,
+        host_domain_observers: tuple[Callable[[], HostDomainObservation], ...] | None = None,
     ) -> None:
         self._runtime_adapter = runtime_adapter or SelfRuntimeAdapter()
         self._process_backend = process_backend or PsutilProcessBackend()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._home_path = home_path if home_path is not None else str(Path.home())
+        self._host_domain_observers = host_domain_observers
+
+    def _default_host_domain_observers(
+        self,
+    ) -> tuple[Callable[[], HostDomainObservation], ...]:
+        clock = self._clock
+
+        return (
+            lambda: observe_docker_domains(
+                admit_process=_admit_container_process, clock=clock
+            ),
+            lambda: observe_wsl_domains(clock=clock),
+        )
 
     def discover(self) -> DiscoverySnapshot:
         return self.discover_with_authority().snapshot
@@ -292,16 +369,56 @@ class ProductDiscoveryService:
                 )
             )
 
+        # Host-side multi-domain observation (Docker containers, WSL
+        # distros). Observer failures degrade to truthful UNREACHABLE
+        # evidence and never break the host-native discovery above.
+        observers = (
+            self._host_domain_observers
+            if self._host_domain_observers is not None
+            else self._default_host_domain_observers()
+        )
+        extra_domains: list[ExecutionDomainDescriptor] = []
+        extra_runtimes: list[RuntimeDescriptor] = []
+        extra_agents: list[AgentDescriptor] = []
+        extra_workspaces: list[WorkspaceDescriptor] = []
+        observer_errors: list = []
+        for observe in observers:
+            try:
+                observation = observe()
+            except Exception:  # noqa: BLE001 - isolate one domain's failure
+                evidence.append(
+                    ProbeEvidence(
+                        evidence_id=f"host-domain-observer-{nonce}-{len(evidence)}",
+                        collector=_COLLECTOR,
+                        source="host-domain-observation",
+                        observed_at=observed_at,
+                        fact_type="probe.unreachable",
+                        value={
+                            "reason_code": "HOST_DOMAIN_OBSERVER_FAILED",
+                            "scope": "runtime",
+                        },
+                        reliability=EvidenceReliability.HIGH,
+                        status=CapabilityStatus.UNREACHABLE,
+                        sanitized=True,
+                    )
+                )
+                continue
+            extra_domains.extend(observation.domains)
+            extra_runtimes.extend(observation.runtimes)
+            extra_agents.extend(observation.agents)
+            extra_workspaces.extend(observation.workspaces)
+            evidence.extend(observation.evidence)
+
         return ProductDiscoveryReport(
             snapshot=DiscoverySnapshot(
                 snapshot_id=f"product-{nonce}",
                 observed_at=observed_at,
-                domains=(domain,),
-                runtimes=(runtime,),
-                agents=tuple(agents),
-                workspaces=workspaces,
+                domains=(domain, *extra_domains),
+                runtimes=(runtime, *extra_runtimes),
+                agents=(*agents, *extra_agents),
+                workspaces=(*workspaces, *extra_workspaces),
                 evidence=tuple(evidence),
-                errors=(*runtime_snapshot.errors, *processes.errors),
+                errors=(*runtime_snapshot.errors, *processes.errors, *observer_errors),
                 status=(
                     CapabilityStatus.AVAILABLE
                     if processes.status is CapabilityStatus.AVAILABLE

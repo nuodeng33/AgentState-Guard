@@ -99,6 +99,34 @@ def test_scan_order_and_digest_are_deterministic(tmp_path):
     assert first.coverage_digest == second.coverage_digest
 
 
+def test_large_coverage_digest_is_supported(tmp_path):
+    for index in range(65):
+        (tmp_path / f"fixture-{index:03d}.txt").write_text("safe", encoding="utf-8")
+
+    scan = scan_workspace(tmp_path, permission_backend=PosixPermissionBackend())
+
+    assert scan.complete is True
+    assert scan.counts["restorable"] == 65
+    assert len(scan.coverage_digest) == 64
+
+
+def test_default_entry_budget_completes_above_previous_10000_boundary(tmp_path):
+    assert WorkspaceScanLimits().max_entries == 25_000
+    for index in range(10_001):
+        (tmp_path / f"generated-{index:05d}.pyc").touch()
+
+    scan = scan_workspace(tmp_path, permission_backend=PosixPermissionBackend())
+
+    assert scan.complete is True
+    assert scan.reason_code == "WORKSPACE_SCAN_COMPLETE"
+    assert scan.counts == {
+        "restorable": 0,
+        "audit_only": 0,
+        "excluded": 10_001,
+        "unreachable": 0,
+    }
+
+
 def test_file_count_limit_fails_closed_with_explicit_residue(tmp_path):
     (tmp_path / "a.txt").write_text("a", encoding="utf-8")
     (tmp_path / "b.txt").write_text("b", encoding="utf-8")

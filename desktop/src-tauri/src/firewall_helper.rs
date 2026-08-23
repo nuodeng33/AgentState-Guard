@@ -6,6 +6,18 @@ const TCP_RULE: &str = "AgentState Guard Device Link TCP 8788";
 const UDP_RULE: &str = "AgentState Guard Device Link UDP 8788";
 const HELPER_FLAG: &str = "--asg-firewall-helper";
 
+// Windows CREATE_NO_WINDOW: the packaged GUI helper must never flash visible
+// console windows for its bounded powershell/netsh children. The constant is
+// ungated so its exact value stays testable on every platform; only the
+// application to a Command is Windows-specific.
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(windows)]
+fn configure_no_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
 const NETWORK_CHECK: &str = r#"
 $ErrorActionPreference = 'Stop'
 $targetAddress = [string]$env:ASG_FW_ADDRESS
@@ -92,10 +104,13 @@ fn run_request(request: HelperRequest) -> i32 {
 
 #[cfg(windows)]
 fn network_scope_is_current(request: HelperRequest) -> bool {
-    Command::new("powershell.exe")
+    let mut command = Command::new("powershell.exe");
+    command
         .args(["-NoProfile", "-NonInteractive", "-Command", NETWORK_CHECK])
         .env("ASG_FW_ADDRESS", request.address.to_string())
-        .env("ASG_FW_PREFIX", request.prefix.to_string())
+        .env("ASG_FW_PREFIX", request.prefix.to_string());
+    configure_no_console(&mut command);
+    command
         .status()
         .map(|status| status.code() == Some(0))
         .unwrap_or(false)
@@ -148,8 +163,10 @@ fn add_rule(
     prefix: u8,
     network: Ipv4Addr,
 ) -> bool {
-    Command::new("netsh.exe")
-        .args(add_rule_args(name, protocol, address, prefix, network))
+    let mut command = Command::new("netsh.exe");
+    command.args(add_rule_args(name, protocol, address, prefix, network));
+    configure_no_console(&mut command);
+    command
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
@@ -160,7 +177,9 @@ fn delete_rule(name: &str) -> bool {
     let mut command = Command::new("netsh.exe");
     command
         .args(["advfirewall", "firewall", "delete", "rule"])
-        .arg(format!("name={name}"))
+        .arg(format!("name={name}"));
+    configure_no_console(&mut command);
+    command
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
@@ -240,5 +259,36 @@ mod tests {
             subnet(Ipv4Addr::new(172, 20, 14, 9), 20),
             Ipv4Addr::new(172, 20, 0, 0)
         );
+    }
+
+    #[test]
+    fn no_console_flag_is_windows_create_no_window() {
+        // The GUI helper's powershell/netsh children must use the exact
+        // Windows CREATE_NO_WINDOW value; pinned ungated so every platform
+        // compiles and runs this contract.
+        assert_eq!(CREATE_NO_WINDOW, 0x0800_0000);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn add_rule_surface_stays_fixed_and_scoped() {
+        let argv = add_rule_args(
+            TCP_RULE,
+            "TCP",
+            Ipv4Addr::new(192, 168, 50, 8),
+            24,
+            Ipv4Addr::new(192, 168, 50, 0),
+        );
+        let joined = argv.join(" ");
+        assert!(joined.contains("advfirewall firewall add rule"));
+        assert!(joined.contains("dir=in"));
+        assert!(joined.contains("action=allow"));
+        assert!(joined.contains("localport=8788"));
+        assert!(joined.contains("localip=192.168.50.8"));
+        assert!(joined.contains("remoteip=192.168.50.0/24"));
+        assert!(joined.contains("profile=private"));
+        assert!(joined.contains("enable=yes"));
+        assert!(!joined.contains("exec"));
+        assert!(!joined.contains("delete"));
     }
 }

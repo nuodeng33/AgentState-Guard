@@ -63,7 +63,20 @@ export default function DevicesPage({
     const id = pairing.pairingId;
     const timer = setTimeout(async () => {
       try {
-        setPairing(await resolved.pollPairing(id));
+        const next = await resolved.pollPairing(id);
+        // The status poll reports phase only. It must not erase the live
+        // invitation's canonical QR metadata while that invitation is still
+        // in flight; terminal results replace the view wholesale so no stale
+        // QR/SAS survives past the pairing lifecycle.
+        setPairing((current) => {
+          if (!current || current.pairingId !== id || !IN_FLIGHT.has(next.phase)) return next;
+          return {
+            ...next,
+            qrPayload: next.qrPayload ?? current.qrPayload,
+            expiresAt: next.expiresAt ?? current.expiresAt,
+            desktopName: next.desktopName ?? current.desktopName,
+          };
+        });
       } catch (err) {
         setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
       }

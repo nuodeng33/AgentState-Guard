@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentguard.core.sanitizer import contains_sensitive_data
-from agentguard.evidence.canonical import canonical_json
+from agentguard.evidence.canonical import canonical_json, canonical_json_unbounded
 
 from .workspace_permissions import (
     PermissionBackend,
@@ -58,7 +58,7 @@ _SENSITIVE_SUFFIXES = frozenset({".key", ".p12", ".pfx", ".pem"})
 
 @dataclass(frozen=True)
 class WorkspaceScanLimits:
-    max_entries: int = 10_000
+    max_entries: int = 25_000
     max_file_bytes: int = 4 * 1024 * 1024
     max_total_restorable_bytes: int = 128 * 1024 * 1024
     max_depth: int = 64
@@ -141,7 +141,7 @@ class WorkspaceScan:
     @property
     def coverage_digest(self) -> str:
         values = [item.to_extension_dict() for item in self.entries]
-        return hashlib.sha256(canonical_json(values).encode()).hexdigest()
+        return hashlib.sha256(canonical_json_unbounded(values).encode()).hexdigest()
 
     @property
     def reason_counts(self) -> dict[str, int]:

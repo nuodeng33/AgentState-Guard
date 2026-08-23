@@ -26,15 +26,22 @@ def status(config: dict, db: StateDB | None = None) -> dict[str, Any]:
         result["checks"]["docker"] = None
     else:
         result["checks"]["docker"] = bool(presence)
-    if presence is True:
-        running, info = container_running(config.get("container_name", "agent-dev"))
+    # A named container is environment truth only when this installation
+    # explicitly configures one. The historical dev default name must not
+    # surface as a product fact; Docker capability above is independent.
+    # Tolerant read: legacy flat keys and the nested [checks] table both count.
+    container_name = config.get("container_name") or (config.get("checks") or {}).get(
+        "container_name"
+    )
+    if presence is True and container_name:
+        running, info = container_running(container_name)
         result["checks"]["container_running"] = running
         result["checks"]["container_info"] = info
 
     # Port probe exists only where there is a real, product-owned port to
     # check. The historical CloudCLI port-3001 fact is not probed on the
     # V1 host surface, and an unprobed port is never reported as ``false``.
-    port = config.get("port")
+    port = config.get("port") or (config.get("checks") or {}).get("port")
     if not host_tools.platform_is_windows() and port is not None:
         result["checks"][f"port_{int(port)}"] = _check_port(int(port))
 

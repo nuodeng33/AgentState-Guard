@@ -272,7 +272,7 @@ def create_app(
         return response
 
     cfg_o = Config(
-        Path(config.get("base_dir", "/workspace")) if config else PROJECT_ROOT
+        Path(config.get("base_dir") or PROJECT_ROOT) if config else PROJECT_ROOT
     )
     product_config_target = cfg_o.ensure_product_config()
     cfg = cfg_o._data

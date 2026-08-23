@@ -1,16 +1,15 @@
 """update-state command — maintain state documents from structured data only."""
 
-import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from ..core.docker import docker_available, container_running
+from ..core.docker import container_running, docker_available
 from ..core.versions import all_versions
 from ..storage.db import StateDB
 
 
-def cmd_update_state(doc_dir: Path, db: StateDB, config: dict) -> Dict[str, object]:
+def cmd_update_state(doc_dir: Path, db: StateDB, config: dict) -> dict[str, object]:
     """Update docs/CURRENT_STATE.md, NEXT_STEPS.md, DECISIONS.md, CHANGELOG.md.
 
     Only uses structured data — no LLM-generated content.
@@ -49,16 +48,16 @@ def cmd_update_state(doc_dir: Path, db: StateDB, config: dict) -> Dict[str, obje
 
 
 def _render_current_state(
-    versions: Dict[str, Optional[str]],
+    versions: dict[str, str | None],
     docker_ok: bool,
     config: dict,
-    checkpoints: List[Dict[str, Any]],
+    checkpoints: list[dict[str, Any]],
 ) -> str:
     """Render current environment state as Markdown."""
     lines = [
         "# Current State",
         "",
-        f"_Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}_",
+        f"_Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}_",
         "",
         "## Software Versions",
         "",
@@ -74,8 +73,14 @@ def _render_current_state(
         f"- Available: {'✅' if docker_ok else '❌'}",
     ])
 
-    if docker_ok:
-        running, info = container_running(config.get("container_name", "agent-dev"))
+    # Named-container fact only for an explicitly configured container;
+    # Docker capability above is independent of any historical default name.
+    # Tolerant read: legacy flat keys and the nested [checks] table both count.
+    configured_container = config.get("container_name") or (
+        config.get("checks") or {}
+    ).get("container_name")
+    if docker_ok and configured_container:
+        running, info = container_running(configured_container)
         lines.append(f"- Container: {'✅ running' if running else '❌ ' + str(info)}")
 
     lines.extend([
@@ -95,12 +100,12 @@ def _render_current_state(
     return "\n".join(lines)
 
 
-def _render_next_steps(checkpoints: List[Dict[str, Any]]) -> str:
+def _render_next_steps(checkpoints: list[dict[str, Any]]) -> str:
     """Render suggested next actions from checkpoint data."""
     lines = [
         "# Next Steps",
         "",
-        f"_Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}_",
+        f"_Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}_",
         "",
         "## Recommended Actions",
         "",
@@ -115,7 +120,7 @@ def _render_next_steps(checkpoints: List[Dict[str, Any]]) -> str:
     else:
         latest = checkpoints[0]
         lines.append(f"- Latest checkpoint: #{latest['id']} ({latest['label']})")
-        lines.append(f"- Run `agentguard diff` to check for drift")
+        lines.append("- Run `agentguard diff` to check for drift")
 
     lines.extend([
         "",
@@ -131,7 +136,7 @@ def _render_next_steps(checkpoints: List[Dict[str, Any]]) -> str:
 
 def _init_changelog(path: Path) -> None:
     """Initialize CHANGELOG.md with first entry."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now(UTC).strftime("%Y-%m-%d")
     path.write_text(
         f"# Changelog\n\n"
         f"## {now}\n\n"

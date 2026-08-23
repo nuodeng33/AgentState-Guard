@@ -39,6 +39,11 @@ class TestSnapshot:
     def test_deserialize_corrupted(self):
         assert deserialize_snapshot(b"garbage") is None
 
+    def test_deserialize_truncated_gzip_fails_closed(self):
+        raw = serialize_snapshot(create_snapshot("truncated", {}, {}, {}, {}, {}, {}))
+
+        assert deserialize_snapshot(raw[:-1]) is None
+
     def test_snapshot_valid(self, tmp_path: Path):
         f = tmp_path / "test_snap.txt"
         f.write_text("content")

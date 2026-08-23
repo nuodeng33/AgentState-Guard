@@ -7,7 +7,7 @@ import re
 from pathlib import PurePath, PurePosixPath
 from typing import Any
 
-from agentguard.evidence.canonical import canonical_json
+from agentguard.evidence.canonical import canonical_json, canonical_json_unbounded
 
 
 def manifest_digest(snapshot: dict[str, Any]) -> str:
@@ -18,7 +18,8 @@ def manifest_digest(snapshot: dict[str, Any]) -> str:
         if "workspace" not in snapshot
         else {"manifest": manifest, "workspace": snapshot.get("workspace")}
     )
-    return hashlib.sha256(canonical_json(authority).encode("utf-8")).hexdigest()
+    encoder = canonical_json_unbounded if "workspace" in snapshot else canonical_json
+    return hashlib.sha256(encoder(authority).encode("utf-8")).hexdigest()
 
 
 _ENTRY_FIELDS = frozenset(
@@ -227,7 +228,7 @@ def _validate_workspace_extension(
         or not scan_reason
     ):
         return False
-    if hashlib.sha256(canonical_json(coverage).encode()).hexdigest() != coverage_digest:
+    if hashlib.sha256(canonical_json_unbounded(coverage).encode()).hexdigest() != coverage_digest:
         return False
 
     seen: set[str] = set()
