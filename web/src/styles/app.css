@@ -892,8 +892,9 @@ code {
 
 .qr-svg svg {
   display: block;
-  width: 180px;
-  height: 180px;
+  width: min(360px, 72vw);
+  height: auto;
+  aspect-ratio: 1;
 }
 
 .sas-card {

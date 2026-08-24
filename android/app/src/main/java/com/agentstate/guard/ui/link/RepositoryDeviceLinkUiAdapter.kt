@@ -489,7 +489,11 @@ class RepositoryDeviceLinkUiAdapter(
         pairing = null
         snapshot = null
         performRefresh()
-        return PairingUiState(phase = PairingPhase.PAIRED, reasonCode = "PAIRED")
+        return PairingUiState(
+            phase = PairingPhase.PAIRED,
+            pairingId = session.payload.sessionId,
+            reasonCode = "PAIRED",
+        )
     }
 
     private suspend fun finishPairing(

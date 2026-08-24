@@ -66,6 +66,40 @@ def test_qr_ticket_is_one_time_and_pairing_calls_require_scoped_token(tmp_path):
         database.close()
 
 
+def test_android_confirmation_retry_completes_after_desktop_confirms_later(tmp_path):
+    """Catch the physical phone-first race that otherwise expires without binding."""
+    gateway, _identity, database = _gateway(tmp_path)
+    _device_private, device_public = generate_ecdsa_p256_keypair()
+    device_der_hex = public_key_to_der(device_public).hex()
+    try:
+        invitation = gateway.create_pairing_invitation("192.168.1.5", 8788)
+        connected = gateway.accept_pairing_ticket(
+            invitation["session_id"], invitation["ticket"], "android-phone-first", "aa" * 32
+        )
+        gateway.pair_start_sas_scoped(
+            invitation["session_id"], connected["pairing_token"], device_der_hex
+        )
+        first = gateway.pair_android_confirm(
+            invitation["session_id"], connected["pairing_token"], True
+        )
+        assert first == {"state": "sas_pending", "confirmed_by": ["android"]}
+        assert gateway.pair_desktop_confirm(invitation["session_id"], True) == {
+            "state": "confirmed_both"
+        }
+        retried = gateway.pair_android_confirm(
+            invitation["session_id"], connected["pairing_token"], True
+        )
+        assert retried == {"state": "confirmed_both"}
+        completed = gateway.pair_complete_scoped(
+            invitation["session_id"], connected["pairing_token"],
+            "android-phone-first", device_der_hex, "Android",
+        )
+        assert completed["status"] == "bound"
+        assert gateway.devices.get("android-phone-first") is not None
+    finally:
+        database.close()
+
+
 def test_mutual_auth_returns_desktop_signature_and_replay_fails(tmp_path):
     gateway, identity, database = _gateway(tmp_path)
     device_private, device_public = generate_ecdsa_p256_keypair()

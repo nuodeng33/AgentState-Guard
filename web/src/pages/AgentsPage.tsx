@@ -4,8 +4,15 @@ import { EvidenceRefs } from '../components/EvidenceRefs';
 import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { StateBadge, viewStatusTone, type BadgeTone } from '../components/StateBadge';
 import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
-import { useT } from '../i18n/I18nProvider';
-import { agentDisplayName, agentRoleDisplay, workspaceStatusDisplay } from '../presentation/productLanguage';
+import { useI18n } from '../i18n/I18nProvider';
+import {
+  agentDisplayName,
+  agentInstanceId,
+  agentRoleDisplay,
+  productTokenDisplay,
+  reasonCodeDisplay,
+  workspaceStatusDisplay,
+} from '../presentation/productLanguage';
 
 /**
  * Lifecycle is rendered verbatim from the backend. The UI never upgrades a
@@ -26,19 +33,22 @@ function lifecycleTone(lifecycle: string): BadgeTone {
 }
 
 export function AgentsViewBody({ data }: { data: AgentsView }) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const label = t('nav.agents');
   return (
     <div>
       <div className="view-head">
-        <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
+        <StateBadge
+          label={productTokenDisplay(data.status, locale)}
+          tone={viewStatusTone(data.status)}
+        />
       </div>
 
       {data.status === 'EMPTY' && (
         <EmptyState
           title={t('agents.empty.title')}
           detail={t('agents.empty.detail')}
-          reasonCode={data.reason_code}
+          reasonCode={reasonCodeDisplay(data.reason_code, locale)}
         />
       )}
       {data.status === 'DEGRADED' && (
@@ -46,10 +56,11 @@ export function AgentsViewBody({ data }: { data: AgentsView }) {
       )}
       {data.status === 'UNKNOWN' && <UnknownPanel label={label} reasonCode={data.reason_code} />}
 
-      {data.items.map((item) => (
+      {data.items.map((item, index) => (
         <AgentCard
           key={`${item.execution_domain_id}:${item.detected_identity}:${item.evidence_refs[0]}`}
           item={item}
+          ordinal={index + 1}
         />
       ))}
 
@@ -58,28 +69,35 @@ export function AgentsViewBody({ data }: { data: AgentsView }) {
   );
 }
 
-export function AgentCard({ item }: { item: AgentItem }) {
-  const t = useT();
+export function AgentCard({ item, ordinal = 1 }: { item: AgentItem; ordinal?: number }) {
+  const { locale, t } = useI18n();
+  const label = item.instance_label ?? item.detected_identity;
+  const instanceId = agentInstanceId(label);
   return (
     <section className="card">
       <div className="card-head">
-        <span className="card-title">
-          {agentDisplayName(item.instance_label ?? item.detected_identity)}
-        </span>
+        <span className="card-title">{locale === 'zh-CN' ? `智能体 ${ordinal}` : `Agent ${ordinal}`}</span>
         <span className="card-badges">
-          <StateBadge label={item.lifecycle} tone={lifecycleTone(item.lifecycle)} />
+          <StateBadge
+            label={productTokenDisplay(item.lifecycle, locale)}
+            tone={lifecycleTone(item.lifecycle)}
+          />
           {item.uncertainty && <StateBadge label={t('runtime.uncertain')} tone="warn" />}
         </span>
       </div>
+      <p className="card-sub">{agentDisplayName(label)}</p>
       <KeyValueGrid>
-        <KeyValue k={t('kv.role')} v={agentRoleDisplay(item.role)} />
+        {instanceId && (
+          <KeyValue k={locale === 'zh-CN' ? '实例编号' : 'Instance ID'} v={<code>{instanceId}</code>} />
+        )}
+        <KeyValue k={t('kv.role')} v={agentRoleDisplay(item.role, locale)} />
         <KeyValue k={t('kv.confidence')} v={item.confidence.toFixed(2)} />
         <KeyValue k={t('kv.executionDomain')} v={orDash(item.execution_domain_id)} />
         <KeyValue
           k={t('kv.workspaceStatus')}
           v={
             <StateBadge
-              label={workspaceStatusDisplay(item.workspace.status)}
+              label={workspaceStatusDisplay(item.workspace.status, locale)}
               tone={item.workspace.status === 'UNKNOWN' ? 'unknown' : 'neutral'}
             />
           }

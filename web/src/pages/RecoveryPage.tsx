@@ -18,7 +18,8 @@ import {
   viewStatusTone,
 } from '../components/StateBadge';
 import { ViewGate } from '../components/ViewGate';
-import { useT } from '../i18n/I18nProvider';
+import { useI18n, useT } from '../i18n/I18nProvider';
+import { productTokenDisplay, reasonCodeDisplay } from '../presentation/productLanguage';
 import { CreateCheckpointAction, RecoveryItemActions } from './RecoveryActions';
 
 export default function RecoveryPage({ client = apiClient }: { client?: ApiClient }) {
@@ -32,6 +33,25 @@ export default function RecoveryPage({ client = apiClient }: { client?: ApiClien
 }
 
 const CHAIN_LEVELS: RecoveryLevel[] = ['R0', 'R1', 'R2', 'R3'];
+
+const RECOVERY_FIELDS_ZH: Record<string, string> = {
+  scope_kind: '范围类型',
+  workspace_id: '工作区编号',
+  actual_restore_status: '实际恢复状态',
+  recovery_verified: '恢复已验证',
+  verified_at: '验证时间',
+  'capabilities.create_checkpoint': '可创建检查点',
+  'capabilities.test_restore': '可测试恢复',
+  'capabilities.restore': '可执行恢复',
+  coverage: '覆盖范围',
+  limitations: '限制',
+  reason_code: '原因代码',
+};
+
+function recoveryFieldLabel(field: string, locale: 'en-US' | 'zh-CN'): string {
+  const translated = locale === 'zh-CN' ? RECOVERY_FIELDS_ZH[field] : undefined;
+  return translated ? `${translated}（${field}）` : field;
+}
 
 function verifiedFor(data: RecoveryView, level: RecoveryLevel): boolean | null {
   switch (level) {
@@ -60,8 +80,9 @@ function CoverageFacts({
   coverage: RecoveryView['coverage'];
   yesNo: (value: boolean | null | undefined) => string;
 }) {
+  const { locale } = useI18n();
   if (coverage == null) {
-    return <KeyValue k="coverage" v={<span className="muted">—</span>} />;
+    return <KeyValue k={recoveryFieldLabel('coverage', locale)} v={<span className="muted">—</span>} />;
   }
   return (
     <>
@@ -85,31 +106,46 @@ function RecoveryScopeSummary({
   data: RecoveryView;
   yesNo: (value: boolean | null | undefined) => string;
 }) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const limitations = data.limitations ?? [];
   return (
     <>
       <SectionHeader title={t('recovery.section.scope')} />
       <section className="card">
         <KeyValueGrid>
-          <KeyValue k="scope_kind" v={orDash(data.scope_kind)} />
-          <KeyValue k="workspace_id" v={orDash(data.workspace_id)} />
-          <KeyValue k="actual_restore_status" v={orDash(data.actual_restore_status)} />
-          <KeyValue k="recovery_verified" v={yesNo(data.recovery_verified)} />
-          <KeyValue k="verified_at" v={orDash(data.verified_at)} />
-          <KeyValue k="capabilities.create_checkpoint" v={yesNo(data.capabilities?.create_checkpoint)} />
-          <KeyValue k="capabilities.test_restore" v={yesNo(data.capabilities?.test_restore)} />
-          <KeyValue k="capabilities.restore" v={yesNo(data.capabilities?.restore)} />
+          <KeyValue
+            k={recoveryFieldLabel('scope_kind', locale)}
+            v={orDash(productTokenDisplay(data.scope_kind, locale))}
+          />
+          <KeyValue k={recoveryFieldLabel('workspace_id', locale)} v={orDash(data.workspace_id)} />
+          <KeyValue
+            k={recoveryFieldLabel('actual_restore_status', locale)}
+            v={orDash(productTokenDisplay(data.actual_restore_status, locale))}
+          />
+          <KeyValue k={recoveryFieldLabel('recovery_verified', locale)} v={yesNo(data.recovery_verified)} />
+          <KeyValue k={recoveryFieldLabel('verified_at', locale)} v={orDash(data.verified_at)} />
+          <KeyValue
+            k={recoveryFieldLabel('capabilities.create_checkpoint', locale)}
+            v={yesNo(data.capabilities?.create_checkpoint)}
+          />
+          <KeyValue
+            k={recoveryFieldLabel('capabilities.test_restore', locale)}
+            v={yesNo(data.capabilities?.test_restore)}
+          />
+          <KeyValue
+            k={recoveryFieldLabel('capabilities.restore', locale)}
+            v={yesNo(data.capabilities?.restore)}
+          />
           <CoverageFacts coverage={data.coverage} yesNo={yesNo} />
         </KeyValueGrid>
-        <p className="card-sub">limitations</p>
+        <p className="card-sub">{recoveryFieldLabel('limitations', locale)}</p>
         {limitations.length === 0 ? (
           <span className="muted">—</span>
         ) : (
           <ul className="evidence-list">
             {limitations.map((limitation) => (
               <li key={limitation}>
-                <code>{limitation}</code>
+                <code>{reasonCodeDisplay(limitation, locale)}</code>
               </li>
             ))}
           </ul>
@@ -129,7 +165,7 @@ export function RecoveryViewBody({
   /** Optional mutation seam; page-scope tests render read-only by default. */
   actions?: { client: ApiClient; reload: () => void };
 }) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const levelTone = recoveryLevelTone(data.recovery_level ?? 'UNKNOWN');
   const yesNo = (value: boolean | null | undefined) =>
     value == null ? '—' : value ? t('common.yes') : t('common.no');
@@ -137,14 +173,17 @@ export function RecoveryViewBody({
   return (
     <div>
       <div className="view-head">
-        <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
+        <StateBadge
+          label={productTokenDisplay(data.status, locale)}
+          tone={viewStatusTone(data.status)}
+        />
       </div>
 
       {data.status === 'EMPTY' && (
         <EmptyState
           title={t('recovery.empty.title')}
           detail={t('recovery.empty.detail')}
-          reasonCode={data.reason_code}
+          reasonCode={reasonCodeDisplay(data.reason_code, locale)}
         />
       )}
       {data.status === 'DEGRADED' && (
@@ -152,7 +191,7 @@ export function RecoveryViewBody({
           <p className="panel-title">{t('recovery.degraded.title')}</p>
           <p className="panel-body">{t('recovery.degraded.body')}</p>
           <p className="panel-diagnostics muted">
-            reason_code: <code>{data.reason_code}</code>
+            reason_code: <code>{reasonCodeDisplay(data.reason_code, locale)}</code>
           </p>
         </div>
       )}
@@ -161,7 +200,7 @@ export function RecoveryViewBody({
           <p className="panel-title">{t('recovery.unknown.title')}</p>
           <p className="panel-body">{t('recovery.unknown.body')}</p>
           <p className="panel-diagnostics muted">
-            reason_code: <code>{data.reason_code}</code>
+            reason_code: <code>{reasonCodeDisplay(data.reason_code, locale)}</code>
           </p>
         </div>
       )}
@@ -206,7 +245,10 @@ export function RecoveryViewBody({
         })}
       </div>
       <KeyValueGrid>
-        <KeyValue k={t('kv.testRestoreStatus')} v={orDash(data.test_restore_status)} />
+        <KeyValue
+          k={t('kv.testRestoreStatus')}
+          v={orDash(productTokenDisplay(data.test_restore_status, locale))}
+        />
       </KeyValueGrid>
 
       <SectionHeader title={t('recovery.section.baseline')} />
@@ -236,7 +278,7 @@ function TrustedBaselinePanel({
   status: TrustedBaselineStatus | null | undefined;
   baselineId: string | null | undefined;
 }) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const displayStatus = status ?? 'UNKNOWN';
   const panelClass =
     status === 'TRUSTED'
@@ -250,7 +292,10 @@ function TrustedBaselinePanel({
     <section className={`baseline-panel ${panelClass}`}>
       <div className="card-head">
         <span className="card-title">{t('recovery.section.baseline')}</span>
-        <StateBadge label={displayStatus} tone={baselineTone(displayStatus)} />
+        <StateBadge
+          label={productTokenDisplay(displayStatus, locale)}
+          tone={baselineTone(displayStatus)}
+        />
       </div>
       <KeyValueGrid>
         <KeyValue k={t('kv.baselineId')} v={orDash(baselineId)} />
@@ -269,7 +314,7 @@ function RecoveryCard({
   yesNo: (value: boolean | null | undefined) => string;
   actions?: { client: ApiClient; reload: () => void };
 }) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const itemFailClosed =
     item.recovery_level === 'R0' ||
     item.status === 'EVIDENCE_INSUFFICIENT' ||
@@ -280,20 +325,26 @@ function RecoveryCard({
       <div className="card-head">
         <span className="card-title">{t('recovery.card.title', { id: item.checkpoint_id })}</span>
         <span className="card-badges">
-          <StateBadge label={item.status} tone={recoveryCoverageTone(item.status)} />
+          <StateBadge
+            label={productTokenDisplay(item.status, locale)}
+            tone={recoveryCoverageTone(item.status)}
+          />
           <StateBadge label={item.recovery_level} tone={recoveryLevelTone(item.recovery_level)} />
         </span>
       </div>
       {itemFailClosed && (
         <div className="panel panel-bad" role="alert">
-          <p>{t('recovery.card.failClosed', { reasonCode: item.reason_code })}</p>
+          <p>{t('recovery.card.failClosed', { reasonCode: reasonCodeDisplay(item.reason_code, locale) })}</p>
         </div>
       )}
       <KeyValueGrid>
         <KeyValue k={t('kv.executionDomain')} v={orDash(item.execution_domain_id)} />
-        <KeyValue k="scope_kind" v={<code>{item.scope_kind}</code>} />
-        <KeyValue k="workspace_id" v={orDash(item.workspace_id)} />
-        <KeyValue k="actual_restore_status" v={<code>{item.actual_restore_status}</code>} />
+        <KeyValue k={recoveryFieldLabel('scope_kind', locale)} v={<code>{item.scope_kind}</code>} />
+        <KeyValue k={recoveryFieldLabel('workspace_id', locale)} v={orDash(item.workspace_id)} />
+        <KeyValue
+          k={recoveryFieldLabel('actual_restore_status', locale)}
+          v={<code>{productTokenDisplay(item.actual_restore_status, locale)}</code>}
+        />
         <KeyValue k="actual_restore_verified_at" v={orDash(item.actual_restore_verified_at)} />
         <KeyValue k="created_at" v={orDash(item.created_at)} />
         <KeyValue k="manifest_integrity" v={orDash(item.manifest_integrity)} />
@@ -310,17 +361,28 @@ function RecoveryCard({
           k={t('kv.intactManifestBlobs')}
           v={`${item.intact_manifest_blob_targets} (${percent(item.manifest_blob_coverage)})`}
         />
-        <KeyValue k={t('kv.testRestoreStatus')} v={<code>{item.test_restore_status}</code>} />
+        <KeyValue
+          k={t('kv.testRestoreStatus')}
+          v={<code>{productTokenDisplay(item.test_restore_status, locale)}</code>}
+        />
         <KeyValue
           k={t('kv.testRestoreVerifiedTargets')}
           v={item.test_restore_verified_targets === null ? '—' : String(item.test_restore_verified_targets)}
         />
         <KeyValue
           k={t('kv.trustedBaseline')}
-          v={<StateBadge label={item.trusted_baseline_status} tone={baselineTone(item.trusted_baseline_status)} />}
+          v={
+            <StateBadge
+              label={productTokenDisplay(item.trusted_baseline_status, locale)}
+              tone={baselineTone(item.trusted_baseline_status)}
+            />
+          }
         />
         <KeyValue k={t('kv.trustedBaselineId')} v={orDash(item.trusted_baseline_id)} />
-        <KeyValue k="reason_code" v={<code>{item.reason_code}</code>} />
+        <KeyValue
+          k={recoveryFieldLabel('reason_code', locale)}
+          v={<code>{reasonCodeDisplay(item.reason_code, locale)}</code>}
+        />
         <KeyValue
           k="actual_restore_evidence_refs"
           v={

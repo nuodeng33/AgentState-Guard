@@ -275,6 +275,14 @@ class DeviceLinkGateway:
         if not confirm:
             return self._product_reject(session_id)
         session = self.pairing_mgr.get(session_id)
+        confirmations = self._pair_confirmations.get(session_id, set())
+        # Android intentionally re-drives its authenticated confirmation while
+        # waiting for the desktop. Once the desktop completes the same SAS,
+        # that retry must reveal the settled state so Android can call
+        # /complete and persist the binding. Other callers/states still fail
+        # closed; the scoped pair token was validated above.
+        if session is not None and session.state is PairState.CONFIRMED_BOTH and "android" in confirmations:
+            return {"state": session.state.value}
         if session is None or session.state is not PairState.SAS_PENDING:
             raise DeviceLinkError(
                 409, "PAIR_STATE_CONFLICT", "SAS confirmation is not expected"

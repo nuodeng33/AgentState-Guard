@@ -8,6 +8,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import EnvironmentPage from './EnvironmentPage';
+import { I18nProvider } from '../i18n/I18nProvider';
+import { saveLanguagePreference } from '../i18n/locale';
+import { DoctorSection, StatusSection } from './EnvironmentSections';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -179,5 +182,35 @@ describe('EnvironmentPage real backend wiring', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Refresh discovery' })).toBeTruthy();
     });
+  });
+
+  it('omits absent fixed-inventory tools instead of rendering branded placeholders', () => {
+    render(
+      <StatusSection
+        data={{
+          timestamp_utc: '2026-08-24T11:00:00Z',
+          checks: {},
+          versions: { codex: 'Codex 26.814.5167.0', claude: null, kimi: null },
+        }}
+      />,
+    );
+    expect(screen.getByText('codex')).toBeTruthy();
+    expect(screen.queryByText('claude')).toBeNull();
+    expect(screen.queryByText('kimi')).toBeNull();
+  });
+
+  it('keeps positive Python doctor truth while adding Chinese annotations', () => {
+    window.localStorage.clear();
+    saveLanguagePreference('zh-CN');
+    render(
+      <I18nProvider systemLanguage="zh-CN">
+        <DoctorSection checks={[{ check: 'python', status: 'PASS', message: 'Python 3.12.4' }]} />
+      </I18nProvider>,
+    );
+    expect(screen.getByText('Python')).toBeTruthy();
+    expect(screen.getByText('通过（PASS）')).toBeTruthy();
+    expect(screen.getByText('Python 3.12.4')).toBeTruthy();
+    expect(screen.queryByText(/未在主机上检测到/)).toBeNull();
+    window.localStorage.clear();
   });
 });

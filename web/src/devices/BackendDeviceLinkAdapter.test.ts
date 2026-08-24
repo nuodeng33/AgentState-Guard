@@ -149,6 +149,22 @@ describe('BackendDeviceLinkAdapter', () => {
     expect(expired.reasonCode).toBe('PAIR_SESSION_NOT_FOUND');
   });
 
+  it('maps the consumed backend state to PAIRED instead of waiting forever', async () => {
+    const client = buildPairingFetch(
+      {
+        [`/api/v1/device-link/pairings/${INVITATION.session_id}`]: {
+          body: { session_id: INVITATION.session_id, state: 'consumed' },
+        },
+      },
+      [],
+    );
+    const completed = await new BackendDeviceLinkAdapter(client).pollPairing(
+      INVITATION.session_id,
+    );
+    expect(completed.phase).toBe('PAIRED');
+    expect(completed.pairingId).toBe(INVITATION.session_id);
+  });
+
   it('confirm posts {confirm:true}; reject posts {confirm:false}', async () => {
     const posts: Recorded[] = [];
     const client = buildPairingFetch(

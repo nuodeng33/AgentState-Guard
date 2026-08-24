@@ -47,8 +47,9 @@ function toPhase(state: string): PairingPhase {
     case 'sas_pending':
       return 'SAS_PENDING';
     case 'confirmed_both':
-    case 'consumed':
       return 'CONFIRMING';
+    case 'consumed':
+      return 'PAIRED';
     case 'expired':
       return 'EXPIRED';
     case 'rejected':

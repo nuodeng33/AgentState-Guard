@@ -30,9 +30,10 @@ import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { SectionHeader } from '../components/SectionHeader';
 import { StateBadge, type BadgeTone } from '../components/StateBadge';
 import { ViewGate } from '../components/ViewGate';
-import { useT, type Translate } from '../i18n/I18nProvider';
+import { useI18n, useT, type Translate } from '../i18n/I18nProvider';
 import { DeviceFirewallDiagnostics } from './HomePage';
 import { deviceFirewallLabelKey, deviceFirewallState } from '../presentation/deviceFirewall';
+import { productTokenDisplay } from '../presentation/productLanguage';
 
 function linkTone(status: DeviceLinkStatus['status']): BadgeTone {
   switch (status) {
@@ -45,9 +46,9 @@ function linkTone(status: DeviceLinkStatus['status']): BadgeTone {
   }
 }
 
-export function DeviceLinkSection({ client }: { client: ApiClient }) {
+export function DeviceLinkSection({ client, refreshKey }: { client: ApiClient; refreshKey?: string | null }) {
   const t = useT();
-  const link = useAsync(() => getDevices(client), [client]);
+  const link = useAsync(() => getDevices(client), [client, refreshKey]);
   return (
     <div>
       <SectionHeader title={t('devices.section.binding')} />
@@ -67,14 +68,14 @@ function DeviceLinkBody({
   client: ApiClient;
   reload: () => void;
 }) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const bound = data.bound_devices;
   const firewallState = deviceFirewallState(data.firewall);
   return (
     <section className="card">
       <div className="card-head">
         <span className="card-title">{t('devices.section.binding')}</span>
-        <StateBadge label={data.status} tone={linkTone(data.status)} />
+        <StateBadge label={productTokenDisplay(data.status, locale)} tone={linkTone(data.status)} />
       </div>
       <KeyValueGrid>
         <KeyValue

@@ -25,7 +25,8 @@ import {
   type DeviceLinkAdapter,
 } from '../devices/DeviceLinkAdapter';
 import type { PairingViewState } from '../devices/types';
-import { useT } from '../i18n/I18nProvider';
+import { useI18n } from '../i18n/I18nProvider';
+import { reasonCodeDisplay } from '../presentation/productLanguage';
 import { DeviceLinkSection } from './DeviceLinkSection';
 
 const IN_FLIGHT = new Set(['PAIRING_CREATED', 'WAITING_FOR_MOBILE', 'SAS_PENDING', 'CONFIRMING']);
@@ -41,7 +42,7 @@ export default function DevicesPage({
   /** Test seam: how often an in-flight pairing is re-polled. */
   pollIntervalMs?: number;
 }) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const resolved = useMemo<DeviceLinkAdapter>(
     () => adapter ?? new BackendDeviceLinkAdapter(client as ApiClient),
     [adapter, client],
@@ -134,7 +135,12 @@ export default function DevicesPage({
 
   return (
     <div>
-      {adapter === undefined && client && <DeviceLinkSection client={client} />}
+      {adapter === undefined && client && (
+        <DeviceLinkSection
+          client={client}
+          refreshKey={pairing?.phase === 'PAIRED' ? pairing.pairingId ?? 'paired' : null}
+        />
+      )}
 
       <SectionHeader title={t('devices.section.mobile')} />
 
@@ -242,7 +248,7 @@ export default function DevicesPage({
               </p>
               {pairing.reasonCode && (
                 <p className="sas-meta">
-                  <code>{pairing.reasonCode}</code>
+                  <code>{reasonCodeDisplay(pairing.reasonCode, locale)}</code>
                 </p>
               )}
               <div className="action-row">

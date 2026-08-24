@@ -26,10 +26,10 @@ const AVAILABLE: RuntimeView = {
   evidence_refs: ['evt-runtime-1', 'evt-runtime-2'],
   items: [
     {
-      runtime_type: 'python',
-      execution_domain_id: 'self-runtime',
+      runtime_type: 'CONTAINER_RUNTIME',
+      execution_domain_id: 'docker-container-abc123def456',
       availability: 'AVAILABLE',
-      capabilities: ['local-exec', 'fs-read'],
+      capabilities: ['domain_visible'],
       reason_code: 'RUNTIME_DETECTED',
       uncertainty: false,
       evidence_refs: ['evt-runtime-1'],
@@ -69,11 +69,12 @@ describe('RuntimePage DEGRADED state', () => {
 describe('RuntimePage AVAILABLE state', () => {
   it('renders authoritative fields and per-item availability verbatim', () => {
     render(<RuntimeViewBody data={AVAILABLE} />);
-    expect(screen.getByText('python')).toBeTruthy();
+    expect(screen.getByText('Runtime 1')).toBeTruthy();
+    expect(screen.getByText('Container runtime')).toBeTruthy();
     expect(screen.getAllByText('AVAILABLE').length).toBeGreaterThan(0);
     expect(screen.getByText('UNREACHABLE')).toBeTruthy();
-    expect(screen.getByText('self-runtime')).toBeTruthy();
-    expect(screen.getByText('local-exec')).toBeTruthy();
+    expect(screen.getByText('docker-container-abc123def456')).toBeTruthy();
+    expect(screen.getByText('Domain visible')).toBeTruthy();
     expect(screen.getByText('uncertain')).toBeTruthy();
   });
 

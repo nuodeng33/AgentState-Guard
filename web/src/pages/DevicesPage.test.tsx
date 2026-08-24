@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { DeviceLinkAdapter } from '../devices/DeviceLinkAdapter';
 import type { PairingViewState } from '../devices/types';
+import { I18nProvider } from '../i18n/I18nProvider';
+import { saveLanguagePreference } from '../i18n/locale';
 import DevicesPage from './DevicesPage';
 
 /** Scripted adapter: startPairing/pollPairing return queued states in order. */
@@ -232,6 +234,25 @@ describe('DevicesPage pairing flow', () => {
     expect(await screen.findByText('The pairing offer expired.')).toBeTruthy();
     expect(screen.getByText('PAIRING_EXPIRED')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Start over' })).toBeTruthy();
+  });
+
+  it('adds a Chinese explanation while preserving the raw expiry reason code', async () => {
+    window.localStorage.clear();
+    saveLanguagePreference('zh-CN');
+    const { adapter } = scriptedAdapter({
+      start: BASE,
+      polls: [{ phase: 'EXPIRED', pairingId: 'p-1', reasonCode: 'PAIRING_EXPIRED' }],
+    });
+    render(
+      <I18nProvider systemLanguage="zh-CN">
+        <DevicesPage adapter={adapter} pollIntervalMs={0} />
+      </I18nProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '添加移动设备' }));
+
+    expect(await screen.findByText('配对请求已过期。')).toBeTruthy();
+    expect(screen.getByText('配对请求已过期（PAIRING_EXPIRED）')).toBeTruthy();
+    window.localStorage.clear();
   });
 
   it('renders ERROR without inventing a cause', async () => {

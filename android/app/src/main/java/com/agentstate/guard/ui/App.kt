@@ -199,6 +199,7 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
 
     // ---- pairing shell state ----
     var pairing by remember { mutableStateOf<PairingUiState?>(null) }
+    var projectedPairingId by remember { mutableStateOf<String?>(null) }
     var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     // Pairing SAS terminal sync: when a pairing lands with a SAS payload,
@@ -213,6 +214,18 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                 currentRoute == "connect/scan" -> navController.navigate("connect/sas")
             state.phase in SAS_TERMINAL_PHASES && currentRoute == "connect/sas" ->
                 navController.popBackStack()
+        }
+    }
+
+    // completePairing has already refreshed the repository snapshot. Re-read
+    // every Compose projection exactly once for this durable pairing so Home
+    // and Devices cannot keep showing the pre-pair "not connected" state.
+    LaunchedEffect(pairing?.phase, pairing?.pairingId) {
+        val state = pairing
+        if (state?.phase == PairingPhase.PAIRED && state.pairingId != null &&
+            projectedPairingId != state.pairingId) {
+            projectedPairingId = state.pairingId
+            dataVersion++
         }
     }
 

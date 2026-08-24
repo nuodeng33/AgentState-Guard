@@ -74,8 +74,12 @@ describe('AgentsPage lifecycle honesty', () => {
       ],
     };
     render(<AgentsViewBody data={two} />);
+    expect(screen.getByText('Agent 1')).toBeTruthy();
+    expect(screen.getByText('Agent 2')).toBeTruthy();
     expect(screen.getByText('Codex 4f2a91')).toBeTruthy();
     expect(screen.getByText('Codex 8c10bd')).toBeTruthy();
+    expect(screen.getByText('4f2a91')).toBeTruthy();
+    expect(screen.getByText('8c10bd')).toBeTruthy();
   });
 
   it('renders DETECTED verbatim without inflating it to a stronger state', () => {

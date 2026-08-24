@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { RecoveryItem, RecoveryView } from '../api/types';
+import { I18nProvider } from '../i18n/I18nProvider';
+import { saveLanguagePreference } from '../i18n/locale';
 import { RecoveryViewBody } from './RecoveryPage';
 
 function item(partial: Partial<RecoveryItem>): RecoveryItem {
@@ -251,5 +253,37 @@ describe('RecoveryPage R0 fail-closed display', () => {
     expect(container.querySelector('.baseline-panel .badge')?.textContent).toBe('NONE');
     // EMPTY is not dressed up as an error, but R0 is still not "recoverable".
     expect(container.textContent).not.toContain('Recoverable');
+  });
+});
+
+describe('RecoveryPage Chinese token annotations', () => {
+  it('explains visible empty/recovery tokens without hiding the raw values', () => {
+    window.localStorage.clear();
+    saveLanguagePreference('zh-CN');
+    const empty: RecoveryView = {
+      ...DEGRADED,
+      status: 'EMPTY',
+      reason_code: 'R4_STATE_EMPTY',
+      limitations: [
+        'PRODUCT_CONFIG_TARGET_ONLY',
+        'EXPLICIT_RESTORE_CONFIRMATION_REQUIRED',
+      ],
+    };
+
+    render(
+      <I18nProvider systemLanguage="zh-CN">
+        <RecoveryViewBody data={empty} />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText('暂无数据（EMPTY）')).toBeTruthy();
+    expect(screen.getByText('暂无状态记录（R4_STATE_EMPTY）')).toBeTruthy();
+    expect(screen.getByText('范围类型（scope_kind）')).toBeTruthy();
+    expect(screen.getByText('实际恢复状态（actual_restore_status）')).toBeTruthy();
+    expect(screen.getByText('限制（limitations）')).toBeTruthy();
+    expect(screen.getAllByText('尚未执行（NOT_RUN）').length).toBeGreaterThan(0);
+    expect(screen.getByText('仅恢复产品配置范围（PRODUCT_CONFIG_TARGET_ONLY）')).toBeTruthy();
+    expect(screen.getByText('恢复前需要明确确认（EXPLICIT_RESTORE_CONFIRMATION_REQUIRED）')).toBeTruthy();
+    window.localStorage.clear();
   });
 });
