@@ -57,6 +57,16 @@ fun RecoveryScreen(state: RecoveryUiState) {
                     state.reasonCode?.let { code ->
                         Text(code, style = MaterialTheme.typography.bodySmall)
                     }
+                    Text("workspace_id: ${state.workspaceId ?: "—"}")
+                    Text("checkpoint_id: ${state.latestCheckpointId ?: "—"}")
+                    Text("protection_state: ${state.protectionState ?: "UNKNOWN"}")
+                    Text("verification_state: ${state.verificationState ?: "NOT_VERIFIED"}")
+                    Text("actual_restore_status: ${state.actualRestoreStatus ?: "NOT_RUN"}")
+                    Text("test_restore_status: ${state.testRestoreStatus ?: "NOT_RUN"}")
+                    Text("coverage: ${state.coverageSummary ?: "—"}")
+                    Text("action_eligible: ${state.actionEligible ?: "UNKNOWN"}")
+                    Text("eligibility_reason_code: ${state.eligibilityReasonCode ?: "—"}")
+                    Text("evidence_refs: ${state.evidenceRefs?.joinToString(", ") ?: "—"}")
                 }
             }
         }

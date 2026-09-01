@@ -144,10 +144,22 @@ private fun ConnectedHome(state: HomeUiState?) {
     }
     SummaryRow(stringResource(R.string.home_runtime), state?.runtimeSummary)
     SummaryRow(stringResource(R.string.home_agents), state?.agentsSummary)
+    if (!state?.currentAgents.isNullOrEmpty()) {
+        SummaryRow(stringResource(R.string.supervision_q_agents_observed), state?.currentAgents?.joinToString(" · "))
+    }
+    state?.latestVerifiedActivity?.let { activity ->
+        SummaryRow(
+            stringResource(R.string.supervision_q_latest_activity),
+            listOfNotNull(activity.changeType, activity.eventId, activity.whenText).joinToString(" · "),
+        )
+    }
     SummaryRow(
         stringResource(R.string.home_pending_supervision),
         summaryWithStatus(state?.supervisionStatus, state?.pendingSupervision?.toString()),
     )
+    state?.blockedOrFailedCount?.let { count ->
+        SummaryRow(stringResource(R.string.supervision_q_blocked), count.toString())
+    }
     SummaryRow(
         stringResource(R.string.home_changes),
         summaryWithStatus(state?.changesStatus, state?.changesCount?.toString()),

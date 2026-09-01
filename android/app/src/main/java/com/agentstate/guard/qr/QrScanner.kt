@@ -24,11 +24,13 @@ class QrScanner(
         data class Invalid(val reasonCode: String) : Outcome
     }
 
-    fun scanGrid(grid: QrPixelGrid): Outcome? = try {
+    private var completed = false
+
+    fun scanGrid(grid: QrPixelGrid): Outcome? = if (completed) null else try {
         val text = engine.decode(QrFrame { grid }) ?: return null
         when (QrPayload.parse(text, nowEpochSeconds()) == null) {
             true -> Outcome.Invalid("PAIR_QR_INVALID")
-            false -> Outcome.Found(text)
+            false -> Outcome.Found(text).also { completed = true }
         }
     } catch (_: IllegalArgumentException) {
         null // A frame that fails the raw grid contract is silent scan noise.

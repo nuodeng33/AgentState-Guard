@@ -24,7 +24,6 @@ import com.agentstate.guard.ui.state.HomeUiState
 import com.agentstate.guard.ui.state.LinkedDesktop
 import com.agentstate.guard.ui.state.RecoveryUiState
 import com.agentstate.guard.ui.state.SupervisionActionUiResult
-import com.agentstate.guard.ui.state.SupervisionAgentUi
 import com.agentstate.guard.ui.state.SupervisionUiState
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -151,8 +150,11 @@ class RepositoryDeviceLinkUiAdapter(
             overallStatus = current.status?.optStringOpt("status"),
             runtimeSummary = ProjectionTruthMapper.projectionStatus(current.environment),
             agentsSummary = ProjectionTruthMapper.projectionStatus(current.agents),
+            currentAgents = ProjectionTruthMapper.agents(current.agents).map { it.identity },
+            latestVerifiedActivity = ProjectionTruthMapper.latestChange(current.changes),
             supervisionStatus = ProjectionTruthMapper.projectionStatus(current.supervision),
             pendingSupervision = current.supervision?.let { ProjectionTruthMapper.pendingCount(it) },
+            blockedOrFailedCount = ProjectionTruthMapper.blockedOrFailedCount(current.supervision),
             changesStatus = ProjectionTruthMapper.projectionStatus(current.changes),
             changesCount = current.changes?.optItemsCount(),
             lastCheckpoint = current.checkpoints?.optFirstCheckpointId()
@@ -185,6 +187,7 @@ class RepositoryDeviceLinkUiAdapter(
         return EnvironmentUiState(
             phase = phaseOf(current, environment),
             items = items,
+            agents = ProjectionTruthMapper.agents(current.agents),
             reasonCode = environment.optStringOpt("reason_code") ?: current.reasonCode,
             lastKnown = lastKnownOf(current),
             observedAt = environment.optStringOpt("observed_at"),
@@ -228,16 +231,7 @@ class RepositoryDeviceLinkUiAdapter(
         val sessions = supervision.optJSONArraySafe("items")?.mapObjects { item ->
             ProjectionTruthMapper.supervisionSession(item)
         }.orEmpty()
-        val agents = supervision.optJSONArraySafe("observed_agents")?.mapObjects { item ->
-            SupervisionAgentUi(
-                identity = item.optStringOpt("detected_identity")
-                    ?: item.optStringOpt("identity")
-                    ?: "UNKNOWN",
-                role = item.optStringOpt("role"),
-                lifecycle = item.optStringOpt("lifecycle"),
-                observedAt = item.optStringOpt("observed_at"),
-            )
-        }.orEmpty()
+        val agents = ProjectionTruthMapper.supervisionAgents(supervision)
         val recent = supervision.optJSONArraySafe("recent_verified_activities")
             ?.mapObjects { item -> ProjectionTruthMapper.verifiedActivity(item) }
             .orEmpty()
@@ -300,6 +294,7 @@ class RepositoryDeviceLinkUiAdapter(
             lastKnown = lastKnownOf(current),
             syncedAtEpochMs = syncedAtEpochMs,
         )
+        val facts = ProjectionTruthMapper.recoveryFacts(recovery)
         return RecoveryUiState(
             phase = phaseOf(current, recovery),
             recoveryLevel = recovery.optStringOpt("recovery_level"),
@@ -309,6 +304,14 @@ class RepositoryDeviceLinkUiAdapter(
             trustedBaselineStatus = recovery.optStringOpt("trusted_baseline_status"),
             checkpointCount = recovery.optIntSafe("checkpoint_count"),
             verifiedAt = recovery.optStringOpt("verified_at"),
+            workspaceId = facts.workspaceId,
+            latestCheckpointId = facts.latestCheckpointId,
+            protectionState = facts.protectionState,
+            verificationState = facts.verificationState,
+            actionEligible = facts.actionEligible,
+            eligibilityReasonCode = facts.eligibilityReasonCode,
+            coverageSummary = facts.coverageSummary,
+            evidenceRefs = facts.evidenceRefs,
             lastKnown = lastKnownOf(current),
             observedAt = recovery.optStringOpt("observed_at"),
             syncedAtEpochMs = syncedAtEpochMs,

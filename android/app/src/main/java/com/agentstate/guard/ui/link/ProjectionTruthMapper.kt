@@ -2,11 +2,14 @@ package com.agentstate.guard.ui.link
 
 import com.agentstate.guard.network.DeviceLinkSnapshot
 import com.agentstate.guard.ui.state.ChangeUi
+import com.agentstate.guard.ui.state.AgentProjectionUi
 import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.state.EvidenceUiState
 import com.agentstate.guard.ui.state.SupervisionActionUiResult
+import com.agentstate.guard.ui.state.SupervisionAgentUi
 import com.agentstate.guard.ui.state.SupervisionSessionUi
 import com.agentstate.guard.ui.state.VerifiedActivityUi
+import com.agentstate.guard.ui.state.RecoveryFactsUi
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -93,6 +96,89 @@ internal object ProjectionTruthMapper {
             recoveryDisposition = item.stringFact("recovery_disposition"),
             workspaceId = item.stringFact("workspace_id"),
             evidenceRefs = item.stringListFact("evidence_refs"),
+        )
+    }
+
+    fun agents(projection: JSONObject?): List<AgentProjectionUi> =
+        projection.arrayFact("items")?.mapObjects(::agent) ?: emptyList()
+
+    private fun agent(item: JSONObject): AgentProjectionUi {
+        val workspace = item.objectFact("workspace")
+        return AgentProjectionUi(
+            identity = item.stringFact("detected_identity") ?: "UNKNOWN",
+            role = item.stringFact("role"),
+            lifecycle = item.stringFact("lifecycle"),
+            executionDomainId = item.stringFact("execution_domain_id"),
+            workspaceStatus = workspace.stringFact("status"),
+            workspaceId = workspace.stringFact("workspace_id"),
+            reasonCode = item.stringFact("reason_code"),
+            activityObservability = item.stringFact("activity_observability"),
+            latestActivity = item.objectFact("latest_activity")?.let(::change),
+            recentActivityCount = item.intFact("recent_activity_count"),
+            activityReasonCode = item.stringFact("activity_reason_code"),
+            evidenceRefs = item.stringListFact("evidence_refs"),
+            observedAt = item.stringFact("observed_at"),
+        )
+    }
+
+    fun supervisionAgents(projection: JSONObject?): List<SupervisionAgentUi> =
+        projection.arrayFact("observed_agents")?.mapObjects { item ->
+            val workspace = item.objectFact("workspace")
+            SupervisionAgentUi(
+                identity = item.stringFact("detected_identity") ?: "UNKNOWN",
+                agentRef = item.stringFact("agent_ref"),
+                role = item.stringFact("role"),
+                lifecycle = item.stringFact("lifecycle"),
+                executionDomainId = item.stringFact("execution_domain_id"),
+                workspaceStatus = workspace.stringFact("status"),
+                workspaceId = workspace.stringFact("workspace_id"),
+                supervisionStatus = item.stringFact("supervision_status"),
+                supervisionSessionId = item.stringFact("supervision_session_id"),
+                policyDecision = item.stringFact("policy_decision"),
+                pendingApproval = item.booleanFact("pending_approval"),
+                activityObservability = item.stringFact("activity_observability"),
+                latestActivity = item.objectFact("latest_activity")?.let(::change),
+                recentActivityCount = item.intFact("recent_activity_count"),
+                activityReasonCode = item.stringFact("activity_reason_code"),
+                protectionState = item.stringFact("protection_state"),
+                verificationState = item.stringFact("verification_state"),
+                latestVerifiedChange = item.objectFact("latest_verified_change")?.let(::change),
+                latestCheckpointId = item.objectFact("latest_checkpoint")
+                    .stringFact("checkpoint_id"),
+                evidenceRefs = item.stringListFact("evidence_refs"),
+                observedAt = item.stringFact("observed_at"),
+            )
+        } ?: emptyList()
+
+    fun latestChange(projection: JSONObject?): ChangeUi? =
+        projection.arrayFact("items")?.optJSONObject(0)?.let(::change)
+
+    fun blockedOrFailedCount(projection: JSONObject?): Int? {
+        val items = projection.arrayFact("items") ?: return null
+        var count = 0
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: return null
+            if (item.stringFact("blocked_or_failed_reason") != null) count += 1
+        }
+        return count
+    }
+
+    fun recoveryFacts(projection: JSONObject): RecoveryFactsUi {
+        val counts = projection.objectFact("coverage")?.objectFact("counts")
+        val coverage = listOf("restorable", "audit_only", "excluded", "unreachable")
+            .mapNotNull { key -> counts?.intFact(key)?.let { "$key=$it" } }
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(" · ")
+        return RecoveryFactsUi(
+            workspaceId = projection.stringFact("workspace_id"),
+            latestCheckpointId = projection.objectFact("latest_checkpoint")
+                .stringFact("checkpoint_id"),
+            protectionState = projection.stringFact("protection_state"),
+            verificationState = projection.stringFact("verification_state"),
+            actionEligible = projection.booleanFact("action_eligible"),
+            eligibilityReasonCode = projection.stringFact("eligibility_reason_code"),
+            coverageSummary = coverage,
+            evidenceRefs = projection.stringListFact("evidence_refs"),
         )
     }
 
@@ -203,13 +289,18 @@ internal object ProjectionTruthMapper {
         return opt(key) as? Boolean
     }
 
+    private fun JSONObject.intFact(key: String): Int? {
+        if (!has(key) || isNull(key)) return null
+        return (opt(key) as? Number)?.toInt()
+    }
+
     private fun JSONObject.objectFact(key: String): JSONObject? {
         if (!has(key) || isNull(key)) return null
         return optJSONObject(key)
     }
 
-    private fun JSONObject.arrayFact(key: String): JSONArray? {
-        if (!has(key) || isNull(key)) return null
+    private fun JSONObject?.arrayFact(key: String): JSONArray? {
+        if (this == null || !has(key) || isNull(key)) return null
         return optJSONArray(key)
     }
 
@@ -220,6 +311,15 @@ internal object ProjectionTruthMapper {
             val value = array.opt(index) as? String ?: return null
             if (value.isBlank()) return null
             values += value
+        }
+        return values
+    }
+
+    private fun <T> JSONArray.mapObjects(map: (JSONObject) -> T): List<T> {
+        val values = ArrayList<T>(length())
+        for (index in 0 until length()) {
+            val item = optJSONObject(index) ?: continue
+            values += map(item)
         }
         return values
     }

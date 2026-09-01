@@ -98,6 +98,109 @@ class ProjectionTruthMapperTest {
     }
 
     @Test
+    fun `agent projections retain authoritative identity workspace activity protection and evidence`() {
+        val agents = JSONObject(
+            """
+            {
+              "items":[{
+                "detected_identity":"PI d86173",
+                "role":"EXECUTION_AGENT",
+                "lifecycle":"RUNNING",
+                "execution_domain_id":"windows-native",
+                "workspace":{"status":"BOUND","workspace_id":"workspace-pi","reason_code":"WORKSPACE_BOUND"},
+                "activity_observability":"OBSERVABLE",
+                "latest_activity":{"event_id":"event-activity","type":"PROCESS_STARTED","timestamp":"2026-08-31T00:00:00Z"},
+                "recent_activity_count":3,
+                "activity_reason_code":"ACTIVITY_OBSERVED",
+                "reason_code":"AGENT_DETECTED",
+                "evidence_refs":["event-agent","event-activity"]
+              }]
+            }
+            """.trimIndent(),
+        )
+        val supervision = JSONObject(
+            """
+            {
+              "observed_agents":[{
+                "detected_identity":"KIMI_CODE a1b2c3",
+                "agent_ref":"external-agent-a1b2c3",
+                "role":"EXECUTION_AGENT",
+                "lifecycle":"RUNNING",
+                "execution_domain_id":"docker-container-1",
+                "workspace":{"status":"BOUND","workspace_id":"workspace-kimi","reason_code":"WORKSPACE_BOUND"},
+                "supervision_status":"SUPERVISED",
+                "supervision_session_id":"session-1",
+                "policy_decision":"REVIEW",
+                "pending_approval":true,
+                "activity_observability":"OBSERVABLE",
+                "latest_activity":{"event_id":"event-change","type":"OBSERVED_CHANGE","timestamp":"2026-08-31T00:01:00Z"},
+                "recent_activity_count":5,
+                "activity_reason_code":"ACTIVITY_OBSERVED",
+                "protection_state":"RECOVERABLE",
+                "verification_state":"VERIFIED",
+                "latest_verified_change":{"event_id":"event-change","type":"OBSERVED_CHANGE","workspace_id":"workspace-kimi"},
+                "latest_checkpoint":{"checkpoint_id":"checkpoint-9"},
+                "evidence_refs":["event-agent","event-change"]
+              }]
+            }
+            """.trimIndent(),
+        )
+
+        val environmentAgent = ProjectionTruthMapper.agents(agents).single()
+        assertEquals("PI d86173", environmentAgent.identity)
+        assertEquals("workspace-pi", environmentAgent.workspaceId)
+        assertEquals("OBSERVABLE", environmentAgent.activityObservability)
+        assertEquals("event-activity", environmentAgent.latestActivity?.eventId)
+        assertEquals(listOf("event-agent", "event-activity"), environmentAgent.evidenceRefs)
+
+        val supervised = ProjectionTruthMapper.supervisionAgents(supervision).single()
+        assertEquals("external-agent-a1b2c3", supervised.agentRef)
+        assertEquals("workspace-kimi", supervised.workspaceId)
+        assertEquals("SUPERVISED", supervised.supervisionStatus)
+        assertEquals("session-1", supervised.supervisionSessionId)
+        assertEquals("REVIEW", supervised.policyDecision)
+        assertTrue(supervised.pendingApproval == true)
+        assertEquals("RECOVERABLE", supervised.protectionState)
+        assertEquals("event-change", supervised.latestVerifiedChange?.eventId)
+        assertEquals("checkpoint-9", supervised.latestCheckpointId)
+        assertEquals(listOf("event-agent", "event-change"), supervised.evidenceRefs)
+    }
+
+    @Test
+    fun `home and recovery facts come from authoritative projections`() {
+        val changes = JSONObject(
+            """{"items":[{"event_id":"event-latest","type":"OBSERVED_CHANGE","timestamp":"2026-08-31T00:02:00Z"}]}""",
+        )
+        val supervision = JSONObject(
+            """{"items":[{"blocked_or_failed_reason":"POLICY_BLOCKED"},{"blocked_or_failed_reason":null}]}""",
+        )
+        val recovery = JSONObject(
+            """
+            {
+              "workspace_id":"workspace-kimi",
+              "protection_state":"RECOVERY_VERIFIED",
+              "verification_state":"VERIFIED",
+              "actual_restore_status":"VERIFIED",
+              "action_eligible":true,
+              "eligibility_reason_code":"RECOVERY_ACTION_ELIGIBLE",
+              "coverage":{"counts":{"restorable":4,"audit_only":1,"excluded":0,"unreachable":0}},
+              "latest_checkpoint":{"checkpoint_id":"checkpoint-9","evidence_refs":["event-cp"]},
+              "evidence_refs":["event-cp","event-restore"]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("event-latest", ProjectionTruthMapper.latestChange(changes)?.eventId)
+        assertEquals(1, ProjectionTruthMapper.blockedOrFailedCount(supervision))
+        val facts = ProjectionTruthMapper.recoveryFacts(recovery)
+        assertEquals("workspace-kimi", facts.workspaceId)
+        assertEquals("checkpoint-9", facts.latestCheckpointId)
+        assertEquals("RECOVERY_VERIFIED", facts.protectionState)
+        assertEquals("restorable=4 · audit_only=1 · excluded=0 · unreachable=0", facts.coverageSummary)
+        assertEquals(listOf("event-cp", "event-restore"), facts.evidenceRefs)
+    }
+
+    @Test
     fun `authoritative evidence 404 remains not found`() {
         val mapped = ProjectionTruthMapper.evidenceHttpFailure(
             status = 404,

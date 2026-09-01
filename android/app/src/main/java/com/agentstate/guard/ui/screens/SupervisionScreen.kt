@@ -24,6 +24,7 @@ import com.agentstate.guard.ui.components.FreshnessCaption
 import com.agentstate.guard.ui.components.SectionHeader
 import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.state.SupervisionSessionUi
+import com.agentstate.guard.ui.state.SupervisionAgentUi
 import com.agentstate.guard.ui.state.SupervisionUiState
 import com.agentstate.guard.ui.state.VerifiedActivityUi
 import com.agentstate.guard.ui.theme.Spacing
@@ -85,13 +86,7 @@ fun SupervisionScreen(
                 if (state.observedAgents.isNotEmpty()) {
                     SectionHeader(stringResource(R.string.supervision_q_agents_observed))
                     state.observedAgents.forEach { agent ->
-                        FactRow(
-                            primary = agent.identity,
-                            secondary = listOfNotNull(agent.role, agent.lifecycle)
-                                .filter { it.isNotBlank() }
-                                .takeIf { it.isNotEmpty() }
-                                ?.joinToString(" · "),
-                        )
+                        AgentFactCard(agent)
                     }
                 }
 
@@ -187,6 +182,34 @@ fun SupervisionScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AgentFactCard(agent: SupervisionAgentUi) {
+    Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.m),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Text(agent.identity, style = MaterialTheme.typography.titleSmall)
+            Text("agent_ref: ${agent.agentRef ?: "—"}", color = TextSecondary)
+            Text("role/lifecycle: ${listOfNotNull(agent.role, agent.lifecycle).joinToString(" · ")}")
+            Text("execution_domain_id: ${agent.executionDomainId ?: "—"}")
+            Text("workspace: ${agent.workspaceStatus ?: "UNKNOWN"} · ${agent.workspaceId ?: "—"}")
+            Text("activity: ${agent.activityObservability ?: "UNKNOWN"} · ${agent.recentActivityCount ?: "UNKNOWN"}")
+            Text("supervision: ${agent.supervisionStatus ?: "UNKNOWN"} · ${agent.supervisionSessionId ?: "—"}")
+            Text("policy: ${agent.policyDecision ?: "—"} · pending=${agent.pendingApproval ?: "UNKNOWN"}")
+            Text("protection: ${agent.protectionState ?: "UNKNOWN"} · ${agent.verificationState ?: "NOT_VERIFIED"}")
+            Text("checkpoint: ${agent.latestCheckpointId ?: "—"}")
+            agent.latestVerifiedChange?.let { change ->
+                Text("latest_verified_change: ${change.changeType} · ${change.eventId ?: "—"}")
+            }
+            Text("reason_code: ${agent.activityReasonCode ?: "—"}")
+            Text("evidence_refs: ${agent.evidenceRefs?.joinToString(", ") ?: "—"}")
         }
     }
 }

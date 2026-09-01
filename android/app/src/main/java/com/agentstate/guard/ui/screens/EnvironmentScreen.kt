@@ -16,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.components.DataStateHost
 import com.agentstate.guard.ui.components.FreshnessCaption
+import com.agentstate.guard.ui.components.SectionHeader
 import com.agentstate.guard.ui.components.StatusBadge
 import com.agentstate.guard.ui.state.EnvironmentUiState
 import com.agentstate.guard.ui.theme.Spacing
@@ -68,6 +69,34 @@ fun EnvironmentScreen(state: EnvironmentUiState) {
                             )
                         }
                         StatusBadge(label = item.status, tone = toneForMachineState(item.status))
+                    }
+                }
+            }
+            if (state.agents.isNotEmpty()) {
+                SectionHeader(stringResource(R.string.home_agents))
+                state.agents.forEach { agent ->
+                    Card(colors = CardDefaults.cardColors(containerColor = SurfaceColor)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(Spacing.m),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                        ) {
+                            Text(agent.identity, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                listOfNotNull(agent.role, agent.lifecycle).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                            )
+                            Text("execution_domain_id: ${agent.executionDomainId ?: "—"}")
+                            Text("workspace: ${agent.workspaceStatus ?: "UNKNOWN"} · ${agent.workspaceId ?: "—"}")
+                            Text("activity: ${agent.activityObservability ?: "UNKNOWN"} · ${agent.recentActivityCount ?: "UNKNOWN"}")
+                            agent.latestActivity?.let { activity ->
+                                Text("latest: ${activity.changeType} · ${activity.eventId ?: "—"}")
+                            }
+                            Text("reason_code: ${agent.reasonCode ?: agent.activityReasonCode ?: "—"}")
+                            Text("evidence_refs: ${agent.evidenceRefs?.joinToString(", ") ?: "—"}")
+                        }
                     }
                 }
             }

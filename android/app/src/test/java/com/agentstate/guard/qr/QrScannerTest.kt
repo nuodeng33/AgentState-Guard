@@ -47,6 +47,18 @@ class QrScannerTest {
     }
 
     @Test
+    fun `valid invitation is emitted only once while it remains in the camera`() {
+        val frame = QrFixture.render("valid_invitation")
+        for ((name, scanner) in scanners()) {
+            val first = scanner.scanGrid(frame.grid)
+            val repeated = scanner.scanGrid(frame.grid)
+
+            assertTrue("$name must emit the first valid frame", first is QrScanner.Outcome.Found)
+            assertNull("$name must not start pairing again for the same visible QR", repeated)
+        }
+    }
+
+    @Test
     fun `blank and dark frames yield no outcome on every engine`() {
         for ((name, scanner) in scanners()) {
             assertNull("$name must stay silent on a blank frame", scanner.scanGrid(QrFixture.blank()))

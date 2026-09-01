@@ -40,9 +40,27 @@ data class EnvironmentItemUi(
     val observedAt: String? = null,
 )
 
+/** Bounded Agent projection shared by Home/Environment; no client-side joins. */
+data class AgentProjectionUi(
+    val identity: String,
+    val role: String?,
+    val lifecycle: String?,
+    val executionDomainId: String?,
+    val workspaceStatus: String?,
+    val workspaceId: String?,
+    val reasonCode: String?,
+    val activityObservability: String?,
+    val latestActivity: ChangeUi?,
+    val recentActivityCount: Int?,
+    val activityReasonCode: String?,
+    val evidenceRefs: List<String>?,
+    val observedAt: String? = null,
+)
+
 data class EnvironmentUiState(
     val phase: DataPhase,
     val items: List<EnvironmentItemUi> = emptyList(),
+    val agents: List<AgentProjectionUi> = emptyList(),
     val reasonCode: String? = null,
     override val lastKnown: Boolean = false,
     override val observedAt: String? = null,
@@ -112,8 +130,25 @@ data class VerifiedActivityUi(
 /** One agent fact row from the supervision projection, verbatim tokens. */
 data class SupervisionAgentUi(
     val identity: String,
+    val agentRef: String?,
     val role: String?,
     val lifecycle: String?,
+    val executionDomainId: String?,
+    val workspaceStatus: String?,
+    val workspaceId: String?,
+    val supervisionStatus: String?,
+    val supervisionSessionId: String?,
+    val policyDecision: String?,
+    val pendingApproval: Boolean?,
+    val activityObservability: String?,
+    val latestActivity: ChangeUi?,
+    val recentActivityCount: Int?,
+    val activityReasonCode: String?,
+    val protectionState: String?,
+    val verificationState: String?,
+    val latestVerifiedChange: ChangeUi?,
+    val latestCheckpointId: String?,
+    val evidenceRefs: List<String>?,
     val observedAt: String? = null,
 )
 
@@ -166,6 +201,14 @@ data class RecoveryUiState(
     val trustedBaselineStatus: String? = null,
     val checkpointCount: Int? = null,
     val verifiedAt: String? = null,
+    val workspaceId: String? = null,
+    val latestCheckpointId: String? = null,
+    val protectionState: String? = null,
+    val verificationState: String? = null,
+    val actionEligible: Boolean? = null,
+    val eligibilityReasonCode: String? = null,
+    val coverageSummary: String? = null,
+    val evidenceRefs: List<String>? = null,
     override val lastKnown: Boolean = false,
     override val observedAt: String? = null,
     override val syncedAtEpochMs: Long? = null,
@@ -195,8 +238,11 @@ data class HomeUiState(
     val overallStatus: String? = null,
     val runtimeSummary: String? = null,
     val agentsSummary: String? = null,
+    val currentAgents: List<String> = emptyList(),
+    val latestVerifiedActivity: ChangeUi? = null,
     val supervisionStatus: String? = null,
     val pendingSupervision: Int? = null,
+    val blockedOrFailedCount: Int? = null,
     val changesStatus: String? = null,
     val changesCount: Int? = null,
     val lastCheckpoint: String? = null,
@@ -208,6 +254,18 @@ data class HomeUiState(
     override val observedAt: String? = null,
     override val syncedAtEpochMs: Long? = null,
 ) : ProjectedState
+
+/** Backend-owned recovery facts consumed without recreating recovery semantics. */
+data class RecoveryFactsUi(
+    val workspaceId: String?,
+    val latestCheckpointId: String?,
+    val protectionState: String?,
+    val verificationState: String?,
+    val actionEligible: Boolean?,
+    val eligibilityReasonCode: String?,
+    val coverageSummary: String?,
+    val evidenceRefs: List<String>?,
+)
 
 /** A linked desktop as a UI-safe projection. */
 data class LinkedDesktop(
