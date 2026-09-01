@@ -22,12 +22,24 @@ import { useI18n, useT } from '../i18n/I18nProvider';
 import { productTokenDisplay, reasonCodeDisplay } from '../presentation/productLanguage';
 import { CreateCheckpointAction, RecoveryItemActions } from './RecoveryActions';
 
-export default function RecoveryPage({ client = apiClient }: { client?: ApiClient }) {
+export default function RecoveryPage({
+  client = apiClient,
+  onOpenChanges,
+}: {
+  client?: ApiClient;
+  onOpenChanges?: (workspaceId: string, checkpointId: string) => void;
+}) {
   const state = useR4View<RecoveryView>('recovery', client);
   const t = useT();
   return (
     <ViewGate state={state} label={t('nav.recovery')}>
-      {(data) => <RecoveryViewBody data={data} actions={{ client, reload: state.reload }} />}
+      {(data) => (
+        <RecoveryViewBody
+          data={data}
+          actions={{ client, reload: state.reload }}
+          onOpenChanges={onOpenChanges}
+        />
+      )}
     </ViewGate>
   );
 }
@@ -40,10 +52,16 @@ const RECOVERY_FIELDS_ZH: Record<string, string> = {
   actual_restore_status: '实际恢复状态',
   recovery_verified: '恢复已验证',
   verified_at: '验证时间',
+  capability_supported: '能力受支持',
+  action_eligible: '当前可执行',
+  eligibility_reason_code: '不可执行原因',
   'capabilities.create_checkpoint': '可创建检查点',
   'capabilities.test_restore': '可测试恢复',
   'capabilities.restore': '可执行恢复',
   coverage: '覆盖范围',
+  storage_kind: '存储类型',
+  protection_state: '保护状态',
+  verification_state: '验证状态',
   limitations: '限制',
   reason_code: '原因代码',
 };
@@ -118,12 +136,27 @@ function RecoveryScopeSummary({
             v={orDash(productTokenDisplay(data.scope_kind, locale))}
           />
           <KeyValue k={recoveryFieldLabel('workspace_id', locale)} v={orDash(data.workspace_id)} />
+          <KeyValue k={recoveryFieldLabel('storage_kind', locale)} v={orDash(data.storage_kind)} />
+          <KeyValue k={recoveryFieldLabel('protection_state', locale)} v={orDash(data.protection_state)} />
+          <KeyValue k={recoveryFieldLabel('verification_state', locale)} v={orDash(data.verification_state)} />
           <KeyValue
             k={recoveryFieldLabel('actual_restore_status', locale)}
             v={orDash(productTokenDisplay(data.actual_restore_status, locale))}
           />
           <KeyValue k={recoveryFieldLabel('recovery_verified', locale)} v={yesNo(data.recovery_verified)} />
           <KeyValue k={recoveryFieldLabel('verified_at', locale)} v={orDash(data.verified_at)} />
+          <KeyValue
+            k={recoveryFieldLabel('capability_supported', locale)}
+            v={yesNo(data.capability_supported)}
+          />
+          <KeyValue
+            k={recoveryFieldLabel('action_eligible', locale)}
+            v={yesNo(data.action_eligible)}
+          />
+          <KeyValue
+            k={recoveryFieldLabel('eligibility_reason_code', locale)}
+            v={orDash(reasonCodeDisplay(data.eligibility_reason_code, locale))}
+          />
           <KeyValue
             k={recoveryFieldLabel('capabilities.create_checkpoint', locale)}
             v={yesNo(data.capabilities?.create_checkpoint)}
@@ -160,10 +193,12 @@ function RecoveryScopeSummary({
 export function RecoveryViewBody({
   data,
   actions,
+  onOpenChanges,
 }: {
   data: RecoveryView;
   /** Optional mutation seam; page-scope tests render read-only by default. */
   actions?: { client: ApiClient; reload: () => void };
+  onOpenChanges?: (workspaceId: string, checkpointId: string) => void;
 }) {
   const { locale, t } = useI18n();
   const levelTone = recoveryLevelTone(data.recovery_level ?? 'UNKNOWN');
@@ -212,8 +247,19 @@ export function RecoveryViewBody({
       )}
 
       <RecoveryScopeSummary data={data} yesNo={yesNo} />
-      {actions && data.capabilities?.create_checkpoint === true && (
+      {actions && data.capability_supported === true && data.action_eligible === true && (
         <CreateCheckpointAction client={actions.client} onChanged={actions.reload} />
+      )}
+      {actions && data.capability_supported === true && data.action_eligible === false && (
+        <div className="panel panel-warn" role="status">
+          <p className="panel-title">
+            {locale === 'zh-CN' ? '当前无法创建检查点' : 'Checkpoint action unavailable'}
+          </p>
+          <p className="panel-diagnostics muted">
+            reason_code:{' '}
+            <code>{reasonCodeDisplay(data.eligibility_reason_code, locale)}</code>
+          </p>
+        </div>
       )}
 
       <SectionHeader title={t('recovery.section.level')} />
@@ -259,7 +305,13 @@ export function RecoveryViewBody({
 
       {data.items.length > 0 && <SectionHeader title={t('recovery.section.checkpoints')} />}
       {data.items.map((item) => (
-        <RecoveryCard key={item.checkpoint_id} item={item} yesNo={yesNo} actions={actions} />
+        <RecoveryCard
+          key={item.checkpoint_id}
+          item={item}
+          yesNo={yesNo}
+          actions={actions}
+          onOpenChanges={onOpenChanges}
+        />
       ))}
 
       <EvidenceRefs refs={data.evidence_refs} />
@@ -309,10 +361,12 @@ function RecoveryCard({
   item,
   yesNo,
   actions,
+  onOpenChanges,
 }: {
   item: RecoveryItem;
   yesNo: (value: boolean | null | undefined) => string;
   actions?: { client: ApiClient; reload: () => void };
+  onOpenChanges?: (workspaceId: string, checkpointId: string) => void;
 }) {
   const { locale, t } = useI18n();
   const itemFailClosed =
@@ -341,6 +395,10 @@ function RecoveryCard({
         <KeyValue k={t('kv.executionDomain')} v={orDash(item.execution_domain_id)} />
         <KeyValue k={recoveryFieldLabel('scope_kind', locale)} v={<code>{item.scope_kind}</code>} />
         <KeyValue k={recoveryFieldLabel('workspace_id', locale)} v={orDash(item.workspace_id)} />
+        <KeyValue k={recoveryFieldLabel('storage_kind', locale)} v={<code>{orDash(item.storage_kind)}</code>} />
+        <KeyValue k={recoveryFieldLabel('protection_state', locale)} v={<code>{orDash(item.protection_state)}</code>} />
+        <KeyValue k={recoveryFieldLabel('verification_state', locale)} v={<code>{orDash(item.verification_state)}</code>} />
+        <KeyValue k="recovery_disposition" v={<code>{orDash(item.recovery_disposition)}</code>} />
         <KeyValue
           k={recoveryFieldLabel('actual_restore_status', locale)}
           v={<code>{productTokenDisplay(item.actual_restore_status, locale)}</code>}
@@ -400,6 +458,32 @@ function RecoveryCard({
           }
         />
       </KeyValueGrid>
+      {(item.related_change_count ?? 0) > 0 && (
+        <details className="evidence" open>
+          <summary className="evidence-toggle">
+            {locale === 'zh-CN'
+              ? `关联变更（${item.related_change_count}）`
+              : `Related changes (${item.related_change_count})`}
+          </summary>
+          <ul className="evidence-list">
+            {(item.related_change_event_ids ?? []).map((eventId) => (
+              <li key={eventId}><code>{eventId}</code></li>
+            ))}
+          </ul>
+          {item.related_changes_truncated && (
+            <p className="muted">RELATED_CHANGES_TRUNCATED</p>
+          )}
+          {onOpenChanges && item.workspace_id && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => onOpenChanges(item.workspace_id!, item.checkpoint_id)}
+            >
+              {locale === 'zh-CN' ? '在变更页查看' : 'Open in Changes'}
+            </button>
+          )}
+        </details>
+      )}
       {actions && (
         <RecoveryItemActions
           checkpointId={item.checkpoint_id}

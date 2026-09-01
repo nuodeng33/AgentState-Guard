@@ -36,11 +36,10 @@ export function RuntimeViewBody({ data }: { data: RuntimeView }) {
       )}
       {data.status === 'UNKNOWN' && <UnknownPanel label={label} reasonCode={data.reason_code} />}
 
-      {data.items.map((item, index) => (
+      {data.items.map((item) => (
         <RuntimeCard
           key={`${item.execution_domain_id}:${item.runtime_type}:${item.evidence_refs[0]}`}
           item={item}
-          ordinal={index + 1}
         />
       ))}
 
@@ -49,7 +48,7 @@ export function RuntimeViewBody({ data }: { data: RuntimeView }) {
   );
 }
 
-function RuntimeCard({ item, ordinal }: { item: RuntimeItem; ordinal: number }) {
+function RuntimeCard({ item }: { item: RuntimeItem }) {
   const { locale, t } = useI18n();
   const runtimeType = item.runtime_type
     ? runtimeTypeDisplay(item.runtime_type, locale)
@@ -58,7 +57,7 @@ function RuntimeCard({ item, ordinal }: { item: RuntimeItem; ordinal: number }) 
     <section className="card">
       <div className="card-head">
         <span className="card-title">
-          {locale === 'zh-CN' ? `运行域 ${ordinal}` : `Runtime ${ordinal}`}
+          {item.domain_label ?? item.execution_domain_id ?? runtimeType}
         </span>
         <span className="card-badges">
           <StateBadge

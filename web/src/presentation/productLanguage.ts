@@ -82,6 +82,11 @@ const ZH_PRODUCT_TOKENS: Record<string, string> = {
   NONE: '无',
   NOT_RUN: '尚未执行',
   NOT_RUN_P6: '尚未执行',
+  OBSERVED: '已观测',
+  OBSERVABLE: '可观测',
+  OBSERVED_ONLY: '仅已观测',
+  RUNNING: '运行中',
+  SUPERVISED: '已监管',
   OK: '正常',
   PARTIAL: '部分完成',
   PASS: '通过',
@@ -90,6 +95,7 @@ const ZH_PRODUCT_TOKENS: Record<string, string> = {
   UNREACHABLE: '不可达',
   VERIFIED_R2: '已验证到 R2',
   WARN: '警告',
+  WORKSPACE_BOUND: '已绑定工作区',
 };
 
 const ZH_REASON_CODES: Record<string, string> = {
@@ -111,6 +117,20 @@ export function agentDisplayName(identity: string | null | undefined): string {
   const mapped = identityToken(base);
   if (!mapped) return trimmed;
   return rest.length > 0 ? `${mapped} ${rest.join(' ')}` : mapped;
+}
+
+/** Product identity plus backend-issued instance suffix; never an ordinal. */
+export function agentIdentityTitle(
+  instanceLabel: string | null | undefined,
+  detectedIdentity: string | null | undefined,
+): string {
+  const label = instanceLabel ?? detectedIdentity;
+  const display = agentDisplayName(label);
+  const instance = instanceLabel ? agentInstanceId(instanceLabel) : null;
+  if (!instance) return display;
+  const suffix = ` ${instance}`;
+  const product = display.endsWith(suffix) ? display.slice(0, -suffix.length) : display;
+  return `${product} · ${instance}`;
 }
 
 function localizedToken(

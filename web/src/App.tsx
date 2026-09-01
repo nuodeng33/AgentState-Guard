@@ -32,14 +32,49 @@ const TITLE_KEYS: Record<PageKey, MessageKey> = {
  */
 export default function App() {
   const [page, setPage] = useState<PageKey>('home');
+  const [trace, setTrace] = useState<{ workspaceId: string | null; checkpointId: string | null } | null>(null);
   const t = useT();
   return (
-    <AppShell page={page} onNavigate={setPage} title={t(TITLE_KEYS[page])}>
+    <AppShell
+      page={page}
+      onNavigate={(nextPage) => {
+        setTrace(null);
+        setPage(nextPage);
+      }}
+      title={t(TITLE_KEYS[page])}
+    >
       {page === 'home' && <HomePage />}
       {page === 'environment' && <EnvironmentPage />}
-      {page === 'changes' && <ChangesPage />}
-      {page === 'supervision' && <SupervisionPage />}
-      {page === 'recovery' && <RecoveryPage />}
+      {page === 'changes' && (
+        <ChangesPage
+          workspaceIdFilter={trace?.workspaceId ?? null}
+          checkpointIdFilter={trace?.checkpointId ?? null}
+          onOpenRecovery={(checkpointId, workspaceId) => {
+            setTrace({ checkpointId, workspaceId });
+            setPage('recovery');
+          }}
+        />
+      )}
+      {page === 'supervision' && (
+        <SupervisionPage
+          onOpenChanges={(workspaceId, checkpointId) => {
+            setTrace({ workspaceId, checkpointId });
+            setPage('changes');
+          }}
+          onOpenRecovery={(workspaceId, checkpointId) => {
+            setTrace({ workspaceId, checkpointId });
+            setPage('recovery');
+          }}
+        />
+      )}
+      {page === 'recovery' && (
+        <RecoveryPage
+          onOpenChanges={(workspaceId, checkpointId) => {
+            setTrace({ workspaceId, checkpointId });
+            setPage('changes');
+          }}
+        />
+      )}
       {page === 'devices' && <DevicesPage />}
       {page === 'settings' && <SettingsPage />}
     </AppShell>

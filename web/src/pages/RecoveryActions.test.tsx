@@ -36,11 +36,14 @@ const BASE_VIEW = {
   actual_restore_status: 'NOT_RUN',
   recovery_verified: false,
   verified_at: null,
-  scope_kind: 'PRODUCT_CONFIG',
-  workspace_id: null,
+  capability_supported: true,
+  action_eligible: true,
+  eligibility_reason_code: null,
+  scope_kind: 'HOST_WORKSPACE',
+  workspace_id: 'workspace-7',
   coverage: null,
   capabilities: { create_checkpoint: true, test_restore: true, restore: true },
-  limitations: ['PRODUCT_CONFIG_TARGET_ONLY'],
+  limitations: ['COVERAGE_BASED_WORKSPACE_PROTECTION'],
 };
 
 const GOOD_ITEM = {
@@ -136,8 +139,8 @@ describe('Recovery actions', () => {
     // created ≠ recoverable
     expect((await screen.findByText(/43/)).textContent).toContain('≠ recoverable');
     expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/v1/recovery').length).toBeGreaterThanOrEqual(2);
-    expect(await screen.findByText('HOST_WORKSPACE')).toBeTruthy();
-    expect(screen.getByText('workspace-7')).toBeTruthy();
+    expect((await screen.findAllByText('HOST_WORKSPACE')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('workspace-7').length).toBeGreaterThan(0);
     expect(screen.getByText('coverage.restorable').closest('.kv-row')?.textContent).toContain('3');
     expect(screen.getByText('coverage.unreachable').closest('.kv-row')?.textContent).toContain('4');
     expect(screen.getByText('WORKSPACE_SCAN_PARTIAL')).toBeTruthy();

@@ -28,6 +28,7 @@ const AVAILABLE: RuntimeView = {
     {
       runtime_type: 'CONTAINER_RUNTIME',
       execution_domain_id: 'docker-container-abc123def456',
+      domain_label: 'agent-k3',
       availability: 'AVAILABLE',
       capabilities: ['domain_visible'],
       reason_code: 'RUNTIME_DETECTED',
@@ -69,7 +70,8 @@ describe('RuntimePage DEGRADED state', () => {
 describe('RuntimePage AVAILABLE state', () => {
   it('renders authoritative fields and per-item availability verbatim', () => {
     render(<RuntimeViewBody data={AVAILABLE} />);
-    expect(screen.getByText('Runtime 1')).toBeTruthy();
+    expect(screen.getByText('agent-k3')).toBeTruthy();
+    expect(screen.queryByText('Runtime 1')).toBeNull();
     expect(screen.getByText('Container runtime')).toBeTruthy();
     expect(screen.getAllByText('AVAILABLE').length).toBeGreaterThan(0);
     expect(screen.getByText('UNREACHABLE')).toBeTruthy();

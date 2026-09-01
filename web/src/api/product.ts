@@ -34,6 +34,21 @@ export function getDoctor(client: ApiClient = apiClient) {
 export function getChanges(client: ApiClient = apiClient) {
   return client.get<ChangesView>('/api/v1/changes');
 }
+export function getChangesPage(
+  beforeSequence: number,
+  client: ApiClient = apiClient,
+  filters: {
+    includeProcessActivity?: boolean;
+    workspaceId?: string | null;
+    checkpointId?: string | null;
+  } = {},
+) {
+  const params = new URLSearchParams({ limit: '100', before_sequence: String(beforeSequence) });
+  if (filters.includeProcessActivity) params.set('include_process_activity', 'true');
+  if (filters.workspaceId) params.set('workspace_id', filters.workspaceId);
+  if (filters.checkpointId) params.set('checkpoint_id', filters.checkpointId);
+  return client.get<ChangesView>(`/api/v1/changes?${params.toString()}`);
+}
 export function getEvidence(eventId: string, client: ApiClient = apiClient) {
   return client.get<EvidenceDetail>(`/api/v1/evidence/${encodeURIComponent(eventId)}`);
 }

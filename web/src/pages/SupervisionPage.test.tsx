@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SupervisionItem, SupervisionView } from '../api/types';
+import type { AgentSupervisionSummary, ChangeItem, SupervisionItem, SupervisionView } from '../api/types';
+import { I18nProvider } from '../i18n/I18nProvider';
 import { SupervisionViewBody } from './SupervisionPage';
 
 function session(partial: Partial<SupervisionItem>): SupervisionItem {
@@ -16,6 +17,38 @@ function session(partial: Partial<SupervisionItem>): SupervisionItem {
     recovery_facts: null,
     action_ref: null,
     evidence_refs: [],
+    ...partial,
+  };
+}
+
+function observedAgent(
+  ordinal: number,
+  partial: Partial<AgentSupervisionSummary> = {},
+): AgentSupervisionSummary {
+  const suffix = String(ordinal).padStart(6, '0');
+  return {
+    agent_ref: `codex-agent-${ordinal}`,
+    detected_identity: `CODEX ${suffix}`,
+    instance_label: `CODEX ${suffix}`,
+    role: 'EXECUTION_AGENT',
+    lifecycle: 'RUNNING',
+    confidence: 0.9,
+    execution_domain_id: `domain-${ordinal}`,
+    workspace: {
+      status: 'BOUND',
+      workspace_id: `workspace-${ordinal}`,
+      binding_ref: `workspace-binding-${ordinal}`,
+      reason_code: 'WORKSPACE_BINDING_VERIFIED',
+    },
+    supervision_status: 'WORKSPACE_BOUND',
+    supervision_session_id: null,
+    policy_decision: null,
+    pending_approval: null,
+    latest_checkpoint: null,
+    latest_verified_activity: null,
+    reason_code: 'AGENT_WORKSPACE_BOUND_NO_SUPERVISION_SESSION',
+    uncertainty: false,
+    evidence_refs: [`agent-event-${ordinal}`, `workspace-binding-${ordinal}`],
     ...partial,
   };
 }
@@ -137,23 +170,191 @@ describe('SupervisionPage observed_agents projection', () => {
     const view: SupervisionView = {
       ...VIEW,
       observed_agents: [
-        {
+        observedAgent(1, {
+          agent_ref: 'claude-agent-1',
           detected_identity: 'claude-code',
+          instance_label: null,
           role: 'detected',
           lifecycle: 'DETECTED',
           confidence: 0.5,
           execution_domain_id: 'edge-1',
-          workspace: { status: 'BOUND', binding_ref: 'ws-1' },
-          reason_code: 'AGENT_DETECTED',
-          uncertainty: false,
-          evidence_refs: ['evt-a-1'],
-        },
+          workspace: { status: 'BOUND', workspace_id: 'ws-1', binding_ref: 'ws-link-1' },
+          evidence_refs: ['evt-a-1', 'ws-link-1'],
+        }),
       ],
     };
     render(<SupervisionViewBody data={view} />);
-    expect(screen.getByText('Observed agents (backend projection)')).toBeTruthy();
+    expect(screen.getByText('Agent supervision status')).toBeTruthy();
     expect(screen.getByText('Claude Code')).toBeTruthy();
-    expect(screen.getByText('DETECTED')).toBeTruthy();
+    expect(screen.getAllByText('DETECTED').length).toBeGreaterThan(0);
+  });
+
+  it('renders observed agents by actual identity without artificial ordinals', () => {
+    const observed = Array.from({ length: 4 }, (_, index) => observedAgent(index + 1));
+    const view: SupervisionView = {
+      ...VIEW,
+      observed_agents: observed,
+    };
+
+    render(
+      <I18nProvider systemLanguage="zh-CN">
+        <SupervisionViewBody data={view} />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText('Codex · 000001')).toBeTruthy();
+    expect(screen.getByText('Codex · 000002')).toBeTruthy();
+    expect(screen.getByText('Codex · 000003')).toBeTruthy();
+    expect(screen.getByText('Codex · 000004')).toBeTruthy();
+    expect(screen.queryByText('智能体 1')).toBeNull();
+    expect(screen.queryByText('智能体 4')).toBeNull();
+  });
+
+  it('does not render a RUNNING workspace-bound agent as supervised', () => {
+    const view: SupervisionView = {
+      ...VIEW,
+      items: [],
+      observed_agents: [observedAgent(1)],
+    };
+
+    render(<SupervisionViewBody data={view} />);
+
+    expect(screen.getAllByText('RUNNING').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('WORKSPACE_BOUND').length).toBeGreaterThan(0);
+    expect(screen.queryByText('SUPERVISED')).toBeNull();
+    expect(screen.getByText('No verified Agent-linked supervision sessions.')).toBeTruthy();
+  });
+
+  it('keeps server-owned Agent summaries authoritative when session binding is degraded', () => {
+    const view: SupervisionView = {
+      ...VIEW,
+      status: 'DEGRADED',
+      reason_code: 'R4_SUPERVISION_AGENT_BINDING_INCOMPLETE',
+      items: [],
+      observed_agents: [observedAgent(1)],
+    };
+
+    render(
+      <I18nProvider systemLanguage="zh-CN">
+        <SupervisionViewBody data={view} />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText('智能体已观测；部分监管关联不可用。')).toBeTruthy();
+    expect(screen.queryByText(/下方内容均非权威投影/)).toBeNull();
+    expect(screen.getByText('Codex · 000001')).toBeTruthy();
+  });
+
+  it('shows per-Agent observer evidence even when session history is empty', () => {
+    const activity: ChangeItem = {
+      event_id: 'host-process-1',
+      timestamp: '2026-08-26T02:00:00Z',
+      observed_at: '2026-08-26T02:00:00Z',
+      recorded_at: '2026-08-26T02:00:00Z',
+      actor: 'host-native-observer',
+      subject: 'codex-agent-1',
+      type: 'PROCESS_STARTED',
+      result: 'OBSERVED',
+      affected_objects: [],
+      checkpoint_id: null,
+      execution_domain_id: 'windows-current',
+      attribution: null,
+      change_kind: null,
+      coverage_before: null,
+      coverage_after: null,
+      recovery_disposition: null,
+      workspace_id: null,
+      change_id: null,
+      supervision_session_id: null,
+      verification_summary: null,
+      reason_code: 'AGENT_CHILD_PROCESS_STARTED',
+      evidence_refs: ['host-process-1'],
+    };
+    const view: SupervisionView = {
+      ...VIEW,
+      items: [],
+      observed_agents: [
+        observedAgent(1, {
+          activity_observability: 'OBSERVABLE',
+          latest_activity: activity,
+          recent_activity_count: 1,
+          recent_verified_activities: [activity],
+          activity_reason_code: 'HOST_ACTIVITY_OBSERVED',
+        }),
+      ],
+    };
+
+    render(<SupervisionViewBody data={view} />);
+
+    expect(screen.getByText('OBSERVABLE')).toBeTruthy();
+    expect(screen.getAllByText('PROCESS_STARTED').length).toBeGreaterThan(0);
+    expect(screen.getByText('No verified Agent-linked supervision sessions.')).toBeTruthy();
+  });
+
+  it('shows shared workspace protection facts and the same time-layered activity model', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-29T12:00:00Z'));
+    const activity = {
+      event_id: 'kimi-change-1',
+      timestamp: '2026-08-29T11:30:00Z',
+      observed_at: '2026-08-29T11:30:00Z',
+      recorded_at: '2026-08-29T11:31:00Z',
+      actor: 'host-workspace-observer',
+      source: 'host-workspace-observer',
+      actor_attribution: 'UNATTRIBUTED',
+      category: 'CHANGE',
+      subject: 'workspace-kimi',
+      type: 'OBSERVED_CHANGE',
+      result: 'MODIFIED',
+      affected_objects: ['a'.repeat(64)],
+      checkpoint_id: 'cp-kimi',
+      execution_domain_id: 'docker-kimi',
+      attribution: 'UNATTRIBUTED',
+      change_kind: 'MODIFIED',
+      coverage_before: 'restorable',
+      coverage_after: 'restorable',
+      recovery_disposition: 'RECOVERABLE',
+      workspace_id: 'workspace-kimi',
+      change_id: 'change-kimi',
+      supervision_session_id: null,
+      verification_summary: 'PASS',
+      reason_code: 'WORKSPACE_CHANGE_OBSERVED',
+      evidence_refs: ['kimi-change-1'],
+    } as ChangeItem;
+    const agent = observedAgent(1, {
+      detected_identity: 'KIMI_CODE 82d576',
+      instance_label: 'KIMI_CODE 82d576',
+      workspace: {
+        status: 'BOUND',
+        workspace_id: 'workspace-kimi',
+        binding_ref: 'workspace-binding-kimi',
+      },
+      storage_kind: 'DOCKER_NAMED_VOLUME',
+      protection_state: 'RECOVERY_VERIFIED',
+      verification_state: 'RECOVERY_VERIFIED',
+      recovery_disposition: 'RECOVERABLE',
+      latest_checkpoint: {
+        checkpoint_id: 'cp-kimi',
+        reason_code: 'RECOVERY_COVERAGE_COMPLETE',
+        evidence_refs: ['evt-cp-kimi'],
+      },
+      latest_verified_change: activity,
+      latest_activity: activity,
+      recent_verified_activities: [activity],
+      recent_activity_count: 1,
+    } as Partial<AgentSupervisionSummary>);
+
+    render(<SupervisionViewBody data={{ ...VIEW, items: [], observed_agents: [agent] }} />);
+
+    expect(screen.getByText('Kimi Code · 82d576')).toBeTruthy();
+    expect(screen.getByText('DOCKER_NAMED_VOLUME')).toBeTruthy();
+    expect(screen.getAllByText('RECOVERY_VERIFIED').length).toBeGreaterThan(0);
+    const latestChange = screen.getByText('Latest verified change').parentElement;
+    expect(latestChange?.textContent).toContain('MODIFIED');
+    expect(latestChange?.textContent).toContain('2026-08-29T11:30:00Z');
+    expect(screen.getByText('Recent 1 hour')).toBeTruthy();
+    expect(screen.getByText(/host-workspace-observer.*1 item/)).toBeTruthy();
+    vi.useRealTimers();
   });
 });
 

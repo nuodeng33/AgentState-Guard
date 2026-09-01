@@ -10,16 +10,16 @@
  * Related evidence_refs are shown as references only — never dereferenced.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { apiClient, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
-import { getEvidence } from '../api/product';
+import { getChangesPage, getEvidence } from '../api/product';
 import type { ChangeItem, ChangesView, EvidenceDetail } from '../api/types';
 import { useR4View } from '../api/useR4View';
 import { EmptyState } from '../components/EmptyState';
+import { ActivityTimeline } from '../components/ActivityTimeline';
 import { EvidenceDetailPanel } from '../components/EvidenceDetailPanel';
 import { EvidenceRefs } from '../components/EvidenceRefs';
-import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
 import { SectionHeader } from '../components/SectionHeader';
 import { StateBadge, viewStatusTone } from '../components/StateBadge';
 import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
@@ -34,8 +34,25 @@ type PanelState = {
 
 const IDLE_PANEL: PanelState = { phase: 'idle', detail: null, error: null };
 
-export default function ChangesPage({ client = apiClient }: { client?: ApiClient }) {
-  const state = useR4View<ChangesView>('changes', client);
+export default function ChangesPage({
+  client = apiClient,
+  checkpointIdFilter = null,
+  workspaceIdFilter = null,
+  onOpenRecovery,
+}: {
+  client?: ApiClient;
+  checkpointIdFilter?: string | null;
+  workspaceIdFilter?: string | null;
+  onOpenRecovery?: (checkpointId: string, workspaceId: string | null) => void;
+}) {
+  const [includeProcess, setIncludeProcess] = useState(false);
+  const params = new URLSearchParams();
+  if (includeProcess) params.set('include_process_activity', 'true');
+  if (checkpointIdFilter) params.set('checkpoint_id', checkpointIdFilter);
+  if (workspaceIdFilter) params.set('workspace_id', workspaceIdFilter);
+  if (params.size > 0) params.set('limit', '100');
+  const query = params.size > 0 ? `?${params.toString()}` : '';
+  const state = useR4View<ChangesView>('changes', client, query);
   const t = useT();
   const [selected, setSelected] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelState>(IDLE_PANEL);
@@ -84,11 +101,18 @@ export default function ChangesPage({ client = apiClient }: { client?: ApiClient
   return (
     <ViewGate state={state} label={t('nav.changes')}>
       {(data) => (
-        <ChangesViewBody
+        <ChangesReady
+          key={query}
           data={data}
+          client={client}
+          includeProcess={includeProcess}
+          checkpointIdFilter={checkpointIdFilter}
+          workspaceIdFilter={workspaceIdFilter}
           selected={selected}
           panel={panel}
+          onToggleProcess={() => setIncludeProcess((value) => !value)}
           onOpenEvidence={openEvidence}
+          onOpenRecovery={onOpenRecovery}
           onClosePanel={closePanel}
         />
       )}
@@ -96,17 +120,106 @@ export default function ChangesPage({ client = apiClient }: { client?: ApiClient
   );
 }
 
-export function ChangesViewBody({
+function ChangesReady({
   data,
-  selected = null,
-  panel = IDLE_PANEL,
+  client,
+  includeProcess,
+  checkpointIdFilter,
+  workspaceIdFilter,
+  selected,
+  panel,
+  onToggleProcess,
   onOpenEvidence,
+  onOpenRecovery,
   onClosePanel,
 }: {
   data: ChangesView;
+  client: ApiClient;
+  includeProcess: boolean;
+  checkpointIdFilter: string | null;
+  workspaceIdFilter: string | null;
+  selected: string | null;
+  panel: PanelState;
+  onToggleProcess: () => void;
+  onOpenEvidence: (item: ChangeItem) => void;
+  onOpenRecovery?: (checkpointId: string, workspaceId: string | null) => void;
+  onClosePanel: () => void;
+}) {
+  const [older, setOlder] = useState<ChangeItem[]>([]);
+  const [cursor, setCursor] = useState<number | null>(data.next_cursor ?? null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  useEffect(() => {
+    setOlder([]);
+    setCursor(data.next_cursor ?? null);
+  }, [data]);
+  const combined: ChangesView = { ...data, items: [...data.items, ...older], next_cursor: cursor };
+  const loadMore = () => {
+    if (cursor == null || loadingMore) return;
+    setLoadingMore(true);
+    setLoadError(null);
+    getChangesPage(cursor, client, {
+      includeProcessActivity: includeProcess,
+      workspaceId: workspaceIdFilter,
+      checkpointId: checkpointIdFilter,
+    }).then(
+      (page) => {
+        setOlder((items) => [...items, ...page.items]);
+        setCursor(page.next_cursor ?? null);
+        setLoadingMore(false);
+      },
+      () => {
+        setLoadError('CHANGE_HISTORY_PAGE_UNAVAILABLE');
+        setLoadingMore(false);
+      },
+    );
+  };
+  return (
+    <>
+      <div className="activity-toolbar">
+        <button type="button" className="btn" onClick={onToggleProcess}>
+          {includeProcess ? 'Hide process activity' : 'Show process activity'}
+        </button>
+      </div>
+      {(checkpointIdFilter || workspaceIdFilter) && (
+        <p className="card-sub">
+          {checkpointIdFilter ? `Checkpoint ${checkpointIdFilter}` : `Workspace ${workspaceIdFilter}`}
+        </p>
+      )}
+      <ChangesViewBody
+        data={combined}
+        includeProcess={includeProcess}
+        selected={selected}
+        panel={panel}
+        onOpenEvidence={onOpenEvidence}
+        onOpenRecovery={onOpenRecovery}
+        onClosePanel={onClosePanel}
+      />
+      {cursor != null && (
+        <button type="button" className="btn" disabled={loadingMore} onClick={loadMore}>
+          {loadingMore ? 'Loading…' : 'Load more'}
+        </button>
+      )}
+      {loadError && <p className="muted">{loadError}</p>}
+    </>
+  );
+}
+
+export function ChangesViewBody({
+  data,
+  includeProcess = false,
+  selected = null,
+  panel = IDLE_PANEL,
+  onOpenEvidence,
+  onOpenRecovery,
+  onClosePanel,
+}: {
+  data: ChangesView;
+  includeProcess?: boolean;
   selected?: string | null;
   panel?: PanelState;
   onOpenEvidence?: (item: ChangeItem) => void;
+  onOpenRecovery?: (checkpointId: string, workspaceId: string | null) => void;
   onClosePanel?: () => void;
 }) {
   const t = useT();
@@ -132,14 +245,13 @@ export function ChangesViewBody({
       )}
 
       <SectionHeader title={t('changes.section.recent')} />
-      {data.items.map((item) => (
-        <ChangeCard
-          key={item.event_id}
-          item={item}
-          selected={selected === item.event_id}
-          onOpenEvidence={onOpenEvidence}
-        />
-      ))}
+      <ActivityTimeline
+        activities={data.items}
+        mode={includeProcess ? 'activity' : 'changes'}
+        selectedEvidence={selected}
+        onOpenEvidence={onOpenEvidence}
+        onOpenRecovery={onOpenRecovery}
+      />
 
       <EvidenceRefs refs={data.evidence_refs} />
 
@@ -154,77 +266,5 @@ export function ChangesViewBody({
         </div>
       )}
     </div>
-  );
-}
-
-function ChangeCard({
-  item,
-  selected,
-  onOpenEvidence,
-}: {
-  item: ChangeItem;
-  selected: boolean;
-  onOpenEvidence?: (item: ChangeItem) => void;
-}) {
-  const t = useT();
-  return (
-    <section className={`card${selected ? ' card-selected' : ''}`}>
-      <div className="card-head">
-        <span className="card-title">{item.type}</span>
-        <span className="card-badges">
-          <StateBadge label={item.result} tone="neutral" />
-          {onOpenEvidence && (
-            <button
-              type="button"
-              className="btn"
-              aria-pressed={selected}
-              onClick={() => onOpenEvidence(item)}
-            >
-              {t('changes.openEvidence')}
-            </button>
-          )}
-        </span>
-      </div>
-      <KeyValueGrid>
-        <KeyValue k={t('changes.col.time')} v={item.timestamp} />
-        <KeyValue k={t('changes.col.actor')} v={item.actor} />
-        <KeyValue k={t('changes.col.subject')} v={orDash(item.subject)} />
-        <KeyValue k="execution_domain_id" v={orDash(item.execution_domain_id)} />
-        <KeyValue k="attribution" v={orDash(item.attribution)} />
-        <KeyValue k="change_kind" v={orDash(item.change_kind)} />
-        <KeyValue k="coverage_before" v={orDash(item.coverage_before)} />
-        <KeyValue k="coverage_after" v={orDash(item.coverage_after)} />
-        <KeyValue k="recovery_disposition" v={orDash(item.recovery_disposition)} />
-        <KeyValue k="workspace_id" v={orDash(item.workspace_id)} />
-        {item.policy_summary != null && (
-          <KeyValue k={t('changes.field.policy')} v={item.policy_summary} />
-        )}
-        {item.approval_summary != null && (
-          <KeyValue k={t('changes.field.approval')} v={item.approval_summary} />
-        )}
-        <KeyValue k={t('evidence.field.verification')} v={orDash(item.verification_summary)} />
-        <KeyValue k={t('changes.col.checkpoint')} v={orDash(item.checkpoint_id)} />
-        <KeyValue k={t('evidence.field.session')} v={orDash(item.supervision_session_id)} />
-        <KeyValue k={t('evidence.field.change')} v={orDash(item.change_id)} />
-        <KeyValue
-          k={t('evidence.field.affectedObjects')}
-          v={
-            item.affected_objects.length === 0 ? (
-              <span className="muted">—</span>
-            ) : (
-              <span className="chips">
-                {item.affected_objects.map((obj) => (
-                  <code key={obj} className="chip">
-                    {obj}
-                  </code>
-                ))}
-              </span>
-            )
-          }
-        />
-        <KeyValue k="reason_code" v={<code>{item.reason_code}</code>} />
-      </KeyValueGrid>
-      <EvidenceRefs refs={item.evidence_refs} />
-    </section>
   );
 }

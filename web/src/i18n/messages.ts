@@ -246,6 +246,17 @@ export type MessageKey =
   | 'supervision.field.createdAt'
   | 'supervision.field.updatedAt'
   | 'supervision.section.observedAgents'
+  | 'supervision.section.agentStatus'
+  | 'supervision.section.sessionHistory'
+  | 'supervision.sessionHistory.empty'
+  | 'supervision.field.agentRef'
+  | 'supervision.field.instanceId'
+  | 'supervision.field.lifecycle'
+  | 'supervision.field.workspace'
+  | 'supervision.field.supervisionStatus'
+  | 'supervision.field.currentSession'
+  | 'supervision.field.policy'
+  | 'supervision.field.latestActivity'
   /* ---- devices ---- */
   | 'devices.section.binding'
   | 'devices.enable'
@@ -572,6 +583,17 @@ const enUS: Messages = {
   'supervision.field.createdAt': 'created_at',
   'supervision.field.updatedAt': 'updated_at',
   'supervision.section.observedAgents': 'Observed agents (backend projection)',
+  'supervision.section.agentStatus': 'Agent supervision status',
+  'supervision.section.sessionHistory': 'Supervision session history',
+  'supervision.sessionHistory.empty': 'No verified Agent-linked supervision sessions.',
+  'supervision.field.agentRef': 'Agent reference',
+  'supervision.field.instanceId': 'Instance ID',
+  'supervision.field.lifecycle': 'Lifecycle',
+  'supervision.field.workspace': 'Workspace',
+  'supervision.field.supervisionStatus': 'Supervision status',
+  'supervision.field.currentSession': 'Current session',
+  'supervision.field.policy': 'Policy decision',
+  'supervision.field.latestActivity': 'Latest verified activity',
   'devices.section.binding': 'Device Link',
   'devices.enable': 'Enable',
   'devices.disable': 'Disable',
@@ -880,6 +902,17 @@ const zhCN: Messages = {
   'supervision.field.createdAt': 'created_at',
   'supervision.field.updatedAt': 'updated_at',
   'supervision.section.observedAgents': '后端投影的已观测智能体',
+  'supervision.section.agentStatus': '智能体监管状态',
+  'supervision.section.sessionHistory': '监管会话历史',
+  'supervision.sessionHistory.empty': '暂无与智能体建立权威关联的监管会话。',
+  'supervision.field.agentRef': '智能体引用',
+  'supervision.field.instanceId': '实例编号',
+  'supervision.field.lifecycle': '运行状态',
+  'supervision.field.workspace': '工作区',
+  'supervision.field.supervisionStatus': '监管状态',
+  'supervision.field.currentSession': '当前会话',
+  'supervision.field.policy': '策略决策',
+  'supervision.field.latestActivity': '最近已验证活动',
   'devices.section.binding': '设备连接',
   'devices.enable': '启用',
   'devices.disable': '停用',

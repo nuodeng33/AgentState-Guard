@@ -27,7 +27,11 @@ export interface ViewState<T> {
   reload: () => void;
 }
 
-export function useR4View<T>(view: ViewName, client: ApiClient = apiClient): ViewState<T> {
+export function useR4View<T>(
+  view: ViewName,
+  client: ApiClient = apiClient,
+  query = '',
+): ViewState<T> {
   const [state, setState] = useState<Omit<ViewState<T>, 'reload' | 'refreshing'>>({
     phase: 'loading',
     data: null,
@@ -42,7 +46,7 @@ export function useR4View<T>(view: ViewName, client: ApiClient = apiClient): Vie
     // A refetch after an in-place action keeps the previous authoritative data
     // visible; only a cold start or a prior failure shows the loading gate.
     setState((prev) => (prev.data === null ? { phase: 'loading', data: null, error: null } : prev));
-    client.get<T>(`/api/v1/${view}`).then(
+    client.get<T>(`/api/v1/${view}${query}`).then(
       (data) => {
         if (cancelled) return;
         setInFlight(false);
@@ -62,7 +66,7 @@ export function useR4View<T>(view: ViewName, client: ApiClient = apiClient): Vie
     return () => {
       cancelled = true;
     };
-  }, [view, client, attempt]);
+  }, [view, client, query, attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   return { ...state, refreshing: inFlight && state.data !== null, reload };

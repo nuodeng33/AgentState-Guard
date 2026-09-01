@@ -50,6 +50,8 @@ function doctorMessage(row: DoctorCheck, locale: Locale): string {
     'Bundled sidecar runtime active': '内置 Sidecar 运行时已启动。',
     'No product-owned container configured': '未配置由本产品管理的容器。',
     'No external Python interpreter detected on host': '未在主机上检测到外部 Python 解释器。',
+    'Optional external Python interpreter not detected on host':
+      '未检测到可选的外部 Python 解释器；内置运行时不受影响。',
   };
   return exact[row.message] ?? row.message;
 }

@@ -30,6 +30,8 @@ export type RuntimeAvailability = 'AVAILABLE' | 'UNKNOWN' | 'UNREACHABLE';
 
 export interface RuntimeItem {
   runtime_type: string | null;
+  /** Backend-sanitized execution-domain/container label. */
+  domain_label?: string | null;
   execution_domain_id: string | null;
   availability: RuntimeAvailability;
   capabilities: string[];
@@ -46,6 +48,8 @@ export type RuntimeView = R4ViewDto<RuntimeItem>;
 export interface AgentWorkspace {
   status: string;
   binding_ref: string | null;
+  workspace_id?: string | null;
+  reason_code?: string | null;
 }
 
 export interface AgentItem {
@@ -65,14 +69,54 @@ export interface AgentItem {
   reason_code: string;
   uncertainty: boolean;
   observed_at?: string | null;
+  activity_observability?: 'OBSERVABLE' | 'UNKNOWN' | 'UNAVAILABLE';
+  latest_activity?: ChangeItem | null;
+  recent_activity_count?: number;
+  recent_verified_activities?: ChangeItem[];
+  activity_reason_code?: string;
   evidence_refs: string[];
 }
 
-export type AgentsView = R4ViewDto<AgentItem>;
+export type AgentsView = R4ViewDto<AgentItem> & {
+  identified_count?: number;
+  degradation_scopes?: Array<{
+    execution_domain_id: string | null;
+    label: string | null;
+    reason_code: string;
+  }>;
+};
 
 /* ---- Supervision ---- */
 
 export type PolicyDecision = 'ALLOW' | 'REVIEW' | 'BLOCK' | 'UNKNOWN';
+
+export type AgentSupervisionStatus =
+  | 'OBSERVED_ONLY'
+  | 'WORKSPACE_BOUND'
+  | 'SUPERVISED'
+  | 'UNKNOWN';
+
+/** Server-owned Agent-to-supervision projection; the UI never derives this association. */
+export interface AgentSupervisionSummary extends AgentItem {
+  /** Stable opaque discovery identity; display ordinal is intentionally separate. */
+  agent_ref: string | null;
+  supervision_status: AgentSupervisionStatus;
+  supervision_session_id: string | null;
+  policy_decision: string | null;
+  pending_approval: boolean | null;
+  latest_checkpoint: {
+    checkpoint_id: string | null;
+    reason_code: string;
+    evidence_refs: string[];
+  } | null;
+  latest_verified_activity: ChangeItem | null;
+  /** Workspace protection facts are joined by the backend from workspace authority. */
+  storage_kind?: string | null;
+  protection_state?: string | null;
+  verification_state?: string | null;
+  recovery_disposition?: string | null;
+  latest_verified_change?: ChangeItem | null;
+}
 
 export interface SupervisionAiAssessment {
   decision: string | null;
@@ -164,10 +208,10 @@ export interface SupervisionActionResult {
 
 export type SupervisionView = R4ViewDto<SupervisionItem> & {
   /**
-   * Backend-attached agents projection items (r4_projection.supervision:577).
-   * Rendered verbatim like /api/v1/agents items; never re-interpreted.
+   * Backend-owned per-Agent supervision summaries. Association is verified
+   * server-side from Ledger authority; the UI never joins by name or domain.
    */
-  observed_agents?: AgentItem[];
+  observed_agents?: AgentSupervisionSummary[];
   /** Cross-session verified activity feed (up to 50). */
   recent_verified_activities?: ChangeItem[];
 };
@@ -178,7 +222,11 @@ export type RecoveryLevel = 'R0' | 'R1' | 'R2' | 'R3';
 
 /** Trusted Baseline is a separate trust state, never implied by recovery level. */
 export type TrustedBaselineStatus = 'NONE' | 'TRUSTED' | 'RETIRED' | 'REVOKED';
-export type RecoveryScopeKind = 'HOST_WORKSPACE' | 'PRODUCT_CONFIG' | 'UNKNOWN';
+export type RecoveryScopeKind =
+  | 'HOST_WORKSPACE'
+  | 'PRODUCT_CONFIG'
+  | 'DOCKER_NAMED_VOLUME'
+  | 'UNKNOWN';
 
 export interface RecoveryCoverageCounts {
   restorable: number | null;
@@ -224,6 +272,14 @@ export interface RecoveryItem extends RecoverySummaryFields {
   scope_kind: RecoveryScopeKind;
   workspace_id: string | null;
   coverage: RecoveryCoverage | null;
+  storage_kind?: string | null;
+  protection_state?: string | null;
+  verification_state?: string | null;
+  recovery_disposition?: string | null;
+  latest_verified_change?: ChangeItem | null;
+  related_change_count?: number;
+  related_change_event_ids?: string[];
+  related_changes_truncated?: boolean;
 }
 
 export type RecoveryView = R4ViewDto<RecoveryItem> & {
@@ -240,16 +296,29 @@ export type RecoveryView = R4ViewDto<RecoveryItem> & {
   actual_restore_status?: string | null;
   recovery_verified?: boolean | null;
   verified_at?: string | null;
+  /** Product capability is distinct from whether the current scope is authorized. */
+  capability_supported?: boolean | null;
+  action_eligible?: boolean | null;
+  eligibility_reason_code?: string | null;
   capabilities?: { create_checkpoint: boolean; test_restore: boolean; restore: boolean } | null;
   scope_kind?: RecoveryScopeKind | null;
   workspace_id?: string | null;
   coverage?: RecoveryCoverage | null;
   limitations?: string[] | null;
+  storage_kind?: string | null;
+  protection_state?: string | null;
+  verification_state?: string | null;
 };
 
 /* ---- Changes (r4-p8-1 view=changes) ---- */
 
 export interface ChangeItem {
+  sequence?: number;
+  event_family?: string;
+  category?: string;
+  source?: string;
+  actor_attribution?: string | null;
+  agent_ref?: string | null;
   event_id: string;
   timestamp: string;
   observed_at: string | null;
@@ -276,9 +345,18 @@ export interface ChangeItem {
   recovery_disposition: string | null;
   workspace_id: string | null;
   evidence_refs: string[];
+  storage_kind?: string | null;
+  protection_state?: string | null;
+  verification_state?: string | null;
 }
 
-export type ChangesView = R4ViewDto<ChangeItem>;
+export type ChangesView = R4ViewDto<ChangeItem> & {
+  page_size?: number;
+  next_cursor?: number | null;
+  include_process_activity?: boolean;
+  workspace_id?: string | null;
+  checkpoint_id?: string | null;
+};
 
 /* ---- Evidence detail (r4-product-evidence-1) ---- */
 
@@ -485,6 +563,12 @@ export interface ControlledChangeApplyResult {
   before_digest: string | null;
   after_digest: string | null;
   checkpoint_id: string | null;
+  action?: string;
+  transaction_id?: string;
+  workspace_id?: string;
+  policy_result?: string;
+  approval_evidence_refs?: string[];
+  changed_objects?: string[];
   evidence_refs: string[];
 }
 

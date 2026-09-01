@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
+import type { ApiClient } from '../api/client';
 import type { RecoveryItem, RecoveryView } from '../api/types';
 import { I18nProvider } from '../i18n/I18nProvider';
 import { saveLanguagePreference } from '../i18n/locale';
@@ -197,9 +198,81 @@ describe('RecoveryPage authoritative scope and restore facts', () => {
     expect(screen.getByText('PRODUCT_CONFIG_TARGET_ONLY')).toBeTruthy();
     expect(screen.queryByText('HOST_WORKSPACE')).toBeNull();
   });
+
+  it('shows named-volume storage, shared protection state, and reverse change trace', () => {
+    const traced = {
+      ...item({ checkpoint_id: 'cp-volume', workspace_id: 'workspace-kimi' }),
+      scope_kind: 'DOCKER_NAMED_VOLUME',
+      storage_kind: 'DOCKER_NAMED_VOLUME',
+      protection_state: 'RECOVERY_VERIFIED',
+      verification_state: 'RECOVERY_VERIFIED',
+      related_change_count: 1,
+      related_change_event_ids: ['workspace-event-kimi-change'],
+      related_changes_truncated: false,
+      recovery_disposition: 'RECOVERABLE',
+    } as RecoveryItem;
+    const view = {
+      ...R3_UNTRUSTED,
+      items: [traced],
+      latest_checkpoint: traced,
+      scope_kind: 'DOCKER_NAMED_VOLUME',
+      workspace_id: 'workspace-kimi',
+      storage_kind: 'DOCKER_NAMED_VOLUME',
+      protection_state: 'RECOVERY_VERIFIED',
+      verification_state: 'RECOVERY_VERIFIED',
+    } as RecoveryView;
+
+    render(<RecoveryViewBody data={view} />);
+
+    expect(screen.getAllByText('DOCKER_NAMED_VOLUME').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('RECOVERY_VERIFIED').length).toBeGreaterThan(0);
+    expect(screen.getByText('Related changes (1)')).toBeTruthy();
+    expect(screen.getByText('workspace-event-kimi-change')).toBeTruthy();
+  });
+
+  it('opens the matching checkpoint history in Changes without deriving a client join', () => {
+    const openChanges = vi.fn();
+    const traced = {
+      ...item({ checkpoint_id: 'cp-volume', workspace_id: 'workspace-kimi' }),
+      related_change_count: 1,
+      related_change_event_ids: ['workspace-event-kimi-change'],
+      related_changes_truncated: false,
+    } as RecoveryItem;
+
+    render(
+      <RecoveryViewBody
+        data={{ ...R3_UNTRUSTED, items: [traced], latest_checkpoint: traced }}
+        onOpenChanges={openChanges}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open in Changes' }));
+
+    expect(openChanges).toHaveBeenCalledWith('workspace-kimi', 'cp-volume');
+  });
 });
 
 describe('RecoveryPage R0 fail-closed display', () => {
+  it('shows an authoritative ineligible reason instead of an actionable checkpoint button', () => {
+    const ineligible: RecoveryView = {
+      ...DEGRADED,
+      status: 'EMPTY',
+      reason_code: 'R4_STATE_EMPTY',
+      capability_supported: true,
+      action_eligible: false,
+      eligibility_reason_code: 'WORKSPACE_SCOPE_TOO_BROAD',
+    };
+
+    render(
+      <RecoveryViewBody
+        data={ineligible}
+        actions={{ client: {} as ApiClient, reload: () => undefined }}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Create checkpoint' })).toBeNull();
+    expect(screen.getAllByText('WORKSPACE_SCOPE_TOO_BROAD').length).toBeGreaterThan(0);
+  });
+
   it('fails closed at view level and per checkpoint, never "recoverable"', () => {
     const { container } = render(<RecoveryViewBody data={R0_FAIL_CLOSED} />);
     const alerts = screen.getAllByRole('alert');

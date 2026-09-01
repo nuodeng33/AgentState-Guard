@@ -14,9 +14,16 @@ import { useState } from 'react';
 
 import { apiClient, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
 import { getEvidence } from '../api/product';
-import type { ChangeItem, EvidenceDetail, SupervisionItem, SupervisionView } from '../api/types';
+import type {
+  AgentSupervisionSummary,
+  ChangeItem,
+  EvidenceDetail,
+  SupervisionItem,
+  SupervisionView,
+} from '../api/types';
 import { useR4View } from '../api/useR4View';
 import { AnalyzeSection } from '../components/AnalyzeSection';
+import { ActivityTimeline } from '../components/ActivityTimeline';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceDetailPanel } from '../components/EvidenceDetailPanel';
 import { EvidenceRefs } from '../components/EvidenceRefs';
@@ -32,8 +39,15 @@ import {
 } from '../components/StateBadge';
 import { DegradedPanel, UnknownPanel } from '../components/StatePanels';
 import { ViewGate } from '../components/ViewGate';
-import { useT } from '../i18n/I18nProvider';
-import { AgentCard } from './AgentsPage';
+import { useI18n, useT } from '../i18n/I18nProvider';
+import {
+  agentIdentityTitle,
+  agentInstanceId,
+  agentRoleDisplay,
+  productTokenDisplay,
+  reasonCodeDisplay,
+  workspaceStatusDisplay,
+} from '../presentation/productLanguage';
 import { ControlledChangePanel } from './ControlledChangePanel';
 import { isActionable, SupervisionActions } from './SupervisionActions';
 
@@ -45,7 +59,15 @@ type EvidencePanelState = {
 
 const IDLE_PANEL: EvidencePanelState = { phase: 'idle', detail: null, error: null };
 
-export default function SupervisionPage({ client = apiClient }: { client?: ApiClient }) {
+export default function SupervisionPage({
+  client = apiClient,
+  onOpenChanges,
+  onOpenRecovery,
+}: {
+  client?: ApiClient;
+  onOpenChanges?: (workspaceId: string, checkpointId: string | null) => void;
+  onOpenRecovery?: (workspaceId: string, checkpointId: string | null) => void;
+}) {
   const state = useR4View<SupervisionView>('supervision', client);
   const t = useT();
   const [selectedEvidence, setSelectedEvidence] = useState<string | null>(null);
@@ -99,6 +121,8 @@ export default function SupervisionPage({ client = apiClient }: { client?: ApiCl
           selectedEvidence={selectedEvidence}
           evidencePanel={panel}
           onOpenEvidence={openEvidence}
+          onOpenChanges={onOpenChanges}
+          onOpenRecovery={onOpenRecovery}
           onCloseEvidence={closeEvidence}
         />
       )}
@@ -121,6 +145,33 @@ function sessionStatusTone(status: string): BadgeTone {
   }
 }
 
+function agentLifecycleTone(lifecycle: string): BadgeTone {
+  switch (lifecycle) {
+    case 'UNKNOWN':
+      return 'unknown';
+    case 'DETECTED':
+    case 'OBSERVED':
+      return 'info';
+    default:
+      return 'neutral';
+  }
+}
+
+function agentSupervisionTone(status: string): BadgeTone {
+  switch (status) {
+    case 'SUPERVISED':
+      return 'ok';
+    case 'WORKSPACE_BOUND':
+      return 'info';
+    case 'OBSERVED_ONLY':
+      return 'warn';
+    case 'UNKNOWN':
+      return 'unknown';
+    default:
+      return 'neutral';
+  }
+}
+
 export function SupervisionViewBody({
   data,
   client,
@@ -129,6 +180,8 @@ export function SupervisionViewBody({
   selectedEvidence = null,
   evidencePanel = IDLE_PANEL,
   onOpenEvidence,
+  onOpenChanges,
+  onOpenRecovery,
   onCloseEvidence,
 }: {
   data: SupervisionView;
@@ -138,10 +191,14 @@ export function SupervisionViewBody({
   selectedEvidence?: string | null;
   evidencePanel?: EvidencePanelState;
   onOpenEvidence?: (eventId: string) => void;
+  onOpenChanges?: (workspaceId: string, checkpointId: string | null) => void;
+  onOpenRecovery?: (workspaceId: string, checkpointId: string | null) => void;
   onCloseEvidence?: () => void;
 }) {
   const t = useT();
+  const { locale } = useI18n();
   const label = t('nav.supervision');
+  const hasObservedAgents = Boolean(data.observed_agents?.length);
   const yesNo = (value: boolean | null | undefined) =>
     value == null ? '—' : value ? t('common.yes') : t('common.no');
   const showEvidencePanel =
@@ -159,11 +216,42 @@ export function SupervisionViewBody({
           reasonCode={data.reason_code}
         />
       )}
-      {data.status === 'DEGRADED' && (
+      {data.status === 'DEGRADED' && !hasObservedAgents && (
         <DegradedPanel label={label} reasonCode={data.reason_code} />
+      )}
+      {data.status === 'DEGRADED' && hasObservedAgents && (
+        <div className="panel panel-warn" role="alert">
+          <p className="panel-title">
+            {locale === 'zh-CN'
+              ? '智能体已观测；部分监管关联不可用。'
+              : 'Agents observed; some supervision bindings are unavailable.'}
+          </p>
+          <p className="panel-diagnostics muted">
+            reason_code: <code>{data.reason_code}</code>
+          </p>
+        </div>
       )}
       {data.status === 'UNKNOWN' && <UnknownPanel label={label} reasonCode={data.reason_code} />}
 
+      {data.observed_agents && data.observed_agents.length > 0 && (
+        <div>
+          <p className="card-sub">{t('supervision.section.agentStatus')}</p>
+          {data.observed_agents.map((agent) => (
+            <AgentSupervisionCard
+              key={`${agent.agent_ref}:${agent.execution_domain_id}:${agent.reason_code}`}
+              item={agent}
+              yesNo={yesNo}
+              selectedEvidence={selectedEvidence}
+              onOpenEvidence={onOpenEvidence}
+              onOpenChanges={onOpenChanges}
+              onOpenRecovery={onOpenRecovery}
+            />
+          ))}
+        </div>
+      )}
+
+      <p className="card-sub">{t('supervision.section.sessionHistory')}</p>
+      {data.items.length === 0 && <p className="muted">{t('supervision.sessionHistory.empty')}</p>}
       {data.items.map((item) => (
         <SupervisionCard
           key={item.supervision_session_id}
@@ -178,15 +266,6 @@ export function SupervisionViewBody({
       ))}
 
       <EvidenceRefs refs={data.evidence_refs} />
-
-      {data.observed_agents && data.observed_agents.length > 0 && (
-        <div>
-          <p className="card-sub">{t('supervision.section.observedAgents')}</p>
-          {data.observed_agents.map((agent) => (
-            <AgentCard key={`${agent.detected_identity}:${agent.execution_domain_id}:${agent.reason_code}`} item={agent} />
-          ))}
-        </div>
-      )}
 
       {showEvidencePanel && (
         <div>
@@ -210,6 +289,180 @@ export function SupervisionViewBody({
 
       <p className="readonly-note">{t('supervision.note')}</p>
     </div>
+  );
+}
+
+function AgentSupervisionCard({
+  item,
+  yesNo,
+  selectedEvidence,
+  onOpenEvidence,
+  onOpenChanges,
+  onOpenRecovery,
+}: {
+  item: AgentSupervisionSummary;
+  yesNo: (value: boolean | null | undefined) => string;
+  selectedEvidence?: string | null;
+  onOpenEvidence?: (eventId: string) => void;
+  onOpenChanges?: (workspaceId: string, checkpointId: string | null) => void;
+  onOpenRecovery?: (workspaceId: string, checkpointId: string | null) => void;
+}) {
+  const { locale, t } = useI18n();
+  const label = item.instance_label ?? item.detected_identity;
+  const instanceId = agentInstanceId(label);
+  const checkpointId = item.latest_checkpoint?.checkpoint_id ?? null;
+  const activity = item.latest_activity ?? item.latest_verified_activity;
+  const verifiedChange = item.latest_verified_change;
+  const diagnostics = [
+    item.reason_code,
+    item.workspace.reason_code,
+    item.activity_reason_code,
+  ].filter(
+    (value): value is string => Boolean(value),
+  );
+  return (
+    <section className="card">
+      <div className="card-head">
+        <span className="card-title">
+          {agentIdentityTitle(item.instance_label, item.detected_identity)}
+        </span>
+        <span className="card-badges">
+          <StateBadge
+            label={productTokenDisplay(item.lifecycle, locale)}
+            tone={agentLifecycleTone(item.lifecycle)}
+          />
+          <StateBadge
+            label={productTokenDisplay(item.supervision_status, locale)}
+            tone={agentSupervisionTone(item.supervision_status)}
+          />
+        </span>
+      </div>
+      <KeyValueGrid>
+        <KeyValue k={t('supervision.field.agentRef')} v={<code>{orDash(item.agent_ref)}</code>} />
+        {instanceId && (
+          <KeyValue k={t('supervision.field.instanceId')} v={<code>{instanceId}</code>} />
+        )}
+        <KeyValue k={t('kv.role')} v={agentRoleDisplay(item.role, locale)} />
+        <KeyValue
+          k={t('supervision.field.lifecycle')}
+          v={
+            <StateBadge
+              label={productTokenDisplay(item.lifecycle, locale)}
+              tone={agentLifecycleTone(item.lifecycle)}
+            />
+          }
+        />
+        <KeyValue k={t('kv.executionDomain')} v={<code>{orDash(item.execution_domain_id)}</code>} />
+        <KeyValue
+          k={t('kv.workspaceStatus')}
+          v={
+            <StateBadge
+              label={workspaceStatusDisplay(item.workspace.status, locale)}
+              tone={item.workspace.status === 'UNKNOWN' ? 'unknown' : 'neutral'}
+            />
+          }
+        />
+        <KeyValue
+          k={t('supervision.field.workspace')}
+          v={<code>{orDash(item.workspace.workspace_id)}</code>}
+        />
+        <KeyValue
+          k={t('supervision.field.supervisionStatus')}
+          v={
+            <StateBadge
+              label={productTokenDisplay(item.supervision_status, locale)}
+              tone={agentSupervisionTone(item.supervision_status)}
+            />
+          }
+        />
+        <KeyValue
+          k={t('supervision.field.currentSession')}
+          v={<code>{orDash(item.supervision_session_id)}</code>}
+        />
+        <KeyValue
+          k={t('supervision.field.policy')}
+          v={<code>{orDash(item.policy_decision)}</code>}
+        />
+        <KeyValue k={t('supervision.field.pendingApproval')} v={yesNo(item.pending_approval)} />
+        <KeyValue
+          k={t('supervision.field.latestCheckpoint')}
+          v={<code>{orDash(checkpointId)}</code>}
+        />
+        <KeyValue k="storage_kind" v={<code>{orDash(item.storage_kind)}</code>} />
+        <KeyValue k="protection_state" v={<code>{orDash(item.protection_state)}</code>} />
+        <KeyValue k="verification_state" v={<code>{orDash(item.verification_state)}</code>} />
+        <KeyValue k="recovery_disposition" v={<code>{orDash(item.recovery_disposition)}</code>} />
+        {verifiedChange && (
+          <KeyValue
+            k={locale === 'zh-CN' ? '最近已验证变更' : 'Latest verified change'}
+            v={
+              <span>
+                <code>{verifiedChange.change_kind ?? verifiedChange.type}</code>{' '}
+                {verifiedChange.observed_at ?? verifiedChange.timestamp}
+              </span>
+            }
+          />
+        )}
+        <KeyValue
+          k={t('supervision.field.latestActivity')}
+          v={
+            activity ? (
+              <span>
+                <code>{activity.type}</code> {activity.timestamp}
+              </span>
+            ) : (
+              '—'
+            )
+          }
+        />
+        <KeyValue
+          k={locale === 'zh-CN' ? '活动可观测性' : 'Activity observability'}
+          v={
+            <StateBadge
+              label={productTokenDisplay(item.activity_observability ?? 'UNKNOWN', locale)}
+              tone={item.activity_observability === 'OBSERVABLE' ? 'info' : 'unknown'}
+            />
+          }
+        />
+        <KeyValue
+          k={locale === 'zh-CN' ? '近期活动数' : 'Recent activity count'}
+          v={item.recent_activity_count ?? 0}
+        />
+      </KeyValueGrid>
+      {item.recent_verified_activities && item.recent_verified_activities.length > 0 && (
+        <ActivityTimeline
+          activities={item.recent_verified_activities}
+          selectedEvidence={selectedEvidence}
+          onOpenEvidence={onOpenEvidence ? (entry) => onOpenEvidence(entry.event_id) : undefined}
+        />
+      )}
+      {item.workspace.workspace_id && (onOpenChanges || onOpenRecovery) && (
+        <div className="trace-actions">
+          {onOpenChanges && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => onOpenChanges(item.workspace.workspace_id!, checkpointId)}
+            >
+              {locale === 'zh-CN' ? '查看关联变更' : 'Related changes'}
+            </button>
+          )}
+          {onOpenRecovery && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => onOpenRecovery(item.workspace.workspace_id!, checkpointId)}
+            >
+              {locale === 'zh-CN' ? '查看恢复链' : 'Recovery trace'}
+            </button>
+          )}
+        </div>
+      )}
+      <EvidenceRefs
+        refs={item.evidence_refs}
+        diagnostics={diagnostics.map((code) => reasonCodeDisplay(code, locale))}
+      />
+    </section>
   );
 }
 
@@ -338,25 +591,11 @@ function SessionActivities({
   return (
     <div>
       <p className="card-sub">{t('supervision.section.activity')}</p>
-      <ul className="evidence-list supervision-activity-list">
-        {activities.map((activity) => (
-          <li key={activity.event_id}>
-            <code>{activity.timestamp}</code>{' '}
-            <code>{activity.type}</code>{' '}
-            <code>{activity.result}</code>
-            {onOpenEvidence && (
-              <button
-                type="button"
-                className="btn btn-link"
-                aria-pressed={selectedEvidence === activity.event_id}
-                onClick={() => onOpenEvidence(activity.event_id)}
-              >
-                {t('changes.openEvidence')}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+      <ActivityTimeline
+        activities={activities}
+        selectedEvidence={selectedEvidence}
+        onOpenEvidence={onOpenEvidence ? (activity) => onOpenEvidence(activity.event_id) : undefined}
+      />
     </div>
   );
 }

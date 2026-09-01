@@ -58,7 +58,13 @@ const APPLIED: unknown = {
   before_digest: 'b'.repeat(64),
   after_digest: 'c'.repeat(64),
   checkpoint_id: 'checkpoint-3',
-  evidence_refs: ['evt-cc-1'],
+  action: 'replace_agentguard_toml',
+  transaction_id: 'change-7777',
+  workspace_id: 'workspace-product-config',
+  policy_result: 'REVIEW',
+  approval_evidence_refs: ['evt-approved'],
+  changed_objects: ['d'.repeat(64)],
+  evidence_refs: ['evt-approved', 'evt-cc-1'],
 };
 
 type Call = { path: string; body: unknown };
@@ -124,6 +130,13 @@ describe('ControlledChangePanel wire contract', () => {
     });
     await screen.findByText('CONTROLLED_CHANGE_APPLIED');
     expect(screen.getByText("TOML_PARSE_OK")).toBeTruthy();
+    expect(screen.getByText('replace_agentguard_toml')).toBeTruthy();
+    expect(screen.getByText('change-7777')).toBeTruthy();
+    expect(screen.getByText('workspace-product-config')).toBeTruthy();
+    expect(screen.getAllByText('evt-approved')).toHaveLength(2);
+    expect(screen.getByText('d'.repeat(64))).toBeTruthy();
+    expect(screen.getByText((PREP as { supervision_session_id: string }).supervision_session_id)).toBeTruthy();
+    expect(screen.getAllByText('REVIEW')).toHaveLength(2);
   });
 
   it('ALLOW verdict is read-only: no approval binding exists, so Apply is never offered', async () => {
@@ -178,5 +191,43 @@ describe('ControlledChangePanel wire contract', () => {
     expect(screen.queryByRole('button', { name: 'Apply controlled change' })).toBeNull();
     // No authoritative state mutated; only the reason_code surfaced.
     expect(calls.some((c) => c.path.endsWith('/apply'))).toBe(false);
+  });
+
+  it('apply failure renders the bounded failure receipt without requiring success-only links', async () => {
+    const calls: Call[] = [];
+    const failedApply = {
+      schema_version: 'r4-p9-controlled-change-1',
+      supervision_session_id: (PREP as { supervision_session_id: string }).supervision_session_id,
+      status: 'FAILED',
+      reason_code: 'CONTROLLED_CHANGE_VERIFY_FAILED',
+      changed: true,
+      verification: 'FAIL',
+      rolled_back: true,
+      before_digest: 'b'.repeat(64),
+      after_digest: 'c'.repeat(64),
+      checkpoint_id: 'checkpoint-3',
+      evidence_refs: ['evt-failure'],
+    };
+    const fetchImpl = flowFetch(calls, {
+      '/api/v1/supervision/changes': () => json(PREP),
+      [`/api/v1/supervision/${(PREP as { supervision_session_id: string }).supervision_session_id}/approve-once`]:
+        () => json(APPROVED),
+      [`/api/v1/supervision/${(PREP as { supervision_session_id: string }).supervision_session_id}/apply`]:
+        () => json(failedApply),
+    });
+    vi.stubGlobal('fetch', fetchImpl);
+    const client = createApiClient(fetchImpl as unknown as typeof fetch);
+
+    render(<ControlledChangePanel client={client} onChanged={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Controlled Change'), { target: { value: CONTENT } });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare change' }));
+    await screen.findByText('REVIEW');
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Once' }));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Apply controlled change' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply controlled change' }));
+
+    expect(await screen.findByText('CONTROLLED_CHANGE_VERIFY_FAILED')).toBeTruthy();
+    expect(screen.getByText('FAIL')).toBeTruthy();
+    expect(screen.getByText('evt-failure')).toBeTruthy();
   });
 });

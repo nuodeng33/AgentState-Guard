@@ -43,6 +43,29 @@ const WITH_DETECTED_AGENT: AgentsView = {
 };
 
 describe('AgentsPage lifecycle honesty', () => {
+  it('scopes partial observability instead of implying all detected Agents failed', () => {
+    const degraded: AgentsView = {
+      ...WITH_DETECTED_AGENT,
+      status: 'DEGRADED',
+      reason_code: 'R4_AGENT_DISCOVERY_PARTIAL',
+      identified_count: 1,
+      degradation_scopes: [
+        {
+          execution_domain_id: 'wsl-distro-ubuntu',
+          label: 'Ubuntu',
+          reason_code: 'NO_BOUNDED_HOST_READ',
+        },
+      ],
+    };
+
+    render(<AgentsViewBody data={degraded} />);
+
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('Identified 1 Agent');
+    expect(alert.textContent).toContain('Partially unobservable domains: Ubuntu');
+    expect(alert.textContent).not.toContain('Agents view degraded');
+  });
+
   it('keeps UNKNOWN lifecycle as UNKNOWN and never upgrades by identity name', () => {
     render(<AgentsViewBody data={WITH_UNKNOWN_AGENT} />);
     expect(screen.getByText('Claude Code')).toBeTruthy();
@@ -74,10 +97,10 @@ describe('AgentsPage lifecycle honesty', () => {
       ],
     };
     render(<AgentsViewBody data={two} />);
-    expect(screen.getByText('Agent 1')).toBeTruthy();
-    expect(screen.getByText('Agent 2')).toBeTruthy();
-    expect(screen.getByText('Codex 4f2a91')).toBeTruthy();
-    expect(screen.getByText('Codex 8c10bd')).toBeTruthy();
+    expect(screen.getByText('Codex · 4f2a91')).toBeTruthy();
+    expect(screen.getByText('Codex · 8c10bd')).toBeTruthy();
+    expect(screen.queryByText('Agent 1')).toBeNull();
+    expect(screen.queryByText('Agent 2')).toBeNull();
     expect(screen.getByText('4f2a91')).toBeTruthy();
     expect(screen.getByText('8c10bd')).toBeTruthy();
   });
@@ -88,5 +111,49 @@ describe('AgentsPage lifecycle honesty', () => {
     expect(screen.queryByText('RUNNING')).toBeNull();
     expect(screen.queryByText('INTEGRATED')).toBeNull();
     expect(screen.getByText('0.95')).toBeTruthy();
+  });
+
+  it('renders activity only from backend evidence and does not infer it from RUNNING', () => {
+    const withActivity: AgentsView = {
+      ...WITH_DETECTED_AGENT,
+      items: [
+        {
+          ...WITH_DETECTED_AGENT.items[0],
+          lifecycle: 'RUNNING',
+          activity_observability: 'OBSERVABLE',
+          recent_activity_count: 1,
+          activity_reason_code: 'HOST_ACTIVITY_OBSERVED',
+          latest_activity: {
+            event_id: 'host-process-1',
+            timestamp: '2026-08-26T02:00:00Z',
+            observed_at: '2026-08-26T02:00:00Z',
+            recorded_at: '2026-08-26T02:00:00Z',
+            actor: 'host-native-observer',
+            subject: 'codex-process',
+            type: 'PROCESS_STARTED',
+            result: 'OBSERVED',
+            affected_objects: [],
+            checkpoint_id: null,
+            change_id: null,
+            supervision_session_id: null,
+            verification_summary: null,
+            reason_code: 'AGENT_CHILD_PROCESS_STARTED',
+            execution_domain_id: 'windows-current',
+            attribution: null,
+            change_kind: null,
+            coverage_after: null,
+            coverage_before: null,
+            recovery_disposition: null,
+            workspace_id: null,
+            evidence_refs: ['host-process-1'],
+          },
+          recent_verified_activities: [],
+        },
+      ],
+    };
+
+    render(<AgentsViewBody data={withActivity} />);
+    expect(screen.getByText('OBSERVABLE')).toBeTruthy();
+    expect(screen.getByText(/PROCESS_STARTED/)).toBeTruthy();
   });
 });

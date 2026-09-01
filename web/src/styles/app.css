@@ -1030,6 +1030,80 @@ code {
   border-bottom: none;
 }
 
+/* Shared Changes/Supervision activity model: compact, time-layered and
+   source-foldable. Full facts remain available in the nested detail. */
+.activity-toolbar,
+.trace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.activity-bucket {
+  margin: 0 0 14px;
+}
+
+.activity-bucket-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.activity-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  margin: 0 0 6px;
+  background: var(--surface);
+}
+
+.activity-group > summary,
+.activity-detail > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.activity-group > summary {
+  padding: 8px 10px;
+  font-weight: 650;
+}
+
+.activity-rows {
+  border-top: 1px solid var(--border);
+}
+
+.activity-row {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-row:last-child {
+  border-bottom: none;
+}
+
+.activity-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.activity-row-main time {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.activity-detail {
+  margin-top: 5px;
+}
+
+.activity-detail .kv-grid {
+  margin-top: 6px;
+}
+
 .cc-content {
   width: 100%;
   box-sizing: border-box;

@@ -42,7 +42,7 @@ type Phase =
   | { kind: 'approving'; prep: ControlledChangePrep }
   | { kind: 'approved'; prep: ControlledChangePrep }
   | { kind: 'applying'; prep: ControlledChangePrep }
-  | { kind: 'applied'; result: ControlledChangeApplyResult }
+  | { kind: 'applied'; prep: ControlledChangePrep; result: ControlledChangeApplyResult }
   | { kind: 'failed'; error: string };
 
 export function ControlledChangePanel({
@@ -93,7 +93,7 @@ export function ControlledChangePanel({
     setPhase({ kind: 'applying', prep });
     try {
       const result = await applyControlledChange(prep.supervision_session_id, content, client);
-      setPhase({ kind: 'applied', result });
+      setPhase({ kind: 'applied', prep, result });
     } catch (err: unknown) {
       setPhase({ kind: 'failed', error: stableReason(err, 'CONTROLLED_CHANGE_REQUEST_INVALID') });
     } finally {
@@ -107,7 +107,9 @@ export function ControlledChangePanel({
     setPhase({ kind: 'edit' });
   };
 
-  const prep = phase.kind === 'prepared' || phase.kind === 'approved' || phase.kind === 'applying' ? phase.prep : null;
+  const prep = phase.kind === 'prepared' || phase.kind === 'approved' || phase.kind === 'applying' || phase.kind === 'applied'
+    ? phase.prep
+    : null;
 
   return (
     <section className="card" data-testid="cc-panel">
@@ -235,6 +237,26 @@ function ApplySummary({ result }: { result: ControlledChangeApplyResult }) {
           v={result.after_digest === null ? <span className="muted">—</span> : <code>{result.after_digest}</code>}
         />
         <KeyValue k={t('cc.checkpointId')} v={orDash(result.checkpoint_id)} />
+        {result.action && <KeyValue k="action" v={<code>{result.action}</code>} />}
+        {result.transaction_id && <KeyValue k="transaction_id" v={<code>{result.transaction_id}</code>} />}
+        {result.workspace_id && <KeyValue k="workspace_id" v={<code>{result.workspace_id}</code>} />}
+        {result.policy_result && <KeyValue k="policy_result" v={<code>{result.policy_result}</code>} />}
+        {result.approval_evidence_refs && (
+          <KeyValue
+            k="approval_evidence_refs"
+            v={result.approval_evidence_refs.map((ref) => <code key={ref}>{ref}</code>)}
+          />
+        )}
+        {result.changed_objects && (
+          <KeyValue
+            k="changed_objects"
+            v={result.changed_objects.map((ref) => <code key={ref}>{ref}</code>)}
+          />
+        )}
+        <KeyValue
+          k="evidence_refs"
+          v={result.evidence_refs.map((ref) => <code key={ref}>{ref}</code>)}
+        />
       </KeyValueGrid>
     </div>
   );
