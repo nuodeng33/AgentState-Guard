@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from pathlib import PurePath, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from agentguard.evidence.canonical import canonical_json, canonical_json_unbounded
@@ -64,6 +64,15 @@ _WORKSPACE_FIELDS = frozenset(
         "scan_reason_code",
     }
 )
+_WORKSPACE_STORAGE_FIELDS = frozenset(
+    {
+        "storage_kind",
+        "storage_resource_identity",
+        "logical_root",
+        "durability",
+        "protection_capability",
+    }
+)
 _COVERAGE_FIELDS = frozenset(
     {
         "relative_path",
@@ -74,6 +83,7 @@ _COVERAGE_FIELDS = frozenset(
         "content_digest",
         "observation_digest",
         "permission_proof",
+        "link_target",
     }
 )
 _SAFE_ID = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
@@ -110,8 +120,8 @@ def validate_snapshot_v3(
             or not domain
             or not isinstance(logical_path, str)
             or not logical_path
-            or not PurePath(logical_path).is_absolute()
-            or ".." in PurePath(logical_path).parts
+            or not PurePosixPath(logical_path).is_absolute()
+            or ".." in PurePosixPath(logical_path).parts
             or logical_path.casefold() in paths
         ):
             return False, "RECOVERY_MANIFEST_INVALID", None
@@ -190,7 +200,10 @@ def _validate_workspace_extension(
 ) -> bool:
     from .workspace_permissions import PermissionProof
 
-    if not isinstance(workspace, dict) or set(workspace) != _WORKSPACE_FIELDS:
+    if not isinstance(workspace, dict) or set(workspace) not in {
+        _WORKSPACE_FIELDS,
+        _WORKSPACE_FIELDS | _WORKSPACE_STORAGE_FIELDS,
+    }:
         return False
     workspace_id = workspace.get("workspace_id")
     observation_id = workspace.get("scope_observation_id")
@@ -201,6 +214,32 @@ def _validate_workspace_extension(
     coverage_digest = workspace.get("coverage_digest")
     complete = workspace.get("scan_complete")
     scan_reason = workspace.get("scan_reason_code")
+    if _WORKSPACE_STORAGE_FIELDS.issubset(workspace):
+        storage_kind = workspace.get("storage_kind")
+        resource_identity = workspace.get("storage_resource_identity")
+        logical_root = workspace.get("logical_root")
+        durability = workspace.get("durability")
+        protection_capability = workspace.get("protection_capability")
+        if (
+            storage_kind not in {
+                "HOST_PATH",
+                "DOCKER_BIND",
+                "DOCKER_NAMED_VOLUME",
+                "WSL_FS",
+                "CONTAINER_EPHEMERAL_FS",
+                "TMPFS",
+                "OTHER_UNSUPPORTED",
+            }
+            or not isinstance(resource_identity, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", resource_identity) is None
+            or not isinstance(logical_root, str)
+            or not PurePosixPath(logical_root).is_absolute()
+            or ".." in PurePosixPath(logical_root).parts
+            or durability not in {"DURABLE", "EPHEMERAL", "VOLATILE", "UNKNOWN"}
+            or protection_capability
+            not in {"SUPPORTED", "UNSUPPORTED", "UNKNOWN"}
+        ):
+            return False
     if (
         not isinstance(workspace_id, str)
         or _SAFE_ID.fullmatch(workspace_id) is None
@@ -246,6 +285,7 @@ def _validate_workspace_extension(
         content_digest = entry.get("content_digest")
         observation_digest = entry.get("observation_digest")
         proof = entry.get("permission_proof")
+        link_target = entry.get("link_target")
         if (
             not isinstance(relative, str)
             or not relative
@@ -256,7 +296,7 @@ def _validate_workspace_extension(
             or PurePosixPath(relative).as_posix() != relative
             or relative.casefold() in seen
             or category not in actual_counts
-            or kind not in {"FILE", "DIRECTORY", "SPECIAL"}
+            or kind not in {"FILE", "DIRECTORY", "SYMLINK", "SPECIAL"}
             or not isinstance(reason, str)
             or not reason
             or isinstance(size, bool)
@@ -271,19 +311,31 @@ def _validate_workspace_extension(
             )
             or not isinstance(observation_digest, str)
             or _SHA256.fullmatch(observation_digest) is None
+            or (link_target is not None and not isinstance(link_target, str))
         ):
             return False
         seen.add(relative.casefold())
         relative_order.append((relative.casefold(), relative))
         actual_counts[category] += 1
         if category == "restorable":
-            if kind != "FILE" or content_digest is None or proof is None:
+            if proof is None:
                 return False
             try:
                 PermissionProof.from_dict(proof)
             except ValueError:
                 return False
-            restorable[relative] = entry
+            if kind == "FILE":
+                if content_digest is None or link_target is not None:
+                    return False
+                restorable[relative] = entry
+            elif kind == "DIRECTORY":
+                if content_digest is not None or link_target is not None:
+                    return False
+            elif kind == "SYMLINK":
+                if content_digest is not None or not link_target:
+                    return False
+            else:
+                return False
         elif proof is not None:
             return False
     if actual_counts != counts:
@@ -301,6 +353,12 @@ def _validate_workspace_extension(
         coverage_entry = expected_manifest_paths.get(manifest_entry.get("logical_path"))
         if coverage_entry is None:
             return False
+        try:
+            proof = PermissionProof.from_dict(coverage_entry.get("permission_proof"))
+        except ValueError:
+            return False
+        expected_uid = proof.values.get("uid")
+        expected_gid = proof.values.get("gid")
         if (
             manifest_entry.get("classification") != "restorable"
             or manifest_entry.get("status") != "WORKSPACE_RESTORABLE"
@@ -310,6 +368,9 @@ def _validate_workspace_extension(
             != coverage_entry.get("content_digest")
             or manifest_entry.get("size") != coverage_entry.get("size")
             or manifest_entry.get("domain") != execution_domain_id
+            or manifest_entry.get("mode") != proof.values.get("mode")
+            or manifest_entry.get("uid") != expected_uid
+            or manifest_entry.get("gid") != expected_gid
         ):
             return False
     return True

@@ -27,4 +27,4 @@ build-backend = "setuptools.build_meta"
 include = ["agentguard*"]
 
 [tool.setuptools.package-data]
-agentguard = ["web_static/**/*"]
+agentguard = ["web_static/**/*", "resources/*"]

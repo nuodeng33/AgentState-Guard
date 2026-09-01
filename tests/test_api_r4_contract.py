@@ -179,12 +179,16 @@ def test_r4_runtime_projects_verified_fact_and_unbound_agent_degrades(tmp_path):
     assert agents["items"][0]["lifecycle"] == "DETECTED"
     assert agents["items"][0]["execution_domain_id"] == "self-runtime"
     assert agents["items"][0]["uncertainty"] is True
-    assert agents["items"][0]["workspace"] == {
+    assert agents["items"][0]["workspace_correlation"] == {
         "status": "UNKNOWN",
         "workspace_id": None,
         "binding_ref": None,
         "reason_code": "WORKSPACE_BINDING_MISSING",
     }
+    assert agents["items"][0]["workspace"]["authority_state"] == "UNKNOWN"
+    assert agents["items"][0]["workspace"]["reason_code"] == (
+        "WORKSPACE_CORRELATION_MISSING"
+    )
     assert "do-not-project" not in json.dumps(runtime)
 
 

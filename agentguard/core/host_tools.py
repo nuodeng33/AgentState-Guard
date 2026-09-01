@@ -22,6 +22,7 @@ logs, or the database.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import sys
 from dataclasses import dataclass
@@ -178,6 +179,82 @@ def _registered_product_values(display_name: str) -> list[dict[str, str]]:
     return matches
 
 
+def _registered_pi_values() -> list[dict[str, str]]:
+    """Return bounded uninstall facts for the exact Pi desktop product."""
+    if _winreg is None:
+        return []
+    roots = (
+        (_winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (_winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (
+            _winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    )
+    matches: list[dict[str, str]] = []
+    for hive, root in roots:
+        for child in _registry_subkeys(hive, root):
+            key = rf"{root}\{child}"
+            display_name = _registry_text(hive, key, "DisplayName")
+            if display_name != "Pi Agent Desktop" and not (
+                isinstance(display_name, str)
+                and display_name.startswith("Pi Agent Desktop ")
+                and all(
+                    part.isdigit()
+                    for part in display_name.removeprefix("Pi Agent Desktop ").split(".")
+                )
+            ):
+                continue
+            values: dict[str, str] = {}
+            for field in ("DisplayIcon", "DisplayVersion", "Publisher"):
+                if value := _registry_text(hive, key, field):
+                    values[field] = value
+            matches.append(values)
+    return matches
+
+
+def _registered_zcode_values() -> list[dict[str, str]]:
+    """Return bounded uninstall facts for the exact ZCode desktop product."""
+    if _winreg is None:
+        return []
+    roots = (
+        (_winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (_winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (
+            _winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    )
+    matches: list[dict[str, str]] = []
+    for hive, root in roots:
+        for child in _registry_subkeys(hive, root):
+            key = rf"{root}\{child}"
+            display_name = _registry_text(hive, key, "DisplayName")
+            version = (
+                display_name.removeprefix("ZCode ")
+                if isinstance(display_name, str) and display_name.startswith("ZCode ")
+                else ""
+            )
+            if not version or not all(part.isdigit() for part in version.split(".")):
+                continue
+            if _registry_text(hive, key, "Publisher") != "ZCode":
+                continue
+            values: dict[str, str] = {"Publisher": "ZCode"}
+            for field in ("DisplayVersion", "UninstallString"):
+                if value := _registry_text(hive, key, field):
+                    values[field] = value
+            matches.append(values)
+    return matches
+
+
+def _display_icon_executable(value: str) -> str:
+    candidate = value.strip().strip('"')
+    base, separator, icon_index = candidate.rpartition(",")
+    if separator and icon_index.strip().lstrip("-").isdigit():
+        candidate = base.strip().strip('"')
+    return candidate
+
+
 def _windows_registered_tool_paths(name: str) -> list[str]:
     """Bounded registered executable locations for supported Windows tools.
 
@@ -266,6 +343,31 @@ def _windows_registered_tool_paths(name: str) -> list[str]:
                     str(PureWindowsPath(value) / "app" / "resources" / "codex.exe")
                 )
 
+    if normalized == "pi":
+        for values in _registered_pi_values():
+            if icon := values.get("DisplayIcon"):
+                candidate = _display_icon_executable(icon)
+                if PureWindowsPath(candidate).name.casefold() == "pi agent desktop.exe":
+                    candidates.append(candidate)
+
+    if normalized == "zcode":
+        for values in _registered_zcode_values():
+            uninstall = values.get("UninstallString", "").strip()
+            if not uninstall.startswith('"'):
+                continue
+            closing_quote = uninstall.find('"', 1)
+            if closing_quote < 0:
+                continue
+            uninstaller = uninstall[1:closing_quote]
+            if PureWindowsPath(uninstaller).name.casefold() != "uninstall zcode.exe":
+                continue
+            if "/" in uninstaller and "\\" not in uninstaller:
+                candidates.append(str(Path(uninstaller).parent / "ZCode.exe"))
+            else:
+                candidates.append(
+                    str(PureWindowsPath(uninstaller).parent / "ZCode.exe")
+                )
+
     unique: list[str] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -287,7 +389,14 @@ def windows_registered_tool_version(name: str) -> str | None:
     """
     if not platform_is_windows() or _winreg is None:
         return None
-    if PureWindowsPath(name).stem.casefold() != "codex":
+    normalized = PureWindowsPath(name).stem.casefold()
+    if normalized == "pi":
+        for values in _registered_pi_values():
+            version = values.get("DisplayVersion")
+            if version and all(part.isdigit() for part in version.split(".")):
+                return f"Pi Agent Desktop {version}"
+        return None
+    if normalized != "codex":
         return None
     package_root = (
         r"Software\Classes\Local Settings\Software\Microsoft\Windows"
@@ -303,6 +412,84 @@ def windows_registered_tool_version(name: str) -> str | None:
         if len(components) == 4 and all(part.isdigit() for part in components):
             return f"Codex {version}"
     return None
+
+
+def _windows_file_product_name(path: str) -> str | None:
+    """Read the PE ProductName field without spawning a console process."""
+    if not platform_is_windows():
+        return None
+    try:
+        version = ctypes.windll.version
+        ignored = ctypes.c_uint(0)
+        size = version.GetFileVersionInfoSizeW(str(path), ctypes.byref(ignored))
+        if not size:
+            return None
+        buffer = ctypes.create_string_buffer(size)
+        if not version.GetFileVersionInfoW(str(path), 0, size, buffer):
+            return None
+
+        pointer = ctypes.c_void_p()
+        length = ctypes.c_uint(0)
+        translations: list[tuple[int, int]] = []
+        if version.VerQueryValueW(
+            buffer, r"\VarFileInfo\Translation", ctypes.byref(pointer), ctypes.byref(length)
+        ) and length.value >= 4:
+            words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_ushort))
+            translations.extend(
+                (int(words[index]), int(words[index + 1]))
+                for index in range(0, int(length.value // 2) - 1, 2)
+            )
+        translations.extend(((0x0409, 0x04B0), (0x0409, 0x04E4)))
+        for language, codepage in dict.fromkeys(translations):
+            query = rf"\StringFileInfo\{language:04x}{codepage:04x}\ProductName"
+            value_pointer = ctypes.c_void_p()
+            value_length = ctypes.c_uint(0)
+            if not version.VerQueryValueW(
+                buffer,
+                query,
+                ctypes.byref(value_pointer),
+                ctypes.byref(value_length),
+            ):
+                continue
+            if value_length.value:
+                value = ctypes.wstring_at(value_pointer, value_length.value).rstrip("\x00")
+                if value:
+                    return value
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+    return None
+
+
+def _private_path_key(value: str) -> str:
+    return os.path.expandvars(value).strip().strip('"').replace("\\", "/").casefold()
+
+
+def windows_bounded_product_identity(executable_path: str) -> str | None:
+    """Reduce a verified registered executable to a private identity fact."""
+    if not platform_is_windows() or not isinstance(executable_path, str):
+        return None
+    image_name = PureWindowsPath(executable_path).name.casefold()
+    authorities = {
+        "pi agent desktop.exe": ("pi", "Pi Agent Desktop", "PI"),
+        "zcode.exe": ("zcode", "ZCode", "ZCODE"),
+    }
+    authority = authorities.get(image_name)
+    if authority is None:
+        return None
+    tool_name, product_name, identity = authority
+    try:
+        if not Path(executable_path).is_file():
+            return None
+    except OSError:
+        return None
+    registered = {
+        _private_path_key(item) for item in _windows_registered_tool_paths(tool_name)
+    }
+    if _private_path_key(executable_path) not in registered:
+        return None
+    if _windows_file_product_name(executable_path) != product_name:
+        return None
+    return identity
 
 
 def _resolve_registered_candidates(paths: list[str]) -> str | None:
@@ -353,5 +540,6 @@ __all__ = [
     "host_search_path",
     "host_tool_resolution",
     "platform_is_windows",
+    "windows_bounded_product_identity",
     "windows_registered_tool_version",
 ]

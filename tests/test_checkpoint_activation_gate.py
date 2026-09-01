@@ -23,6 +23,10 @@ from agentguard.discovery import (
     WorkspaceDescriptor,
 )
 from agentguard.discovery.domains import SelfRuntimeAdapter
+from agentguard.discovery.workspace_authority import (
+    ResolvedWorkspaceAuthority,
+    workspace_root_digest,
+)
 from agentguard.evidence.discovery_adapter import record_discovery_snapshot
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
@@ -30,6 +34,7 @@ from agentguard.policy.models import Decision, PolicyDecision, PolicyInput
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
 from agentguard.recovery.policy import RestorePolicy
 from agentguard.recovery.service import RecoveryService
+from agentguard.recovery.workspace_scope import WorkspaceScopeService
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
 from agentguard.supervision.service import SupervisionService
@@ -202,6 +207,22 @@ def _recovery(
 
 def _approved_session(database, snapshots, target, *, domain_id="local-domain"):
     refs = _record_workspace(database)
+    workspace_root = target.parent.resolve()
+    WorkspaceScopeService(database).bind(
+        ResolvedWorkspaceAuthority(
+            status="BOUND",
+            reason_code="WORKSPACE_SCOPE_VERIFIED",
+            root_path=workspace_root,
+            workspace_id="workspace-one",
+            root_digest=workspace_root_digest(workspace_root, domain_id),
+            execution_domain_id=domain_id,
+            agent_ids=("cloudcli-agent",),
+            process_instance_ids=(),
+            evidence_refs=tuple(item.event_id for item in refs),
+        ),
+        recorded_at=OBSERVED_AT,
+        discovery_snapshot_id="activation-snapshot-1",
+    )
     sessions = _sessions(database, snapshots)
     session, decision, _facts = sessions.create_authoritative(
         "provider config change",

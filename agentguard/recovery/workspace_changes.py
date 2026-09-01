@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -16,7 +17,7 @@ from agentguard.storage.snapshots import SnapshotStore
 
 from .manifest import validate_snapshot_v3
 from .workspace_permissions import PermissionBackend, PermissionCapabilityError
-from .workspace_policy import WorkspaceScanLimits, scan_workspace
+from .workspace_policy import WorkspaceScan, WorkspaceScanLimits, scan_workspace
 from .workspace_scope import DurableWorkspaceScope
 
 
@@ -37,13 +38,18 @@ class WorkspaceChangeObserver:
         *,
         database: StateDB,
         snapshots: SnapshotStore,
-        permission_backend: PermissionBackend,
+        permission_backend: PermissionBackend | None,
+        storage_scanner: (
+            Callable[[DurableWorkspaceScope, WorkspaceScanLimits | None], WorkspaceScan]
+            | None
+        ) = None,
         scan_limits: WorkspaceScanLimits | None = None,
         ledger: EvidenceLedger | None = None,
     ) -> None:
         self._database = database
         self._snapshots = snapshots
         self._permission_backend = permission_backend
+        self._storage_scanner = storage_scanner
         self._scan_limits = scan_limits
         self._ledger = ledger or EvidenceLedger()
 
@@ -54,15 +60,6 @@ class WorkspaceChangeObserver:
         observed_at: datetime,
     ) -> WorkspaceChangeObservation:
         observed_at = _utc(observed_at)
-        root = validate_workspace_root_binding(
-            scope.root_path,
-            execution_domain_id=scope.execution_domain_id,
-            expected_digest=scope.root_digest,
-        )
-        if root is None:
-            return WorkspaceChangeObservation(
-                "UNREACHABLE", "WORKSPACE_SCOPE_BINDING_INVALID"
-            )
         checkpoint = self._latest_workspace_checkpoint(scope)
         if checkpoint is None:
             return WorkspaceChangeObservation(
@@ -70,11 +67,27 @@ class WorkspaceChangeObserver:
             )
         checkpoint_id, artifact = checkpoint
         try:
-            current = scan_workspace(
-                root,
-                permission_backend=self._permission_backend,
-                limits=self._scan_limits,
-            )
+            if scope.storage_kind == "DOCKER_NAMED_VOLUME":
+                if self._storage_scanner is None:
+                    return WorkspaceChangeObservation(
+                        "UNREACHABLE", "DOCKER_VOLUME_BACKEND_UNAVAILABLE"
+                    )
+                current = self._storage_scanner(scope, self._scan_limits)
+            else:
+                root = validate_workspace_root_binding(
+                    scope.root_path,
+                    execution_domain_id=scope.execution_domain_id,
+                    expected_digest=scope.root_digest,
+                )
+                if root is None or self._permission_backend is None:
+                    return WorkspaceChangeObservation(
+                        "UNREACHABLE", "WORKSPACE_SCOPE_BINDING_INVALID"
+                    )
+                current = scan_workspace(
+                    root,
+                    permission_backend=self._permission_backend,
+                    limits=self._scan_limits,
+                )
         except PermissionCapabilityError as exc:
             return WorkspaceChangeObservation("UNREACHABLE", exc.reason_code)
         except PermissionError:
@@ -84,6 +97,10 @@ class WorkspaceChangeObserver:
         except OSError:
             return WorkspaceChangeObservation(
                 "UNREACHABLE", "WORKSPACE_SCAN_UNREACHABLE"
+            )
+        except (RuntimeError, ValueError):
+            return WorkspaceChangeObservation(
+                "UNREACHABLE", "DOCKER_VOLUME_SCAN_UNREACHABLE"
             )
         if not current.complete:
             return WorkspaceChangeObservation("DEGRADED", current.reason_code)
@@ -213,9 +230,16 @@ def _workspace_diff(
         before = baseline.get(relative)
         after = current.get(relative)
         if before is None:
-            kind = "CREATED"
+            kind = "ADDED"
         elif after is None:
             kind = "DELETED"
+        elif before.get("object_kind") != after.get("object_kind"):
+            kind = "TYPE_CHANGED"
+        elif all(
+            before.get(field) == after.get(field)
+            for field in ("size", "content_digest", "link_target")
+        ) and before.get("permission_proof") != after.get("permission_proof"):
+            kind = "METADATA_CHANGED"
         elif all(
             before.get(field) == after.get(field)
             for field in (
@@ -272,7 +296,7 @@ def _recovery_disposition(
     before_category: object,
     after_category: object,
 ) -> str:
-    if change_kind == "CREATED":
+    if change_kind == "ADDED":
         if after_category == "restorable":
             return "NOT_IN_CHECKPOINT"
         return str(after_category).upper()

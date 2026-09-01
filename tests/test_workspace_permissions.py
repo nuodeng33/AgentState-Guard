@@ -100,3 +100,28 @@ def test_permission_backend_never_changes_process_privileges(monkeypatch, tmp_pa
     proof = PosixPermissionBackend().capture(target)
 
     assert proof.kind == "POSIX_MODE"
+
+
+def test_posix_owner_permission_proof_round_trip():
+    proof = PermissionProof(
+        kind="POSIX_MODE_OWNER",
+        values={"mode": "0o750", "uid": 1001, "gid": 1002},
+    )
+
+    restored = PermissionProof.from_dict(proof.to_dict())
+
+    assert restored.kind == "POSIX_MODE_OWNER"
+    assert dict(restored.values) == {"mode": "0o750", "uid": 1001, "gid": 1002}
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"mode": "0o750", "uid": -1, "gid": 1002},
+        {"mode": "0o750", "uid": 1001, "gid": True},
+        {"mode": "750", "uid": 1001, "gid": 1002},
+    ],
+)
+def test_posix_owner_permission_proof_rejects_invalid_values(values):
+    with pytest.raises(ValueError, match="WORKSPACE_PERMISSION_PROOF_INVALID"):
+        PermissionProof(kind="POSIX_MODE_OWNER", values=values)

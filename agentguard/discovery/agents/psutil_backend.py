@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from pathlib import PureWindowsPath
 from typing import Any, TypeVar
+
+from agentguard.core.host_tools import windows_bounded_product_identity
 
 try:
     import psutil as _psutil
@@ -168,6 +171,41 @@ class PsutilProcessBackend(ProcessBackend):
                 if len(anchors) >= 2:
                     break
         return tuple(anchors)
+
+    def bounded_product_identity(self, pid: int) -> tuple[str, str] | None:
+        """Reduce an exact registered PE image to identity plus install root."""
+        if self._psutil is None:
+            return None
+        try:
+            process = self._psutil.Process(int(pid))
+            executable = process.exe()
+        except Exception:  # noqa: BLE001 - identity remains UNKNOWN
+            return None
+        if not isinstance(executable, str) or not executable:
+            return None
+        identity = windows_bounded_product_identity(executable)
+        if identity is None:
+            return None
+        if identity in {"PI", "ZCODE"}:
+            try:
+                parent_pid = int(process.ppid())
+                parent_executable = (
+                    self._psutil.Process(parent_pid).exe() if parent_pid > 0 else None
+                )
+            except Exception:  # noqa: BLE001 - parent may have already exited
+                if identity == "PI":
+                    return None
+                parent_executable = None
+            if isinstance(parent_executable, str) and parent_executable:
+                image = str(
+                    PureWindowsPath(executable.removeprefix(_VERBATIM_PREFIX))
+                ).casefold()
+                parent_image = str(
+                    PureWindowsPath(parent_executable.removeprefix(_VERBATIM_PREFIX))
+                ).casefold()
+                if parent_image == image:
+                    return None
+        return identity, str(PureWindowsPath(executable).parent)
 
     def _raise_bounded(self, exc: Exception) -> None:
         if isinstance(exc, self._psutil.NoSuchProcess):

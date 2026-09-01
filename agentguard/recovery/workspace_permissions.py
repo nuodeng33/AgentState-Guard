@@ -35,14 +35,22 @@ class PermissionProof:
 
     def __post_init__(self) -> None:
         values = dict(self.values)
-        if self.kind == "POSIX_MODE":
-            if set(values) != {"mode"}:
+        if self.kind in {"POSIX_MODE", "POSIX_MODE_OWNER"}:
+            expected = {"mode"} if self.kind == "POSIX_MODE" else {"mode", "uid", "gid"}
+            if set(values) != expected:
                 raise ValueError("WORKSPACE_PERMISSION_PROOF_INVALID")
             mode = values.get("mode")
             if (
                 not isinstance(mode, str)
                 or _MODE.fullmatch(mode) is None
                 or oct(int(mode, 8)) != mode
+            ):
+                raise ValueError("WORKSPACE_PERMISSION_PROOF_INVALID")
+            if self.kind == "POSIX_MODE_OWNER" and any(
+                not isinstance(values[name], int)
+                or isinstance(values[name], bool)
+                or values[name] < 0
+                for name in ("uid", "gid")
             ):
                 raise ValueError("WORKSPACE_PERMISSION_PROOF_INVALID")
         elif self.kind == "WINDOWS_ATTRIBUTES_DACL":

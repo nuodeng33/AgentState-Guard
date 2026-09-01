@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import sqlite3
@@ -9,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Request
+from fastapi import Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 HERE = Path(__file__).resolve().parent
@@ -80,6 +81,7 @@ def create_app(
     discovery_service=None,
     product_startup_discovery: bool = False,
     device_link_controller=None,
+    host_observer=None,
 ):
     """Create a FastAPI application instance.
 
@@ -95,13 +97,21 @@ def create_app(
     from ..core.config import Config
     from ..discovery.product import (
         ProductDiscoveryService,
+        host_reconciliation_basenames,
         unavailable_product_snapshot,
     )
     from ..discovery.workspace_authority import (
         ResolvedWorkspaceAuthority,
-        resolve_host_workspace,
+        resolve_workspace_authorities,
     )
     from ..evidence.discovery_adapter import record_discovery_snapshot
+    from ..host_observer import (
+        HostAgentObservationTarget,
+        HostNativeObservationPlan,
+        HostNativeObserver,
+        HostWorkspaceObservationTarget,
+    )
+    from ..recovery.docker_volume_transport import DockerCliVolumeTransport
     from ..recovery.workspace_changes import WorkspaceChangeObserver
     from ..recovery.workspace_permissions import (
         PermissionCapabilityError,
@@ -287,6 +297,7 @@ def create_app(
         "evidence_refs": [],
     }
     _product_discovery = discovery_service or ProductDiscoveryService()
+    _host_observer = host_observer or HostNativeObserver(db_path)
 
     def _get_db():
         db.connect()
@@ -308,7 +319,9 @@ def create_app(
             snapshot = unavailable_product_snapshot()
             unavailable = True
         scope_result = None
+        scope_results = []
         change_result = None
+        active_scope = None
         current_db = _get_db()
         try:
             receipts = record_discovery_snapshot(
@@ -317,46 +330,138 @@ def create_app(
                 recorded_at=datetime.now(UTC),
             )
             if supports_workspace_authority:
-                resolved_scope = (
-                    resolve_host_workspace(authority_report)
+                resolved_scopes = (
+                    resolve_workspace_authorities(authority_report)
                     if authority_report is not None
-                    else ResolvedWorkspaceAuthority(
-                        status="UNAVAILABLE",
-                        reason_code="WORKSPACE_SCOPE_DISCOVERY_UNAVAILABLE",
+                    else (
+                        ResolvedWorkspaceAuthority(
+                            status="UNAVAILABLE",
+                            reason_code="WORKSPACE_SCOPE_DISCOVERY_UNAVAILABLE",
+                        ),
                     )
                 )
+                if not resolved_scopes:
+                    resolved_scopes = (
+                        ResolvedWorkspaceAuthority(
+                            status="NOT_OBSERVED",
+                            reason_code="WORKSPACE_SCOPE_NOT_OBSERVED",
+                        ),
+                    )
                 scope_service = WorkspaceScopeService(current_db)
-                scope_result = scope_service.bind(
-                    resolved_scope,
-                    recorded_at=datetime.now(UTC),
-                    discovery_snapshot_id=snapshot.snapshot_id,
+                for resolved_scope in resolved_scopes:
+                    scope_results.append(
+                        scope_service.bind(
+                            resolved_scope,
+                            recorded_at=datetime.now(UTC),
+                            discovery_snapshot_id=snapshot.snapshot_id,
+                        )
+                    )
+                scope_result = next(
+                    (item for item in scope_results if item.status == "BOUND"),
+                    scope_results[-1],
                 )
-                if scope_result.status == "BOUND":
-                    active_scope = scope_service.active_scope()
+                bound_results = [
+                    item for item in scope_results if item.status == "BOUND"
+                ]
+                if len(bound_results) == 1:
+                    authority = scope_service.resolve_authority(
+                        bound_results[0].workspace_id
+                    )
+                    active_scope = authority.scope
                     if active_scope is not None:
-                        try:
-                            permission_backend = current_user_permission_backend()
-                        except PermissionCapabilityError as exc:
-                            change_result = {
-                                "status": "UNREACHABLE",
-                                "reason_code": exc.reason_code,
-                                "change_count": 0,
-                                "evidence_refs": (),
-                            }
-                        else:
+                        if active_scope.storage_kind == "DOCKER_NAMED_VOLUME":
+                            volume_transport = DockerCliVolumeTransport()
                             change_result = WorkspaceChangeObserver(
                                 database=current_db,
                                 snapshots=SnapshotStore(snapshots_dir),
-                                permission_backend=permission_backend,
+                                permission_backend=None,
+                                storage_scanner=volume_transport.scan,
                             ).observe(active_scope, observed_at=datetime.now(UTC))
+                        else:
+                            try:
+                                permission_backend = current_user_permission_backend()
+                            except PermissionCapabilityError as exc:
+                                change_result = {
+                                    "status": "UNREACHABLE",
+                                    "reason_code": exc.reason_code,
+                                    "change_count": 0,
+                                    "evidence_refs": (),
+                                }
+                            else:
+                                change_result = WorkspaceChangeObserver(
+                                    database=current_db,
+                                    snapshots=SnapshotStore(snapshots_dir),
+                                    permission_backend=permission_backend,
+                                ).observe(active_scope, observed_at=datetime.now(UTC))
+            target_events: dict[str, str] = {}
+            if authority_report is not None:
+                rows = current_db._conn.execute(
+                    """SELECT event_id, subject_ref, execution_domain_id,
+                              payload_safe_json
+                       FROM evidence_ledger_events
+                       WHERE event_type = 'AGENT_DETECTED'"""
+                ).fetchall()
+                for event_id, subject_ref, domain_id, payload_json in rows:
+                    try:
+                        payload = json.loads(payload_json)
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+                    if (
+                        isinstance(payload, dict)
+                        and payload.get("snapshot_id") == snapshot.snapshot_id
+                        and payload.get("agent_id") == subject_ref
+                    ):
+                        target_events[f"{subject_ref}\x1f{domain_id}"] = event_id
+            targets = tuple(
+                HostAgentObservationTarget(
+                    agent_ref=item.agent_id,
+                    agent_event_id=target_events[
+                        f"{item.agent_id}\x1f{item.execution_domain_id}"
+                    ],
+                    process_instance_id=item.process_instance_id,
+                    pid=item.pid,
+                    create_time=item.create_time,
+                    execution_domain_id=item.execution_domain_id,
+                )
+                for item in (
+                    authority_report.host_agent_process_authorities
+                    if authority_report is not None
+                    else ()
+                )
+                if f"{item.agent_id}\x1f{item.execution_domain_id}" in target_events
+            )
+            workspace_target = None
+            if active_scope is not None:
+                target_refs = {item.agent_ref for item in targets}
+                bound_agents = tuple(
+                    sorted(target_refs.intersection(active_scope.agent_ids))
+                )
+                if bound_agents:
+                    workspace_target = HostWorkspaceObservationTarget(
+                        workspace_id=active_scope.workspace_id,
+                        execution_domain_id=active_scope.execution_domain_id,
+                        root_digest=active_scope.root_digest,
+                        binding_event_id=active_scope.ledger_event_id,
+                        root_path=active_scope.root_path,
+                        agent_refs=bound_agents,
+                    )
+            _host_observer.update(
+                HostNativeObservationPlan(
+                    targets=targets,
+                    workspace=workspace_target,
+                )
+            )
         finally:
             current_db.close()
         affected_views = ["runtime", "agents", "supervision"]
         evidence_refs = [receipt.event_id for receipt in receipts]
-        if scope_result is not None:
+        if scope_results:
             affected_views.extend(("changes", "recovery"))
-            if scope_result.ledger_event_id is not None:
-                evidence_refs.append(scope_result.ledger_event_id)
+            evidence_refs.extend(
+                item.ledger_event_id
+                for item in scope_results
+                if item.ledger_event_id is not None
+            )
         if change_result is not None:
             change_refs = (
                 change_result.get("evidence_refs", ())
@@ -409,11 +514,28 @@ def create_app(
             "evidence_refs": evidence_refs,
         }
 
+    configure_reconciliation = getattr(
+        _host_observer, "configure_reconciliation", None
+    )
+    if callable(configure_reconciliation):
+        configure_reconciliation(
+            _refresh_product_discovery,
+            basenames=host_reconciliation_basenames(),
+        )
+
     if product_startup_discovery:
         try:
             _refresh_product_discovery()
         except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
             pass
+
+    @app.on_event("startup")
+    async def _start_host_observer() -> None:
+        _host_observer.start()
+
+    @app.on_event("shutdown")
+    async def _stop_host_observer() -> None:
+        _host_observer.stop()
 
     @app.get("/api/health")
     async def health():
@@ -500,7 +622,7 @@ def create_app(
     from ..supervision.service import SupervisionActionError, SupervisionService
     from .r4_projection import R4ReadProjectionService
 
-    def _r4_projection(view: str) -> dict[str, Any]:
+    def _r4_projection(view: str, **projection_args: Any) -> dict[str, Any]:
         try:
             current_db = _get_db()
         except (OSError, sqlite3.DatabaseError, RuntimeError):
@@ -509,7 +631,7 @@ def create_app(
             projector = R4ReadProjectionService(
                 current_db, SnapshotStore(snapshots_dir)
             )
-            return getattr(projector, view)()
+            return getattr(projector, view)(**projection_args)
         except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
             return R4ReadProjectionService.unavailable(view)
         finally:
@@ -618,8 +740,27 @@ def create_app(
             current_db.close()
 
     @app.get("/api/v1/changes")
-    async def api_r4_changes():
-        return _r4_projection("changes")
+    async def api_r4_changes(
+        limit: int = Query(default=100, ge=1, le=100),
+        before_sequence: int | None = Query(default=None, ge=1),
+        include_process_activity: bool = False,
+        workspace_id: str | None = Query(
+            default=None,
+            pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        ),
+        checkpoint_id: str | None = Query(
+            default=None,
+            pattern=r"^[A-Za-z0-9_.:-]{1,64}$",
+        ),
+    ):
+        return _r4_projection(
+            "changes",
+            limit=limit,
+            before_sequence=before_sequence,
+            include_process_activity=include_process_activity,
+            workspace_id=workspace_id,
+            checkpoint_id=checkpoint_id,
+        )
 
     @app.get("/api/v1/evidence/{event_id}")
     async def api_r4_evidence(event_id: str):

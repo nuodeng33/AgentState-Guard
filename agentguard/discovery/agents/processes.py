@@ -787,6 +787,26 @@ def bounded_launcher_anchors_for(backend: object, pid: int) -> tuple[str, ...]:
     return tuple(str(item) for item in anchors if isinstance(item, str))
 
 
+def bounded_product_identity_for(
+    backend: object, pid: int
+) -> tuple[str, str] | None:
+    """Read a private, backend-verified product identity and install root."""
+    reader = getattr(backend, "bounded_product_identity", None)
+    if not callable(reader):
+        return None
+    try:
+        value = reader(int(pid))
+    except Exception:  # noqa: BLE001 - identity remains UNKNOWN
+        return None
+    if (
+        not isinstance(value, tuple)
+        or len(value) != 2
+        or not all(isinstance(item, str) and item for item in value)
+    ):
+        return None
+    return value
+
+
 def _process_event_id(
     domain_id: str,
     pid: int,
@@ -872,5 +892,6 @@ __all__ = [
     "ProcessHandle",
     "ProcessZombieError",
     "bounded_launcher_anchors_for",
+    "bounded_product_identity_for",
     "build_process_relationships",
 ]

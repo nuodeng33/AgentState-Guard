@@ -81,6 +81,7 @@ def discovery_events(
                 descriptor_payload = {
                     "runtime_id": descriptor.runtime_id,
                     "runtime_type": descriptor.runtime_type,
+                    "domain_label": descriptor.label,
                 }
         elif event_type is EventType.AGENT_DETECTED:
             descriptor = _unique_descriptor(snapshot.agents, evidence.evidence_id)
@@ -225,7 +226,7 @@ def _workspace_binding_events(
                 schema_version=1,
                 event_id=event_id,
                 recorded_at=recorded_at,
-                observed_at=snapshot.observed_at,
+                observed_at=agent_event.observed_at,
                 event_family=EventFamily.DISCOVERY,
                 event_type=EventType.WORKSPACE_LINKED,
                 source="discovery.workspace-binding",
@@ -269,13 +270,13 @@ def record_discovery_snapshot(
     return receipts
 
 
-def resolve_verified_workspace_binding(
+def resolve_verified_workspace_correlation(
     connection: sqlite3.Connection,
     *,
     execution_domain_id: str | None = None,
     agent_event_id: str | None = None,
 ) -> dict[str, Any]:
-    """Resolve one current server-owned workspace binding from the verified Ledger."""
+    """Resolve current runtime-instance correlation from ``WORKSPACE_LINKED``."""
 
     def unknown(reason_code: str) -> dict[str, Any]:
         return {
@@ -435,8 +436,23 @@ def _verified_workspace_binding(
     ):
         return unknown("WORKSPACE_BINDING_RUNTIME_MISMATCH")
     return {
-        "status": "BOUND",
+        "status": "LINKED",
         "workspace_id": workspace_id,
         "binding_ref": binding[1],
-        "reason_code": "WORKSPACE_BINDING_VERIFIED",
+        "reason_code": "WORKSPACE_CORRELATION_VERIFIED",
     }
+
+
+def resolve_verified_workspace_binding(
+    connection: sqlite3.Connection,
+    *,
+    execution_domain_id: str | None = None,
+    agent_event_id: str | None = None,
+) -> dict[str, Any]:
+    """Compatibility alias; this result is correlation, never action authority."""
+
+    return resolve_verified_workspace_correlation(
+        connection,
+        execution_domain_id=execution_domain_id,
+        agent_event_id=agent_event_id,
+    )

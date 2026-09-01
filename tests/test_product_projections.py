@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from agentguard.api.r4_projection import R4ReadProjectionService
 from agentguard.discovery import CapabilityStatus, DiscoverySnapshot, ProbeEvidence
+from agentguard.discovery.models import RuntimeDescriptor
 from agentguard.evidence.discovery_adapter import record_discovery_snapshot
 from agentguard.evidence.ledger import EvidenceLedger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
@@ -40,6 +41,20 @@ def _projector(tmp_path):
     return database, projector
 
 
+def test_empty_recovery_separates_capability_from_current_workspace_eligibility(
+    tmp_path,
+):
+    database, projector = _projector(tmp_path)
+    try:
+        recovery = projector.recovery()
+    finally:
+        database.close()
+
+    assert recovery["capability_supported"] is True
+    assert recovery["action_eligible"] is False
+    assert recovery["eligibility_reason_code"] == "NO_VERIFIED_WORKSPACE"
+
+
 def test_runtime_projection_includes_authoritative_observation_time(tmp_path):
     database, projector = _projector(tmp_path)
     try:
@@ -64,6 +79,16 @@ def test_runtime_projection_includes_authoritative_observation_time(tmp_path):
                         sanitized=True,
                     ),
                 ),
+                runtimes=(
+                    RuntimeDescriptor(
+                        runtime_id="self-runtime",
+                        runtime_type="SELF_RUNTIME",
+                        domain_id="windows-current",
+                        status=CapabilityStatus.AVAILABLE,
+                        label="Windows host",
+                        evidence_ids=("runtime-observation",),
+                    ),
+                ),
                 status=CapabilityStatus.AVAILABLE,
             ),
             recorded_at=OBSERVED_AT,
@@ -73,6 +98,7 @@ def test_runtime_projection_includes_authoritative_observation_time(tmp_path):
 
         assert runtime["observed_at"] == OBSERVED_AT.isoformat()
         assert runtime["items"][0]["observed_at"] == OBSERVED_AT.isoformat()
+        assert runtime["items"][0]["domain_label"] == "Windows host"
     finally:
         database.close()
 

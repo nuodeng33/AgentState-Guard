@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import uvicorn
+from fastapi.testclient import TestClient
 
 import agentguard.api.server as server_module
 from agentguard.api.server import create_app
@@ -28,8 +29,17 @@ from agentguard.discovery import (
     ProbeEvidence,
     RuntimeDescriptor,
 )
-from agentguard.discovery.agents import ProcessAccessDeniedError
-from agentguard.discovery.product import ProductDiscoveryService
+from agentguard.discovery.agents import (
+    ProcessAccessDeniedError,
+    ProcessWorkspaceAuthority,
+)
+from agentguard.discovery.product import (
+    HostAgentProcessAuthority,
+    ProductDiscoveryReport,
+    ProductDiscoveryService,
+)
+from agentguard.recovery.workspace_scope import WorkspaceScopeService
+from agentguard.storage.db import StateDB
 
 NOW = datetime(2026, 8, 12, 9, 0, tzinfo=UTC)
 
@@ -96,14 +106,18 @@ class _ProcessHandle:
 
 
 class _ProcessBackend:
-    def __init__(self, handles=(), failure=None) -> None:
+    def __init__(self, handles=(), failure=None, product_identities=None) -> None:
         self._handles = tuple(handles)
         self._failure = failure
+        self._product_identities = dict(product_identities or {})
 
     def iter_processes(self):
         if self._failure is not None:
             raise self._failure
         return self._handles
+
+    def bounded_product_identity(self, pid: int):
+        return self._product_identities.get(pid)
 
 
 def test_product_discovery_separates_self_runtime_from_external_agents():
@@ -132,6 +146,111 @@ def test_product_discovery_separates_self_runtime_from_external_agents():
     encoded = json.dumps(snapshot.to_dict())
     assert "AGENTSTATE_GUARD" not in encoded
     assert "notepad" not in encoded.lower()
+
+
+def test_product_discovery_keeps_private_host_process_authority_for_observer():
+    service = ProductDiscoveryService(
+        runtime_adapter=_RuntimeAdapter(),
+        process_backend=_ProcessBackend((_ProcessHandle(102, "codex.exe"),)),
+        clock=lambda: NOW,
+        host_domain_observers=(),
+    )
+
+    report = service.discover_with_authority()
+
+    assert len(report.host_agent_process_authorities) == 1
+    authority = report.host_agent_process_authorities[0]
+    assert authority.agent_id == report.snapshot.agents[0].agent_id
+    assert authority.pid == 102
+    assert authority.create_time == NOW - timedelta(minutes=2)
+    assert authority.execution_domain_id == "windows-current"
+
+
+def test_product_discovery_admits_verified_pi_process_without_generic_electron_guess(
+    tmp_path,
+):
+    install_root = tmp_path / "pi-install"
+    workspace = tmp_path / "workspace"
+    install_root.mkdir()
+    workspace.mkdir()
+    service = ProductDiscoveryService(
+        runtime_adapter=_RuntimeAdapter(),
+        process_backend=_ProcessBackend(
+            (
+                _ProcessHandle(201, "Pi Agent Desktop.exe", str(workspace)),
+                _ProcessHandle(202, "electron.exe", str(workspace)),
+            ),
+            product_identities={201: ("PI", str(install_root))},
+        ),
+        clock=lambda: NOW,
+        host_domain_observers=(),
+    )
+
+    report = service.discover_with_authority()
+
+    assert [(item.agent_type, item.lifecycle.value) for item in report.snapshot.agents] == [
+        ("PI", "RUNNING")
+    ]
+    assert report.snapshot.agents[0].label.startswith("PI ")
+    agent_evidence = next(
+        item for item in report.snapshot.evidence if item.fact_type == "agent.metadata"
+    )
+    assert agent_evidence.value["role"] == "EXECUTION_AGENT"
+    assert [item.pid for item in report.host_agent_process_authorities] == [201]
+
+
+def test_product_discovery_admits_verified_zcode_process_without_generic_electron_guess(
+    tmp_path,
+):
+    install_root = tmp_path / "zcode-install"
+    workspace = tmp_path / "workspace"
+    install_root.mkdir()
+    workspace.mkdir()
+    service = ProductDiscoveryService(
+        runtime_adapter=_RuntimeAdapter(),
+        process_backend=_ProcessBackend(
+            (
+                _ProcessHandle(301, "ZCode.exe", str(workspace)),
+                _ProcessHandle(302, "electron.exe", str(workspace)),
+                _ProcessHandle(303, "node.exe", str(workspace)),
+            ),
+            product_identities={301: ("ZCODE", str(install_root))},
+        ),
+        clock=lambda: NOW,
+        host_domain_observers=(),
+    )
+
+    report = service.discover_with_authority()
+
+    assert [(item.agent_type, item.lifecycle.value) for item in report.snapshot.agents] == [
+        ("ZCODE", "RUNNING")
+    ]
+    assert report.snapshot.agents[0].label.startswith("ZCODE ")
+    agent_evidence = next(
+        item for item in report.snapshot.evidence if item.fact_type == "agent.metadata"
+    )
+    assert agent_evidence.value["role"] == "EXECUTION_AGENT"
+    assert [item.pid for item in report.host_agent_process_authorities] == [301]
+
+
+def test_pi_install_directory_is_not_promoted_to_workspace_authority(tmp_path):
+    install_root = tmp_path / "pi-install"
+    install_root.mkdir()
+    service = ProductDiscoveryService(
+        runtime_adapter=_RuntimeAdapter(),
+        process_backend=_ProcessBackend(
+            (_ProcessHandle(201, "Pi Agent Desktop.exe", str(install_root)),),
+            product_identities={201: ("PI", str(install_root))},
+        ),
+        clock=lambda: NOW,
+        host_domain_observers=(),
+    )
+
+    report = service.discover_with_authority()
+
+    assert [item.agent_type for item in report.snapshot.agents] == ["PI"]
+    assert report.snapshot.agents[0].workspace_ids == ()
+    assert report.workspace_authorities == ()
 
 
 def test_product_discovery_preserves_agent_probe_permission_denied():
@@ -230,6 +349,118 @@ class _SequenceDiscovery:
 class _FailingDiscovery:
     def discover(self) -> DiscoverySnapshot:
         raise PermissionError("sensitive operating-system detail")
+
+
+class _LifecycleDiscovery:
+    def discover_with_authority(self):
+        return ProductDiscoveryReport(
+            snapshot=_snapshot("observer-startup", include_agent=True),
+            host_agent_process_authorities=(
+                HostAgentProcessAuthority(
+                    agent_id="codex-process",
+                    process_instance_id="process-codex",
+                    pid=4242,
+                    create_time=NOW - timedelta(minutes=2),
+                    execution_domain_id="windows-current",
+                ),
+            ),
+        )
+
+
+class _MultiWorkspaceDiscovery:
+    def __init__(self, first: Path, second: Path) -> None:
+        self._roots = (first, second)
+
+    def discover_with_authority(self):
+        return ProductDiscoveryReport(
+            snapshot=_snapshot("multi-workspace", include_agent=False),
+            workspace_authorities=tuple(
+                ProcessWorkspaceAuthority(
+                    process_instance_id=f"process-{index}",
+                    candidate_id=f"candidate-{index}",
+                    execution_domain_id="windows-current",
+                    cwd=root,
+                    evidence_refs=("multi-workspace-runtime",),
+                )
+                for index, root in enumerate(self._roots, 1)
+            ),
+        )
+
+
+class _ObserverLifecycle:
+    def __init__(self):
+        self.plans = []
+        self.started = 0
+        self.stopped = 0
+        self.reconcile = None
+        self.reconcile_basenames = set()
+
+    def update(self, plan):
+        self.plans.append(plan)
+
+    def configure_reconciliation(self, callback, *, basenames):
+        self.reconcile = callback
+        self.reconcile_basenames = set(basenames)
+
+    def start(self):
+        self.started += 1
+
+    def stop(self):
+        self.stopped += 1
+
+
+def test_packaged_app_owns_host_observer_start_update_and_shutdown(tmp_path):
+    observer = _ObserverLifecycle()
+    app = create_app(
+        state_db_path=tmp_path / "state.db",
+        config={"base_dir": str(tmp_path)},
+        discovery_service=_LifecycleDiscovery(),
+        product_startup_discovery=True,
+        host_observer=observer,
+    )
+
+    with TestClient(app):
+        assert observer.started == 1
+        assert len(observer.plans) == 1
+        target = observer.plans[0].targets[0]
+        assert target.agent_ref == "codex-process"
+        assert target.agent_event_id.startswith("discovery-")
+        assert target.pid == 4242
+        assert observer.reconcile is not None
+        assert {"codex.exe", "node.exe"} <= observer.reconcile_basenames
+
+    assert observer.stopped == 1
+
+
+def test_refresh_persists_independent_workspace_authorities(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    state_path = tmp_path / "state.db"
+    app = create_app(
+        state_db_path=state_path,
+        config={"base_dir": str(tmp_path)},
+        discovery_service=_MultiWorkspaceDiscovery(first, second),
+        product_startup_discovery=True,
+        host_observer=_ObserverLifecycle(),
+    )
+
+    with TestClient(app):
+        pass
+
+    database = StateDB(state_path)
+    database.connect()
+    try:
+        results = WorkspaceScopeService(database).authority_results()
+    finally:
+        database.close()
+    assert len(results) == 2
+    assert {item.authority_state for item in results} == {"BOUND"}
+    assert {item.scope.root_path for item in results if item.scope is not None} == {
+        first.resolve(),
+        second.resolve(),
+    }
 
 
 def _free_port() -> int:

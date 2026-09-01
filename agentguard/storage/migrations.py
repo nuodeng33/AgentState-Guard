@@ -537,6 +537,154 @@ class MigrationEngine:
             )
         )
 
+        self.register(
+            Migration(
+                10,
+                "Workspace storage resource authority",
+                """
+            DROP TRIGGER workspace_scope_observations_no_delete;
+            DROP TRIGGER workspace_scope_observations_no_update;
+            DROP INDEX idx_workspace_scope_workspace;
+            DROP INDEX idx_workspace_scope_latest;
+            ALTER TABLE workspace_scope_observations RENAME TO workspace_scope_observations_v9;
+
+            CREATE TABLE workspace_scope_observations (
+                observation_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                observation_id TEXT UNIQUE NOT NULL,
+                discovery_snapshot_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('BOUND','NOT_OBSERVED','UNAVAILABLE')),
+                reason_code TEXT NOT NULL,
+                workspace_id TEXT,
+                execution_domain_id TEXT,
+                root_path TEXT,
+                root_digest TEXT,
+                storage_kind TEXT,
+                storage_resource_identity TEXT,
+                storage_locator TEXT,
+                logical_root TEXT,
+                durability TEXT,
+                current_reachability TEXT,
+                protection_capability TEXT,
+                protection_reason_code TEXT,
+                agent_mutation_capability TEXT,
+                agent_ids_json TEXT NOT NULL,
+                process_instance_ids_json TEXT NOT NULL,
+                evidence_refs_json TEXT NOT NULL,
+                ledger_event_id TEXT UNIQUE NOT NULL,
+                CHECK(
+                    (status = 'BOUND' AND workspace_id IS NOT NULL
+                     AND execution_domain_id IS NOT NULL AND root_digest IS NOT NULL
+                     AND storage_kind IS NOT NULL AND durability IS NOT NULL
+                     AND current_reachability IS NOT NULL
+                     AND protection_capability IS NOT NULL
+                     AND protection_reason_code IS NOT NULL
+                     AND agent_mutation_capability IS NOT NULL
+                     AND (
+                        (storage_kind IN ('HOST_PATH','DOCKER_BIND')
+                         AND root_path IS NOT NULL AND logical_root IS NULL)
+                        OR
+                        (storage_kind NOT IN ('HOST_PATH','DOCKER_BIND')
+                         AND root_path IS NULL
+                         AND storage_resource_identity IS NOT NULL
+                         AND logical_root IS NOT NULL)
+                     ))
+                    OR
+                    (status != 'BOUND' AND workspace_id IS NULL
+                     AND execution_domain_id IS NULL AND root_path IS NULL
+                     AND root_digest IS NULL AND storage_kind IS NULL
+                     AND storage_resource_identity IS NULL
+                     AND storage_locator IS NULL AND logical_root IS NULL)
+                )
+            );
+            INSERT INTO workspace_scope_observations (
+                observation_sequence, observation_id, discovery_snapshot_id,
+                observed_at, recorded_at, status, reason_code, workspace_id,
+                execution_domain_id, root_path, root_digest, storage_kind,
+                durability, current_reachability, protection_capability,
+                protection_reason_code, agent_mutation_capability,
+                agent_ids_json, process_instance_ids_json, evidence_refs_json,
+                ledger_event_id
+            )
+            SELECT observation_sequence, observation_id, discovery_snapshot_id,
+                   observed_at, recorded_at, status, reason_code, workspace_id,
+                   execution_domain_id, root_path, root_digest,
+                   CASE WHEN status = 'BOUND' THEN 'HOST_PATH' END,
+                   CASE WHEN status = 'BOUND' THEN 'DURABLE' END,
+                   CASE WHEN status = 'BOUND' THEN 'AVAILABLE' END,
+                   CASE WHEN status = 'BOUND' THEN 'SUPPORTED' END,
+                   CASE WHEN status = 'BOUND' THEN 'HOST_PATH_BACKEND_SUPPORTED' END,
+                   CASE WHEN status = 'BOUND' THEN 'UNKNOWN' END,
+                   agent_ids_json, process_instance_ids_json, evidence_refs_json,
+                   ledger_event_id
+              FROM workspace_scope_observations_v9;
+            DROP TABLE workspace_scope_observations_v9;
+            CREATE INDEX idx_workspace_scope_latest
+                ON workspace_scope_observations(observation_sequence DESC);
+            CREATE INDEX idx_workspace_scope_workspace
+                ON workspace_scope_observations(workspace_id, observation_sequence DESC);
+            CREATE TRIGGER workspace_scope_observations_no_update
+            BEFORE UPDATE ON workspace_scope_observations
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_SCOPE_APPEND_ONLY'); END;
+            CREATE TRIGGER workspace_scope_observations_no_delete
+            BEFORE DELETE ON workspace_scope_observations
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_SCOPE_APPEND_ONLY'); END;
+        """,
+                """
+            DROP TRIGGER workspace_scope_observations_no_delete;
+            DROP TRIGGER workspace_scope_observations_no_update;
+            DROP INDEX idx_workspace_scope_workspace;
+            DROP INDEX idx_workspace_scope_latest;
+            ALTER TABLE workspace_scope_observations RENAME TO workspace_scope_observations_v10;
+            CREATE TABLE workspace_scope_observations (
+                observation_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                observation_id TEXT UNIQUE NOT NULL,
+                discovery_snapshot_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('BOUND','NOT_OBSERVED','UNAVAILABLE')),
+                reason_code TEXT NOT NULL,
+                workspace_id TEXT,
+                execution_domain_id TEXT,
+                root_path TEXT,
+                root_digest TEXT,
+                agent_ids_json TEXT NOT NULL,
+                process_instance_ids_json TEXT NOT NULL,
+                evidence_refs_json TEXT NOT NULL,
+                ledger_event_id TEXT UNIQUE NOT NULL,
+                CHECK(
+                    (status = 'BOUND' AND workspace_id IS NOT NULL
+                     AND execution_domain_id IS NOT NULL
+                     AND root_path IS NOT NULL AND root_digest IS NOT NULL)
+                    OR
+                    (status != 'BOUND' AND workspace_id IS NULL
+                     AND execution_domain_id IS NULL
+                     AND root_path IS NULL AND root_digest IS NULL)
+                )
+            );
+            INSERT INTO workspace_scope_observations
+            SELECT observation_sequence, observation_id, discovery_snapshot_id,
+                   observed_at, recorded_at, status, reason_code, workspace_id,
+                   execution_domain_id, root_path, root_digest, agent_ids_json,
+                   process_instance_ids_json, evidence_refs_json, ledger_event_id
+              FROM workspace_scope_observations_v10
+             WHERE status != 'BOUND' OR root_path IS NOT NULL;
+            DROP TABLE workspace_scope_observations_v10;
+            CREATE INDEX idx_workspace_scope_latest
+                ON workspace_scope_observations(observation_sequence DESC);
+            CREATE INDEX idx_workspace_scope_workspace
+                ON workspace_scope_observations(workspace_id, observation_sequence DESC);
+            CREATE TRIGGER workspace_scope_observations_no_update
+            BEFORE UPDATE ON workspace_scope_observations
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_SCOPE_APPEND_ONLY'); END;
+            CREATE TRIGGER workspace_scope_observations_no_delete
+            BEFORE DELETE ON workspace_scope_observations
+            BEGIN SELECT RAISE(ABORT, 'WORKSPACE_SCOPE_APPEND_ONLY'); END;
+        """,
+            )
+        )
+
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
 

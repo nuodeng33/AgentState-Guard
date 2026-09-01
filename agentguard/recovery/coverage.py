@@ -378,6 +378,13 @@ class RecoveryCoverageService:
                 or payload.get("manifest_digest") != manifest_digest
             ):
                 continue
+            expected_reason = (
+                "TEST_RESTORE_STARTED"
+                if event_type == "TEST_RESTORE_STARTED"
+                else "TEST_RESTORE_VERIFIED"
+            )
+            if payload.get("reason_code") != expected_reason:
+                continue
             count = payload.get("file_count")
             if event_type in {"FILE_RESTORED", "VALIDATOR_PASSED"} and (
                 not isinstance(count, int) or isinstance(count, bool) or count < 1

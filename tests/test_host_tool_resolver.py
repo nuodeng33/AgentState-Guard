@@ -128,6 +128,152 @@ class TestHostNativeSearchPath:
         assert resolution.presence == "HOST_INSTALLED"
         assert resolution.path == str(registered)
 
+    def test_pi_uninstall_registration_is_a_bounded_install_authority(self, tmp_path):
+        executable = tmp_path / "Pi Agent Desktop.exe"
+        executable.write_bytes(b"MZ")
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", return_value=True),
+            patch.object(host_tools_mod, "which", return_value=None),
+            patch.object(host_tools_mod, "host_search_path", return_value=[]),
+            patch.object(
+                host_tools_mod,
+                "_windows_registered_tool_paths",
+                return_value=[str(executable)],
+            ),
+        ):
+            resolution = host_tools_mod.host_tool_resolution("pi")
+
+        assert resolution.presence == host_tools_mod.HOST_INSTALLED
+        assert resolution.path == str(executable)
+
+    def test_pi_running_identity_requires_registered_path_and_exact_pe_product_name(
+        self, tmp_path
+    ):
+        executable = tmp_path / "Pi Agent Desktop.exe"
+        other = tmp_path / "other" / "Pi Agent Desktop.exe"
+        executable.write_bytes(b"MZ")
+        other.parent.mkdir()
+        other.write_bytes(b"MZ")
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", return_value=True),
+            patch.object(
+                host_tools_mod,
+                "_windows_registered_tool_paths",
+                return_value=[str(executable)],
+            ),
+            patch.object(
+                host_tools_mod,
+                "_windows_file_product_name",
+                return_value="Pi Agent Desktop",
+                create=True,
+            ),
+        ):
+            assert host_tools_mod.windows_bounded_product_identity(str(executable)) == "PI"
+            assert host_tools_mod.windows_bounded_product_identity(str(other)) is None
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", return_value=True),
+            patch.object(
+                host_tools_mod,
+                "_windows_registered_tool_paths",
+                return_value=[str(executable)],
+            ),
+            patch.object(
+                host_tools_mod,
+                "_windows_file_product_name",
+                return_value="Unrelated Electron Product",
+                create=True,
+            ),
+        ):
+            assert host_tools_mod.windows_bounded_product_identity(str(executable)) is None
+
+    def test_zcode_uninstall_registration_resolves_exact_product_executable(
+        self, tmp_path
+    ):
+        install_root = tmp_path / "zcode"
+        install_root.mkdir()
+        executable = install_root / "ZCode.exe"
+        uninstaller = install_root / "Uninstall ZCode.exe"
+        executable.write_bytes(b"MZ")
+        uninstaller.write_bytes(b"MZ")
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", return_value=True),
+            patch.object(
+                host_tools_mod,
+                "_winreg",
+                type(
+                    "FakeWinreg",
+                    (),
+                    {"HKEY_CURRENT_USER": 1, "HKEY_LOCAL_MACHINE": 2},
+                )(),
+            ),
+            patch.object(host_tools_mod, "_registry_text", return_value=None),
+            patch.object(host_tools_mod, "which", return_value=None),
+            patch.object(host_tools_mod, "host_search_path", return_value=[]),
+            patch.object(
+                host_tools_mod,
+                "_registered_zcode_values",
+                return_value=[
+                    {
+                        "DisplayVersion": "3.9.2",
+                        "Publisher": "ZCode",
+                        "UninstallString": f'"{uninstaller}" /currentuser',
+                    }
+                ],
+                create=True,
+            ),
+        ):
+            resolution = host_tools_mod.host_tool_resolution("zcode")
+
+        assert resolution.presence == host_tools_mod.HOST_INSTALLED
+        assert resolution.path == str(executable)
+
+    def test_zcode_running_identity_requires_registered_path_and_exact_pe_product_name(
+        self, tmp_path
+    ):
+        executable = tmp_path / "ZCode.exe"
+        lookalike = tmp_path / "other" / "ZCode.exe"
+        executable.write_bytes(b"MZ")
+        lookalike.parent.mkdir()
+        lookalike.write_bytes(b"MZ")
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", return_value=True),
+            patch.object(
+                host_tools_mod,
+                "_windows_registered_tool_paths",
+                return_value=[str(executable)],
+            ),
+            patch.object(
+                host_tools_mod,
+                "_windows_file_product_name",
+                return_value="ZCode",
+            ),
+        ):
+            assert (
+                host_tools_mod.windows_bounded_product_identity(str(executable))
+                == "ZCODE"
+            )
+            assert host_tools_mod.windows_bounded_product_identity(str(lookalike)) is None
+
+        with (
+            patch.object(host_tools_mod, "platform_is_windows", return_value=True),
+            patch.object(
+                host_tools_mod,
+                "_windows_registered_tool_paths",
+                return_value=[str(executable)],
+            ),
+            patch.object(
+                host_tools_mod,
+                "_windows_file_product_name",
+                return_value="Unrelated Electron Product",
+            ),
+        ):
+            assert host_tools_mod.windows_bounded_product_identity(str(executable)) is None
+
     def test_stale_registered_location_does_not_create_false_presence(self, tmp_path):
         stale = tmp_path / "removed" / "git.exe"
         with (
@@ -171,6 +317,36 @@ class TestHostNativeSearchPath:
             versions = versions_mod.all_versions()
 
         assert versions["codex"] == "Codex 26.814.5167.0"
+
+    def test_registered_pi_version_is_reported_without_launching_the_gui(self):
+        pi_resolution = host_tools_mod.ToolResolution(
+            host_tools_mod.HOST_INSTALLED,
+            False,
+            r"D:\pi\Pi Agent Desktop.exe",
+        )
+
+        def resolve(name, **_kwargs):
+            if name == "pi":
+                return pi_resolution
+            return host_tools_mod.ToolResolution(
+                host_tools_mod.HOST_NOT_FOUND, False, None
+            )
+
+        with (
+            patch.object(versions_mod, "platform_is_windows", return_value=True),
+            patch.object(versions_mod, "host_tool_resolution", side_effect=resolve),
+            patch.object(versions_mod, "_get_version", return_value=None),
+            patch.object(
+                versions_mod,
+                "windows_registered_tool_version",
+                side_effect=lambda name: (
+                    "Pi Agent Desktop 0.1.14" if name == "pi" else None
+                ),
+            ),
+        ):
+            versions = versions_mod.all_versions()
+
+        assert versions["pi"] == "Pi Agent Desktop 0.1.14"
 
     def test_stale_host_path_entry_is_searched_not_crashed(self, tmp_path):
         """Physical dogfood ground truth: registry PATH entries can point at

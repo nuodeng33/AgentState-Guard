@@ -19,7 +19,9 @@ from agentguard.evidence.canonical import (
     canonical_json,
     flatten_bounded_digest_tree,
 )
-from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
+from agentguard.evidence.discovery_adapter import (
+    resolve_verified_workspace_correlation,
+)
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.evidence.product_target import resolve_verified_product_target_binding
@@ -37,6 +39,10 @@ from agentguard.recovery.coverage import (
 )
 from agentguard.recovery.manifest import validate_snapshot_v3
 from agentguard.recovery.policy import RestorePolicy
+from agentguard.recovery.workspace_scope import (
+    WorkspaceScopeError,
+    WorkspaceScopeService,
+)
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
 
@@ -655,13 +661,33 @@ class SupervisionService:
             raise RuntimeError("PRODUCT_PROVENANCE_UNAVAILABLE")
         try:
             with self._database.transaction() as connection:
-                workspace = resolve_verified_workspace_binding(
+                workspace = resolve_verified_workspace_correlation(
                     connection,
                     execution_domain_id=policy_input.execution_domain_id,
                 )
                 if workspace["reason_code"] == "WORKSPACE_LEDGER_INVALID":
                     raise SupervisionActionError("WORKSPACE_AUTHORITY_UNAVAILABLE")
-                binding = workspace
+                binding = {"status": "UNKNOWN"}
+                if workspace["status"] == "LINKED":
+                    try:
+                        authority = WorkspaceScopeService(
+                            self._database
+                        ).resolve_authority(workspace["workspace_id"])
+                    except WorkspaceScopeError:
+                        authority = None
+                    if (
+                        authority is not None
+                        and authority.authority_state == "BOUND"
+                        and authority.scope is not None
+                        and authority.execution_domain_id
+                        == policy_input.execution_domain_id
+                    ):
+                        binding = {
+                            "status": "BOUND",
+                            "workspace_id": authority.workspace_id,
+                            "binding_ref": workspace["binding_ref"],
+                            "authority_ref": authority.scope.ledger_event_id,
+                        }
                 if product_target_binding_ref is not None:
                     product_binding = resolve_verified_product_target_binding(
                         connection,
@@ -677,11 +703,19 @@ class SupervisionService:
                         "status": "BOUND",
                         "workspace_id": product_binding["subject_id"],
                         "binding_ref": product_binding["binding_ref"],
+                        "authority_ref": product_binding["binding_ref"],
                     }
                 authoritative_input = (
                     replace(
                         policy_input,
-                        evidence_refs=(binding["binding_ref"],),
+                        evidence_refs=tuple(
+                            dict.fromkeys(
+                                (
+                                    binding["binding_ref"],
+                                    binding["authority_ref"],
+                                )
+                            )
+                        ),
                     )
                     if binding["status"] == "BOUND"
                     else policy_input
@@ -1555,18 +1589,30 @@ class SupervisionService:
                 "binding_ref": product_binding["binding_ref"],
             }
         else:
-            binding = resolve_verified_workspace_binding(
+            binding = resolve_verified_workspace_correlation(
                 connection,
                 execution_domain_id=domain if isinstance(domain, str) else None,
             )
         if (
-            binding["status"] != "BOUND"
+            binding["status"] not in {"BOUND", "LINKED"}
             or binding["workspace_id"] != context["workspace_id"]
             or binding["binding_ref"] != context["workspace_binding_ref"]
             or context["product_sha"] != self._product_sha
             or context["approved_scope_digest"] != context["target_refs_digest"]
         ):
             return None
+        if binding["status"] == "LINKED":
+            try:
+                authority = WorkspaceScopeService(self._database).resolve_authority(
+                    binding["workspace_id"]
+                )
+            except WorkspaceScopeError:
+                return None
+            if (
+                authority.authority_state != "BOUND"
+                or authority.execution_domain_id != domain
+            ):
+                return None
         checkpoint = self._database.get_checkpoint(int(checkpoint_id))
         if checkpoint is None or checkpoint["git_commit"] != self._product_sha:
             return None

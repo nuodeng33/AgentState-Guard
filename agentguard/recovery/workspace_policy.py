@@ -86,22 +86,33 @@ class WorkspaceCoverageEntry:
     content_digest: str | None
     observation_digest: str
     permission_proof: PermissionProof | None = None
+    link_target: str | None = None
     content: bytes | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.category not in _CATEGORIES:
             raise ValueError("WORKSPACE_COVERAGE_INVALID")
-        if self.object_kind not in {"FILE", "DIRECTORY", "SPECIAL"}:
+        if self.object_kind not in {"FILE", "DIRECTORY", "SYMLINK", "SPECIAL"}:
             raise ValueError("WORKSPACE_COVERAGE_INVALID")
         if not self.relative_path or self.relative_path.startswith(("/", "\\")):
             raise ValueError("WORKSPACE_COVERAGE_INVALID")
-        if self.category == "restorable" and (
-            self.object_kind != "FILE"
-            or self.content_digest is None
-            or self.permission_proof is None
-            or self.content is None
-        ):
-            raise ValueError("WORKSPACE_COVERAGE_INVALID")
+        if self.category == "restorable":
+            if self.permission_proof is None:
+                raise ValueError("WORKSPACE_COVERAGE_INVALID")
+            if self.object_kind == "FILE" and (
+                self.content_digest is None or self.content is None or self.link_target is not None
+            ):
+                raise ValueError("WORKSPACE_COVERAGE_INVALID")
+            if self.object_kind == "DIRECTORY" and (
+                self.content_digest is not None or self.content is not None or self.link_target is not None
+            ):
+                raise ValueError("WORKSPACE_COVERAGE_INVALID")
+            if self.object_kind == "SYMLINK" and (
+                self.content_digest is not None or self.content is not None or not self.link_target
+            ):
+                raise ValueError("WORKSPACE_COVERAGE_INVALID")
+            if self.object_kind == "SPECIAL":
+                raise ValueError("WORKSPACE_COVERAGE_INVALID")
         if self.category != "restorable" and (
             self.permission_proof is not None or self.content is not None
         ):
@@ -121,6 +132,7 @@ class WorkspaceCoverageEntry:
                 if self.permission_proof is not None
                 else None
             ),
+            "link_target": self.link_target,
         }
 
 

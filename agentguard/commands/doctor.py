@@ -295,7 +295,15 @@ def _windows_external_python(results: list) -> None:
             version = r.stdout.splitlines()[0].strip()
             results.append(_ok("python", f"{version or 'Python'} (external interpreter)"))
             return
-    results.append(_warn("python", "No external Python interpreter detected on host"))
+    if bundled_sidecar_active():
+        results.append(
+            _info(
+                "python",
+                "Optional external Python interpreter not detected on host",
+            )
+        )
+    else:
+        results.append(_warn("python", "No external Python interpreter detected on host"))
 
 
 def _check_tool(results: list, name: str, cmd: list) -> None:

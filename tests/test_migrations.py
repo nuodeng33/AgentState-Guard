@@ -17,7 +17,7 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             assert engine.current_version(conn) == 0
-            assert len(engine.pending(conn)) == 9  # v1 through v9
+            assert len(engine.pending(conn)) == 10  # v1 through v10
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -31,9 +31,9 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             result = engine.migrate(conn)
-            assert len(result["applied"]) == 9
+            assert len(result["applied"]) == 10
             assert result["errors"] == []
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 10
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -49,7 +49,7 @@ class TestMigrations:
             engine.migrate(conn)
             result = engine.migrate(conn)
             assert result["applied"] == []
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 10
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -125,13 +125,13 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             engine.migrate(conn)
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 10
             result = engine.rollback(conn, 0)
-            assert len(result["rolled_back"]) == 9
+            assert len(result["rolled_back"]) == 10
             assert engine.current_version(conn) == 0
             # Re-migrate
             engine.migrate(conn)
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 10
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -146,7 +146,7 @@ class TestMigrations:
             engine = MigrationEngine(db_path)
             engine.register(Migration(4, "Custom test", "CREATE TABLE custom_test (id INTEGER)", "DROP TABLE custom_test"))
             engine.migrate(conn)
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 10
             tables = conn.execute("SELECT name FROM sqlite_master WHERE name='custom_test'").fetchall()
             assert len(tables) == 1
         finally:

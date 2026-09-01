@@ -429,6 +429,73 @@ def test_test_restore_updates_authoritative_r2_coverage_facts(tmp_path):
         database.close()
 
 
+def test_actual_restore_events_do_not_invalidate_verified_test_restore(tmp_path):
+    target, database, snapshots, created = _recovery(tmp_path)
+    try:
+        service = RecoveryService(
+            database=database,
+            snapshots=snapshots,
+            adapters={"local-domain": SelfRuntimeAdapter()},
+        )
+        tested = service.test_restore(
+            RecoveryRequest(
+                operation=RecoveryOperation.TEST_RESTORE,
+                execution_domain_id="local-domain",
+                checkpoint_id=created.checkpoint_id,
+            )
+        )
+        assert tested.reason_code == "TEST_RESTORE_VERIFIED"
+
+        common = {
+            "schema_version": 1,
+            "recorded_at": datetime(2026, 8, 9, 10, 2, tzinfo=UTC),
+            "observed_at": None,
+            "event_family": EventFamily.RECOVERY,
+            "source": "test-actual-restore",
+            "result": "AVAILABLE",
+            "execution_domain_id": "local-domain",
+            "supervision_session_id": None,
+            "transaction_id": None,
+            "checkpoint_id": created.checkpoint_id,
+            "subject_ref": f"manifest:{created.manifest_digest}",
+            "evidence_refs": (),
+            "payload_safe": {
+                "manifest_digest": created.manifest_digest,
+                "reason_code": "RECOVERY_RESTORED_AND_VERIFIED",
+                "file_count": 2,
+            },
+        }
+        with database.transaction() as connection:
+            ledger = EvidenceLedger()
+            ledger.append(
+                connection,
+                EvidenceEvent(
+                    **common,
+                    event_id="actual-file-restored",
+                    event_type=EventType.FILE_RESTORED,
+                ),
+            )
+            ledger.append(
+                connection,
+                EvidenceEvent(
+                    **common,
+                    event_id="actual-validator-passed",
+                    event_type=EventType.VALIDATOR_PASSED,
+                ),
+            )
+
+        facts = RecoveryCoverageService(database, snapshots).compute(
+            checkpoint_id=created.checkpoint_id,
+            target_refs=(str(target),),
+            execution_domain_id="local-domain",
+        )
+
+        assert facts.test_restore_verified_targets == 1
+        assert facts.test_restore_status == "VERIFIED_R2"
+    finally:
+        database.close()
+
+
 def test_authoritative_supervision_ledger_fault_rolls_back_session(tmp_path, monkeypatch):
     target, database, snapshots, created = _recovery(tmp_path)
     _record_workspace_authority(database)

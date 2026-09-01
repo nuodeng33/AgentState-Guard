@@ -44,11 +44,32 @@ jobs:
           name: desktop-web-build
           path: agentguard/web_static/
 
+  volume-helper-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d
+        with:
+          python-version: "3.11"
+      - name: Build offline named-volume helper artifact
+        run: python scripts/build_docker_volume_helper.py --output-dir dist/volume-helper
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: agentguard-volume-helper
+          path: dist/volume-helper/
+
   # ── 2. Sidecar Build (PyInstaller) ─────────────────────────────
   sidecar-build:
     runs-on: windows-latest
+    needs: [volume-helper-build]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Download named-volume helper
+        uses: actions/download-artifact@v4
+        with:
+          name: agentguard-volume-helper
+          path: agentguard/resources/
 
       - name: Setup Python
         uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d

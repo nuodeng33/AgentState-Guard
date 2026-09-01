@@ -9,6 +9,7 @@ import sys
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -46,6 +47,7 @@ class FakeProcess:
         create_times: tuple[object, ...] = (CREATED,),
         status: object = "running",
         cwd: object = HOME + r"\work\repo",
+        exe: object = r"C:\Program Files\Example\python.exe",
         running: object = True,
         failures: dict[str, object] | None = None,
     ) -> None:
@@ -63,6 +65,7 @@ class FakeProcess:
         self._last_create_time = create_times[-1] if create_times else CREATED
         self._status = status
         self._cwd = cwd
+        self._exe = exe
         self._running = running
         self._failures = dict(failures or {})
         self.oneshot_calls = 0
@@ -101,6 +104,9 @@ class FakeProcess:
         if isinstance(value, BaseException):
             raise value
         return None if value is None else str(value)
+
+    def exe(self) -> str:
+        return str(self._value("exe", self._exe))
 
     def is_running(self) -> bool:
         value = self._value("is_running", self._running)
@@ -493,6 +499,107 @@ def test_backend_never_calls_forbidden_process_apis():
     result = _collect(FakePsutil((FakeProcess(410),)))
 
     assert result.facts[0].current_state is ProcessState.RUNNING
+
+
+def test_backend_reduces_verified_pi_executable_to_private_identity_anchor():
+    process = FakeProcess(
+        410,
+        ppid=0,
+        name="Pi Agent Desktop.exe",
+        exe=r"D:\pi\Pi Agent Desktop.exe",
+    )
+    backend = PsutilProcessBackend(psutil_module=FakePsutil((process,)))
+
+    with patch(
+        "agentguard.discovery.agents.psutil_backend.windows_bounded_product_identity",
+        return_value="PI",
+        create=True,
+    ) as verify:
+        result = backend.bounded_product_identity(410)
+
+    assert result == ("PI", r"D:\pi")
+    verify.assert_called_once_with(r"D:\pi\Pi Agent Desktop.exe")
+
+
+def test_backend_rejects_pi_electron_child_with_same_verified_parent_image():
+    parent = FakeProcess(
+        409,
+        ppid=1,
+        name="Pi Agent Desktop.exe",
+        exe=r"D:\pi\Pi Agent Desktop.exe",
+    )
+    child = FakeProcess(
+        410,
+        ppid=409,
+        name="Pi Agent Desktop.exe",
+        exe=r"D:\pi\Pi Agent Desktop.exe",
+    )
+    backend = PsutilProcessBackend(
+        psutil_module=FakePsutil((child,), authoritative_processes=(parent, child))
+    )
+
+    with patch(
+        "agentguard.discovery.agents.psutil_backend.windows_bounded_product_identity",
+        return_value="PI",
+        create=True,
+    ):
+        assert backend.bounded_product_identity(410) is None
+
+
+def test_backend_rejects_zcode_electron_child_with_same_verified_parent_image():
+    parent = FakeProcess(
+        409,
+        ppid=1,
+        name="ZCode.exe",
+        exe=r"D:\zcode\ZCode.exe",
+    )
+    child = FakeProcess(
+        410,
+        ppid=409,
+        name="ZCode.exe",
+        exe=r"D:\zcode\ZCode.exe",
+    )
+    backend = PsutilProcessBackend(
+        psutil_module=FakePsutil((child,), authoritative_processes=(parent, child))
+    )
+
+    with patch(
+        "agentguard.discovery.agents.psutil_backend.windows_bounded_product_identity",
+        return_value="ZCODE",
+    ):
+        assert backend.bounded_product_identity(410) is None
+
+
+def test_backend_keeps_verified_zcode_root_after_launcher_parent_exits():
+    process = FakeProcess(
+        410,
+        ppid=999,
+        name="ZCode.exe",
+        exe=r"D:\zcode\ZCode.exe",
+    )
+    backend = PsutilProcessBackend(psutil_module=FakePsutil((process,)))
+
+    with patch(
+        "agentguard.discovery.agents.psutil_backend.windows_bounded_product_identity",
+        return_value="ZCODE",
+    ):
+        assert backend.bounded_product_identity(410) == ("ZCODE", r"D:\zcode")
+
+
+def test_backend_rejects_unverified_pi_product_identity():
+    process = FakeProcess(
+        410,
+        name="Pi Agent Desktop.exe",
+        exe=r"D:\lookalike\Pi Agent Desktop.exe",
+    )
+    backend = PsutilProcessBackend(psutil_module=FakePsutil((process,)))
+
+    with patch(
+        "agentguard.discovery.agents.psutil_backend.windows_bounded_product_identity",
+        return_value=None,
+        create=True,
+    ):
+        assert backend.bounded_product_identity(410) is None
 
 
 def test_production_backend_ast_contains_no_forbidden_calls():

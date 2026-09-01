@@ -178,6 +178,22 @@ def test_home_root_and_symlink_scope_fail_closed(tmp_path):
     assert link_result.reason_code == "WORKSPACE_SCOPE_REPARSE_POINT"
 
 
+def test_system_installation_subdirectory_is_not_a_workspace(tmp_path):
+    program_files = tmp_path / "Program Files"
+    install_directory = program_files / "Vendor" / "Agent App"
+    install_directory.mkdir(parents=True)
+
+    resolved = resolve_host_workspace(
+        _report(install_directory),
+        home_path=tmp_path / "Users" / "person",
+        system_roots=(program_files,),
+    )
+
+    assert resolved.status == "UNAVAILABLE"
+    assert resolved.reason_code == "WORKSPACE_SCOPE_TOO_BROAD"
+    assert resolved.root_path is None
+
+
 class _RuntimeAdapter:
     def discover(self) -> DiscoverySnapshot:
         return _snapshot()

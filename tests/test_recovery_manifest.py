@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import PureWindowsPath
 
 import pytest
 
+import agentguard.recovery.manifest as manifest_module
 from agentguard.evidence.canonical import canonical_json
 from agentguard.recovery.manifest import manifest_digest, validate_snapshot_v3
 from agentguard.recovery.policy import RestorePolicy
@@ -83,7 +85,7 @@ def _workspace_snapshot(tmp_path):
         "classification": "restorable",
         "blob_sha256": coverage.content_digest,
         "size": coverage.size,
-        "mode": "0o640",
+        "mode": coverage.permission_proof.values["mode"],
         "uid": None,
         "gid": None,
         "validator": "workspace-hash-permission-v1",
@@ -112,6 +114,22 @@ def _workspace_snapshot(tmp_path):
 
 def test_workspace_snapshot_extension_is_strict_and_verified(tmp_path):
     snapshot = _workspace_snapshot(tmp_path)
+
+    valid, reason_code, digest = validate_snapshot_v3(
+        snapshot,
+        expected_domain="windows-current",
+    )
+
+    assert valid is True
+    assert reason_code == "RECOVERY_MANIFEST_VERIFIED"
+    assert digest == manifest_digest(snapshot)
+
+
+def test_workspace_logical_paths_are_posix_even_under_windows_path_semantics(
+    tmp_path, monkeypatch
+):
+    snapshot = _workspace_snapshot(tmp_path)
+    monkeypatch.setattr(manifest_module, "PurePath", PureWindowsPath, raising=False)
 
     valid, reason_code, digest = validate_snapshot_v3(
         snapshot,

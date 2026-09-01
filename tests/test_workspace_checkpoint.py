@@ -16,11 +16,16 @@ from agentguard.discovery import (
 )
 from agentguard.discovery.agents import ProcessWorkspaceAuthority
 from agentguard.discovery.product import ProductDiscoveryReport
+from agentguard.discovery.workspace_authority import (
+    ResolvedWorkspaceAuthority,
+    workspace_root_digest,
+)
 from agentguard.recovery import workspace_adapter
 from agentguard.recovery.workspace_permissions import (
     PermissionCapabilityError,
     PosixPermissionBackend,
 )
+from agentguard.recovery.workspace_scope import WorkspaceScopeService
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
 
@@ -219,6 +224,102 @@ def test_truncated_workspace_checkpoint_fails_closed_as_corrupt(tmp_path):
     assert projection["recovery_verified"] is False
 
 
+def test_checkpoint_uses_its_workspace_authority_not_newer_global_observation(
+    tmp_path,
+):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    baseline = first / "source.txt"
+    baseline.write_text("before", encoding="utf-8")
+    client, headers, product_state = _client(tmp_path, first)
+    checkpoint = client.post(
+        "/api/v1/recovery/checkpoints", json={}, headers=headers
+    ).json()
+    second_digest = workspace_root_digest(second.resolve(), "windows-current")
+    database = StateDB(product_state / "state.db")
+    database.connect()
+    try:
+        service = WorkspaceScopeService(database)
+        service.bind(
+            ResolvedWorkspaceAuthority(
+                status="BOUND",
+                reason_code="WORKSPACE_SCOPE_VERIFIED",
+                root_path=second.resolve(),
+                workspace_id=f"workspace-{second_digest.split(':', 1)[1][:24]}",
+                root_digest=second_digest,
+                execution_domain_id="windows-current",
+                agent_ids=("agent-second",),
+                process_instance_ids=("process-second",),
+                evidence_refs=("process-evidence-second",),
+            ),
+            recorded_at=NOW.replace(minute=1),
+            discovery_snapshot_id="snapshot-second",
+        )
+        service.bind(
+            ResolvedWorkspaceAuthority(
+                status="NOT_OBSERVED",
+                reason_code="WORKSPACE_SCOPE_NOT_OBSERVED",
+            ),
+            recorded_at=NOW.replace(minute=2),
+            discovery_snapshot_id="snapshot-no-current-agent",
+        )
+    finally:
+        database.close()
+    baseline.write_text("after", encoding="utf-8")
+
+    tested = client.post(
+        f"/api/v1/recovery/{checkpoint['checkpoint_id']}/test",
+        json={},
+        headers=headers,
+    )
+    projection = client.get("/api/v1/recovery", headers=headers).json()
+
+    assert tested.status_code == 200
+    assert tested.json()["reason_code"] == "TEST_RESTORE_VERIFIED"
+    assert projection["action_eligible"] is True
+    assert projection["eligibility_reason_code"] is None
+
+
+def test_new_checkpoint_fails_closed_with_two_durable_workspace_authorities(
+    tmp_path,
+):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "a.txt").write_text("a", encoding="utf-8")
+    (second / "b.txt").write_text("b", encoding="utf-8")
+    client, headers, product_state = _client(tmp_path, first)
+    second_digest = workspace_root_digest(second.resolve(), "windows-current")
+    database = StateDB(product_state / "state.db")
+    database.connect()
+    try:
+        WorkspaceScopeService(database).bind(
+            ResolvedWorkspaceAuthority(
+                status="BOUND",
+                reason_code="WORKSPACE_SCOPE_VERIFIED",
+                root_path=second.resolve(),
+                workspace_id=f"workspace-{second_digest.split(':', 1)[1][:24]}",
+                root_digest=second_digest,
+                execution_domain_id="windows-current",
+                agent_ids=("agent-second",),
+                process_instance_ids=("process-second",),
+                evidence_refs=("process-evidence-second",),
+            ),
+            recorded_at=NOW.replace(minute=1),
+            discovery_snapshot_id="snapshot-second",
+        )
+    finally:
+        database.close()
+
+    response = client.post("/api/v1/recovery/checkpoints", json={}, headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["reason_code"] == "WORKSPACE_SCOPE_AMBIGUOUS"
+
+
 def test_refresh_records_checkpoint_diff_without_agent_attribution(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -244,8 +345,8 @@ def test_refresh_records_checkpoint_diff_without_agent_attribution(tmp_path):
     observed = [item for item in changes["items"] if item["type"] == "OBSERVED_CHANGE"]
     assert len(observed) == 3
     by_kind = {item["change_kind"]: item for item in observed}
-    assert set(by_kind) == {"CREATED", "MODIFIED", "DELETED"}
-    assert by_kind["CREATED"]["recovery_disposition"] == "NOT_IN_CHECKPOINT"
+    assert set(by_kind) == {"ADDED", "MODIFIED", "DELETED"}
+    assert by_kind["ADDED"]["recovery_disposition"] == "NOT_IN_CHECKPOINT"
     assert by_kind["MODIFIED"]["recovery_disposition"] == "RECOVERABLE"
     assert by_kind["DELETED"]["recovery_disposition"] == "RECOVERABLE"
     assert all(item["attribution"] == "UNATTRIBUTED" for item in observed)
@@ -257,9 +358,9 @@ def test_refresh_records_checkpoint_diff_without_agent_attribution(tmp_path):
     assert "agent-2" not in serialized
 
     detail = client.get(
-        f"/api/v1/evidence/{by_kind['CREATED']['event_id']}", headers=headers
+        f"/api/v1/evidence/{by_kind['ADDED']['event_id']}", headers=headers
     ).json()
-    assert detail["sanitized_detail"]["change_kind"] == "CREATED"
+    assert detail["sanitized_detail"]["change_kind"] == "ADDED"
     assert detail["sanitized_detail"]["attribution"] == "UNATTRIBUTED"
     assert detail["sanitized_detail"]["recovery_disposition"] == "NOT_IN_CHECKPOINT"
 
@@ -303,7 +404,7 @@ def test_created_audit_and_excluded_objects_are_never_projected_recoverable(tmp_
         "AUDIT_ONLY",
         "EXCLUDED",
     }
-    assert all(item["change_kind"] == "CREATED" for item in observed)
+    assert all(item["change_kind"] == "ADDED" for item in observed)
     assert all(item["recovery_disposition"] != "RECOVERABLE" for item in observed)
 
 

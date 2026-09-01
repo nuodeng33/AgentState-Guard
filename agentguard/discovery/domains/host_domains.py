@@ -26,10 +26,12 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from ...core.docker import DOCKER_UNKNOWN, docker_presence
 from ...core.host_tools import platform_is_windows
 from ...core.runner import CommandResult, run_command
+from ..agents.models import ProcessWorkspaceAuthority
 from ..capabilities import (
     AgentLifecycleStatus,
     CapabilityAssessment,
@@ -46,6 +48,7 @@ from ..models import (
     RuntimeDescriptor,
     WorkspaceDescriptor,
 )
+from ..workspace_authority import storage_workspace_digest
 from .wsl import parse_wsl_list, validate_distro_name
 
 _CONTAINER_ID_RE = re.compile(r"[0-9a-f]{12,64}\Z")
@@ -95,6 +98,7 @@ class HostDomainObservation:
     workspaces: tuple[WorkspaceDescriptor, ...] = ()
     evidence: tuple[ProbeEvidence, ...] = ()
     errors: tuple[DiscoveryError, ...] = ()
+    workspace_authorities: tuple[ProcessWorkspaceAuthority, ...] = ()
 
 
 def _stable_id(prefix: str, *parts: str) -> str:
@@ -103,35 +107,104 @@ def _stable_id(prefix: str, *parts: str) -> str:
 
 
 @dataclass(frozen=True)
+class _SandboxMount:
+    mount_type: str
+    source: str
+    destination: str
+    read_write: bool | None
+
+
+@dataclass(frozen=True)
 class _SandboxMounts:
     """Bounded docker inspect facts for one container (real daemon output)."""
 
     working_dir: str | None
     started_at: str | None
-    mounts: tuple[tuple[str, str, str], ...]  # (type, source, destination)
+    image_identity: str | None
+    mounts: tuple[_SandboxMount, ...]
+
+
+@dataclass(frozen=True)
+class _DockerVolumeFacts:
+    name: str
+    driver: str
+    scope: str
+    created_at: str
+    mountpoint_ref: str
 
 
 def _parse_inspect(result: CommandResult) -> _SandboxMounts | None:
     """Parse the bounded inspect line: WorkingDir \\t StartedAt \\t mounts."""
     line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
     parts = line.split("\t")
-    if len(parts) != 3:
+    if len(parts) not in {3, 4}:
         return None
-    working_dir, started_at, mounts_raw = (part.strip() for part in parts)
-    mounts: list[tuple[str, str, str]] = []
+    if len(parts) == 4:
+        working_dir, started_at, image_identity, mounts_raw = (
+            part.strip() for part in parts
+        )
+    else:
+        working_dir, started_at, mounts_raw = (part.strip() for part in parts)
+        image_identity = ""
+    mounts: list[_SandboxMount] = []
     for entry in mounts_raw.split(";"):
         entry = entry.strip()
-        if not entry or ":" not in entry or "=>" not in entry:
+        if not entry:
             continue
-        mount_type, rest = entry.split(":", 1)
-        source, destination = rest.split("=>", 1)
+        if "|" in entry:
+            mount_parts = entry.split("|")
+            if len(mount_parts) != 4:
+                continue
+            mount_type, source, destination, rw_raw = mount_parts
+            read_write = (
+                True
+                if rw_raw.strip().casefold() == "true"
+                else False
+                if rw_raw.strip().casefold() == "false"
+                else None
+            )
+        elif ":" in entry and "=>" in entry:
+            # Compatibility for bounded injected fixtures written before RW
+            # was part of the inspect contract. Legacy facts never grant
+            # durable bind authority because writability is unknown.
+            mount_type, rest = entry.split(":", 1)
+            source, destination = rest.split("=>", 1)
+            read_write = None
+        else:
+            continue
         mounts.append(
-            (mount_type.strip()[:16], source.strip()[:256], destination.strip()[:256])
+            _SandboxMount(
+                mount_type=mount_type.strip()[:16],
+                source=source.strip()[:256],
+                destination=destination.strip()[:256],
+                read_write=read_write,
+            )
         )
     return _SandboxMounts(
         working_dir=working_dir[:256] or None,
         started_at=started_at[:64] or None,
+        image_identity=image_identity[:128] or None,
         mounts=tuple(mounts),
+    )
+
+
+def _parse_volume_facts(result: CommandResult) -> _DockerVolumeFacts | None:
+    line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+    parts = [part.strip() for part in line.split("\t")]
+    if len(parts) != 5 or any(not part for part in parts[:4]):
+        return None
+    name, driver, scope, created_at, mountpoint = parts
+    if _SAFE_LABEL_RE.fullmatch(name) is None or _SAFE_LABEL_RE.fullmatch(driver) is None:
+        return None
+    if _SAFE_LABEL_RE.fullmatch(scope) is None or len(created_at) > 64:
+        return None
+    mountpoint_ref = "sha256:" + hashlib.sha256(mountpoint.encode()).hexdigest()
+    return _DockerVolumeFacts(
+        name=name,
+        driver=driver,
+        scope=scope,
+        created_at=created_at,
+        mountpoint_ref=mountpoint_ref,
     )
 
 
@@ -171,18 +244,78 @@ def _select_workspace_root(
         workdir_normalized = facts.working_dir.rstrip("/") or "/"
     else:
         workdir_normalized = workdir
-    owners: set[str] = set()
-    for _mount_type, _source, destination in facts.mounts:
-        root = _canonical_sandbox_root(destination)
+    owners: list[str] = []
+    for mount in facts.mounts:
+        root = _canonical_sandbox_root(mount.destination)
         if root is None:
             continue
         if workdir_normalized == root or workdir_normalized.startswith(root + "/"):
-            owners.add(root)
+            owners.append(root)
     if not owners:
+        if workdir is not None and not facts.mounts:
+            return workdir, "SANDBOX_WORKSPACE_INTERNAL_FS"
         return None, "SANDBOX_WORKSPACE_NO_MOUNT_OWNER"
     if len(owners) > 1:
         return None, "SANDBOX_WORKSPACE_AMBIGUOUS"
-    return next(iter(owners)), "SANDBOX_WORKSPACE_MOUNT_OWNED"
+    return owners[0], "SANDBOX_WORKSPACE_MOUNT_OWNED"
+
+
+def _map_bind_workspace(
+    facts: _SandboxMounts,
+    owning_mount: _SandboxMount | None,
+) -> Path | None:
+    """Map one canonical container workdir into one host bind.
+
+    Mount writability is an Agent capability fact, not workspace authority.
+    """
+
+    if (
+        owning_mount is None
+        or owning_mount.mount_type.casefold() != "bind"
+        or facts.working_dir is None
+    ):
+        return None
+    destination = _canonical_sandbox_root(owning_mount.destination)
+    workdir = _canonical_sandbox_root(facts.working_dir)
+    if destination is None or workdir is None:
+        return None
+    if workdir != destination and not workdir.startswith(destination + "/"):
+        return None
+    relative = workdir[len(destination) :].lstrip("/")
+    relative_parts = tuple(part for part in relative.split("/") if part)
+    if any(part in {".", ".."} for part in relative_parts):
+        return None
+    source = Path(owning_mount.source)
+    if not source.is_absolute():
+        return None
+    try:
+        source_root = source.resolve(strict=False)
+        mapped = source_root.joinpath(*relative_parts).resolve(strict=False)
+        mapped.relative_to(source_root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return mapped
+
+
+def _logical_volume_root(facts: _SandboxMounts, mount: _SandboxMount) -> str | None:
+    destination = _canonical_sandbox_root(mount.destination)
+    workdir = _canonical_sandbox_root(facts.working_dir or "")
+    if destination is None or workdir is None:
+        return None
+    if workdir != destination and not workdir.startswith(destination + "/"):
+        return None
+    suffix = workdir[len(destination) :].strip("/")
+    if any(part in {".", ".."} for part in suffix.split("/") if part):
+        return None
+    return "/" + suffix if suffix else "/"
+
+
+def _volume_resource_identity(engine_id: str, facts: _DockerVolumeFacts) -> str:
+    material = (
+        f"docker-volume-v1\x1f{engine_id}\x1f{facts.name}\x1f{facts.driver}"
+        f"\x1f{facts.scope}\x1f{facts.created_at}\x1f{facts.mountpoint_ref}"
+    ).encode()
+    return "sha256:" + hashlib.sha256(material).hexdigest()
 
 
 def _unreachable_evidence(
@@ -232,6 +365,7 @@ def observe_docker_domains(
     presence: Callable[[], object] = docker_presence,
     docker_executable: str = "docker",
     collector: str = "product-discovery",
+    authority_domain_id: str = "host-native",
 ) -> HostDomainObservation:
     """Observe Docker container domains from the host, read-only.
 
@@ -281,6 +415,7 @@ def observe_docker_domains(
     runtimes: list[RuntimeDescriptor] = []
     agents: list[AgentDescriptor] = []
     workspaces: list[WorkspaceDescriptor] = []
+    workspace_authorities: list[ProcessWorkspaceAuthority] = []
     evidence: list[ProbeEvidence] = []
     nonce = observed_at.isoformat()
 
@@ -317,22 +452,48 @@ def observe_docker_domains(
                 sanitized=True,
             )
         )
-
         top_result = runner(
-            [docker_executable, "top", container_id, "-o", "pid,args"]
+            [docker_executable, "top", container_id, "-o", "pid,ppid,args"]
         )
-        admitted: list[tuple[str, str, str]] = []
+        admitted_candidates: list[tuple[str, str, str]] = []
+        parent_by_pid: dict[str, str | None] = {}
         top_available = top_result.success
         if top_available:
             for _line, row_fields in _output_lines(top_result.stdout):
                 if len(row_fields) < 2 or not row_fields[0].isdigit():
                     continue
-                verdict = admit_process(row_fields[1:])
+                pid = row_fields[0]
+                if len(row_fields) >= 3 and row_fields[1].isdigit():
+                    parent_by_pid[pid] = row_fields[1]
+                    argv = row_fields[2:]
+                else:
+                    # Backward-compatible parsing for injected legacy rows.
+                    parent_by_pid[pid] = None
+                    argv = row_fields[1:]
+                verdict = admit_process(argv)
                 if verdict is None:
                     continue
                 identity, role = verdict
-                admitted.append((identity, role, row_fields[0]))
-        else:
+                admitted_candidates.append((identity, role, pid))
+
+        admitted_by_pid = {
+            pid: (identity, role) for identity, role, pid in admitted_candidates
+        }
+        admitted: list[tuple[str, str, str]] = []
+        for identity, role, pid in admitted_candidates:
+            ancestor = parent_by_pid.get(pid)
+            seen: set[str] = set()
+            duplicate_child = False
+            while ancestor is not None and ancestor not in seen:
+                seen.add(ancestor)
+                ancestor_identity = admitted_by_pid.get(ancestor)
+                if ancestor_identity is not None and ancestor_identity[0] == identity:
+                    duplicate_child = True
+                    break
+                ancestor = parent_by_pid.get(ancestor)
+            if not duplicate_child:
+                admitted.append((identity, role, pid))
+        if not top_available:
             evidence.append(
                 _unreachable_evidence(
                     collector=collector,
@@ -390,11 +551,9 @@ def observe_docker_domains(
                 confidence=0.9,
             )
         )
-        # Real mount-backed workspace binding (L3): the workspace root must
-        # be a real docker-inspect mount destination that owns the
-        # container's working dir; container StartedAt seeds the identity
-        # so a restart can never inherit a stale binding. Fail-closed on
-        # ambiguity, blocked roots, or unverifiable inspect output.
+        # Runtime correlation starts with the real mount that owns WorkingDir.
+        # Storage identity (not host-path availability) decides durable
+        # workspace authority; backend capability remains a separate fact.
         inspect_result = runner(
             [
                 docker_executable,
@@ -402,13 +561,23 @@ def observe_docker_domains(
                 container_id,
                 "--format",
                 (
-                    "{{.Config.WorkingDir}}\t{{.State.StartedAt}}\t"
-                    "{{range .Mounts}}{{.Type}}:{{.Source}}=>{{.Destination}};{{end}}"
+                    "{{.Config.WorkingDir}}\t{{.State.StartedAt}}\t{{.Image}}\t"
+                    "{{range .Mounts}}{{.Type}}|{{.Source}}|{{.Destination}}|{{.RW}};{{end}}"
                 ),
             ]
         )
         workspace_id: str | None = None
         workspace_evidence_id: str | None = None
+        mapped_host_root: Path | None = None
+        storage_kind: str | None = None
+        storage_resource_identity: str | None = None
+        storage_locator: str | None = None
+        logical_root: str | None = None
+        durability = "UNKNOWN"
+        current_reachability = "UNKNOWN"
+        protection_capability = "UNSUPPORTED"
+        protection_reason_code = "STORAGE_BACKEND_UNSUPPORTED"
+        agent_mutation_capability = "UNKNOWN"
         inspect_facts = _parse_inspect(inspect_result) if inspect_result.success else None
         if inspect_facts is not None:
             root, reason = _select_workspace_root(inspect_facts)
@@ -421,8 +590,134 @@ def observe_docker_domains(
                     f"{hashlib.sha256((short_id + workspace_id).encode()).hexdigest()[:24]}"
                 )
                 owning_mount = next(
-                    (m for m in inspect_facts.mounts if _canonical_sandbox_root(m[2]) == root),
+                    (
+                        m
+                        for m in inspect_facts.mounts
+                        if _canonical_sandbox_root(m.destination) == root
+                    ),
                     None,
+                )
+                mapped_host_root = _map_bind_workspace(inspect_facts, owning_mount)
+                if owning_mount is None:
+                    storage_kind = "CONTAINER_EPHEMERAL_FS"
+                    logical_root = "/"
+                    storage_resource_identity = "sha256:" + hashlib.sha256(
+                        (
+                            f"container-fs\x1f{domain_id}\x1f"
+                            f"{inspect_facts.started_at}\x1f{root}"
+                        ).encode()
+                    ).hexdigest()
+                    durability = "EPHEMERAL"
+                    current_reachability = "AVAILABLE"
+                    protection_reason_code = (
+                        "CONTAINER_EPHEMERAL_BACKEND_UNSUPPORTED"
+                    )
+                else:
+                    mount_type = owning_mount.mount_type.casefold()
+                    agent_mutation_capability = (
+                        "READ_WRITE"
+                        if owning_mount.read_write is True
+                        else "READ_ONLY"
+                        if owning_mount.read_write is False
+                        else "UNKNOWN"
+                    )
+                    if mount_type == "bind":
+                        if mapped_host_root is not None:
+                            storage_kind = "DOCKER_BIND"
+                            durability = "DURABLE"
+                            current_reachability = "AVAILABLE"
+                            protection_capability = "SUPPORTED"
+                            protection_reason_code = "HOST_PATH_BACKEND_SUPPORTED"
+                    elif mount_type == "volume" and owning_mount.source:
+                        engine_result = runner(
+                            [docker_executable, "info", "--format", "{{.ID}}"]
+                        )
+                        volume_result = runner(
+                            [
+                                docker_executable,
+                                "volume",
+                                "inspect",
+                                owning_mount.source,
+                                "--format",
+                                (
+                                    "{{.Name}}\t{{.Driver}}\t{{.Scope}}\t"
+                                    "{{.CreatedAt}}\t{{.Mountpoint}}"
+                                ),
+                            ]
+                        )
+                        volume_facts = (
+                            _parse_volume_facts(volume_result)
+                            if volume_result.success
+                            else None
+                        )
+                        engine_id = engine_result.stdout.strip()[:128]
+                        logical_root = _logical_volume_root(
+                            inspect_facts, owning_mount
+                        )
+                        if volume_facts is not None and engine_id and logical_root:
+                            storage_kind = "DOCKER_NAMED_VOLUME"
+                            storage_resource_identity = _volume_resource_identity(
+                                engine_id, volume_facts
+                            )
+                            storage_locator = "\x1f".join(
+                                (
+                                    volume_facts.name,
+                                    volume_facts.driver,
+                                    volume_facts.scope,
+                                    volume_facts.created_at,
+                                    volume_facts.mountpoint_ref,
+                                    inspect_facts.image_identity or "",
+                                )
+                            )
+                            durability = "DURABLE"
+                            current_reachability = "AVAILABLE"
+                            protection_capability = (
+                                "SUPPORTED"
+                                if volume_facts.driver == "local"
+                                and inspect_facts.image_identity is not None
+                                else "UNSUPPORTED"
+                            )
+                            protection_reason_code = (
+                                "DOCKER_VOLUME_BACKEND_SUPPORTED"
+                                if protection_capability == "SUPPORTED"
+                                else "DOCKER_VOLUME_HELPER_RUNTIME_UNAVAILABLE"
+                            )
+                    elif mount_type == "tmpfs":
+                        storage_kind = "TMPFS"
+                        logical_root = _logical_volume_root(inspect_facts, owning_mount)
+                        storage_resource_identity = "sha256:" + hashlib.sha256(
+                            f"tmpfs\x1f{domain_id}\x1f{inspect_facts.started_at}\x1f{root}".encode()
+                        ).hexdigest()
+                        durability = "VOLATILE"
+                        current_reachability = "AVAILABLE"
+                    else:
+                        storage_kind = "CONTAINER_EPHEMERAL_FS"
+                        logical_root = _logical_volume_root(inspect_facts, owning_mount)
+                        storage_resource_identity = "sha256:" + hashlib.sha256(
+                            f"container-fs\x1f{domain_id}\x1f{inspect_facts.started_at}\x1f{root}".encode()
+                        ).hexdigest()
+                        durability = "EPHEMERAL"
+                        current_reachability = "AVAILABLE"
+                if storage_resource_identity is not None and logical_root is not None:
+                    storage_digest = storage_workspace_digest(
+                        storage_resource_identity,
+                        logical_root,
+                        authority_domain_id,
+                    )
+                    workspace_id = (
+                        f"workspace-{storage_digest.split(':', 1)[1][:24]}"
+                    )
+                authority_reason_code = (
+                    "WORKSPACE_AUTHORITY_CANDIDATE"
+                    if mapped_host_root is not None
+                    or (storage_resource_identity is not None and logical_root is not None)
+                    else "WORKSPACE_STORAGE_IDENTITY_UNAVAILABLE"
+                )
+                mount_source_ref = (
+                    "sha256:"
+                    + hashlib.sha256(owning_mount.source.encode()).hexdigest()
+                    if owning_mount is not None and owning_mount.source
+                    else None
                 )
                 evidence.append(
                     ProbeEvidence(
@@ -433,15 +728,36 @@ def observe_docker_domains(
                         fact_type="workspace.present",
                         value={
                             "candidate_id": workspace_id,
-                            "workspace_kind": "SANDBOX_VOLUME",
+                            "workspace_kind": (
+                                "HOST_BIND_MAPPED"
+                                if mapped_host_root is not None
+                                else "SANDBOX_VOLUME"
+                            ),
+                            "storage_kind": storage_kind,
+                            "storage_resource_identity": storage_resource_identity,
+                            "logical_root": logical_root,
+                            "durability": durability,
+                            "current_reachability": current_reachability,
+                            "protection_capability": protection_capability,
+                            "protection_reason_code": protection_reason_code,
+                            "agent_mutation_capability": agent_mutation_capability,
                             "execution_domain_id": domain_id,
                             "container_id": short_id,
                             "container_started_at": inspect_facts.started_at,
                             "root": root,
-                            "mount_type": owning_mount[0] if owning_mount else None,
-                            "mount_source": owning_mount[1] if owning_mount else None,
+                            "mount_type": (
+                                owning_mount.mount_type if owning_mount else None
+                            ),
+                            "mount_source_ref": mount_source_ref,
+                            "mount_destination": (
+                                owning_mount.destination if owning_mount else None
+                            ),
+                            "mount_read_write": (
+                                owning_mount.read_write if owning_mount else None
+                            ),
                             "working_dir": inspect_facts.working_dir,
                             "reason_code": reason,
+                            "authority_reason_code": authority_reason_code,
                         },
                         reliability=EvidenceReliability.HIGH,
                         confidence=0.85,
@@ -466,6 +782,37 @@ def observe_docker_domains(
                         ),
                         evidence_ids=(workspace_evidence_id,),
                         confidence=0.85,
+                    )
+                )
+            elif root is None:
+                reason_code = {
+                    "SANDBOX_WORKSPACE_AMBIGUOUS": "WORKSPACE_EVIDENCE_AMBIGUOUS",
+                    "SANDBOX_WORKSPACE_NO_MOUNT_OWNER": (
+                        "WORKSPACE_DURABLE_HOST_BACKING_MISSING"
+                    ),
+                    "SANDBOX_WORKDIR_UNKNOWN": "WORKSPACE_EVIDENCE_MISSING",
+                }.get(reason, "WORKSPACE_EVIDENCE_INVALID")
+                evidence.append(
+                    ProbeEvidence(
+                        evidence_id=(
+                            "container-workspace-candidate-"
+                            + hashlib.sha256(
+                                (short_id + reason_code + nonce).encode()
+                            ).hexdigest()[:24]
+                        ),
+                        collector=collector,
+                        source="docker-inspect-host-side",
+                        observed_at=observed_at,
+                        fact_type="workspace.candidate",
+                        value={
+                            "execution_domain_id": domain_id,
+                            "container_id": short_id,
+                            "reason_code": reason_code,
+                        },
+                        reliability=EvidenceReliability.HIGH,
+                        confidence=0.85,
+                        status=CapabilityStatus.UNKNOWN,
+                        sanitized=True,
                     )
                 )
         for identity, role, pid in admitted:
@@ -509,6 +856,41 @@ def observe_docker_domains(
                     confidence=0.7,
                 )
             )
+            if (
+                (mapped_host_root is not None or storage_resource_identity is not None)
+                and workspace_id is not None
+                and workspace_evidence_id is not None
+                and inspect_facts is not None
+                and inspect_facts.started_at is not None
+            ):
+                workspace_authorities.append(
+                    ProcessWorkspaceAuthority(
+                        process_instance_id=_stable_id(
+                            "container-process",
+                            short_id,
+                            inspect_facts.started_at,
+                            pid,
+                        ),
+                        candidate_id=workspace_id,
+                        execution_domain_id=authority_domain_id,
+                        evidence_refs=(
+                            runtime_evidence_id,
+                            workspace_evidence_id,
+                            agent_evidence_id,
+                        ),
+                        agent_id=agent_id,
+                        cwd=mapped_host_root,
+                        storage_kind=storage_kind or "OTHER_UNSUPPORTED",
+                        storage_resource_identity=storage_resource_identity,
+                        storage_locator=storage_locator,
+                        logical_root=logical_root,
+                        durability=durability,
+                        current_reachability=current_reachability,
+                        protection_capability=protection_capability,
+                        protection_reason_code=protection_reason_code,
+                        agent_mutation_capability=agent_mutation_capability,
+                    )
+                )
 
     return HostDomainObservation(
         domains=tuple(domains),
@@ -516,6 +898,7 @@ def observe_docker_domains(
         agents=tuple(agents),
         workspaces=tuple(workspaces),
         evidence=tuple(evidence),
+        workspace_authorities=tuple(workspace_authorities),
     )
 
 
@@ -574,6 +957,27 @@ def observe_wsl_domains(
                 reliability=EvidenceReliability.HIGH,
                 confidence=0.8,
                 status=CapabilityStatus.AVAILABLE,
+                sanitized=True,
+            )
+        )
+        evidence.append(
+            ProbeEvidence(
+                evidence_id=(
+                    "wsl-agent-probe-"
+                    f"{hashlib.sha256((name + observed_at.isoformat()).encode()).hexdigest()[:24]}"
+                ),
+                collector=collector,
+                source="wsl-list-host-side",
+                observed_at=observed_at,
+                fact_type="probe.unreachable",
+                value={
+                    "domain_label": name,
+                    "execution_domain_id": domain_id,
+                    "reason_code": "NO_BOUNDED_HOST_READ",
+                    "scope": "agents",
+                },
+                reliability=EvidenceReliability.HIGH,
+                status=CapabilityStatus.UNKNOWN,
                 sanitized=True,
             )
         )

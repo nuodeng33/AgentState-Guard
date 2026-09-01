@@ -222,11 +222,20 @@ def test_review_prepare_uses_ai_advisory_then_p8_approval_and_authoritative_appl
     assert applied["reason_code"] == "CONTROLLED_CHANGE_COMPLETED"
     assert applied["changed"] is True
     assert applied["verification"] == "PASS"
-    assert "checkpoint_id" in applied
+    assert applied["action"] == "replace_agentguard_toml"
+    assert applied["transaction_id"].startswith("change-")
+    assert applied["workspace_id"]
+    assert applied["policy_result"] == "REVIEW"
+    assert len(applied["approval_evidence_refs"]) == 1
+    assert len(applied["changed_objects"]) == 1
+    assert len(applied["changed_objects"][0]) == 64
+    assert applied["checkpoint_id"]
+    assert set(applied["approval_evidence_refs"]).issubset(applied["evidence_refs"])
+    session_events = _events(db_path, session_id)
+    assert len(applied["evidence_refs"]) == len(session_events)
     assert str(tmp_path) not in json.dumps(applied)
     assert content not in json.dumps(applied)
     assert target.read_text(encoding="utf-8") == content
-    session_events = _events(db_path, session_id)
     assert session_events == [
         "SESSION_CREATED",
         "POLICY_EVALUATED",

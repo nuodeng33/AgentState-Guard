@@ -123,6 +123,26 @@ class TestWindowsDoctor:
             for item in results
         )
 
+    def test_external_python_absent_is_optional_when_bundled_runtime_is_active(self):
+        absent = type(
+            "R",
+            (),
+            {"presence": "HOST_NOT_FOUND", "path": None, "sidecar_callable": False},
+        )()
+        with (
+            patch("agentguard.commands.doctor.platform_is_windows", return_value=True),
+            patch.object(doctor_module, "bundled_sidecar_active", return_value=True),
+            patch.object(doctor_module, "host_tool_resolution", return_value=absent),
+            patch.object(doctor_module, "which", return_value=None),
+        ):
+            results = doctor({})
+
+        assert _by_check(results)["python"] == {
+            "check": "python",
+            "status": "INFO",
+            "message": "Optional external Python interpreter not detected on host",
+        }
+
 
 class TestWindowsStatus:
     def test_no_linux_probe_commands_spawned(self):

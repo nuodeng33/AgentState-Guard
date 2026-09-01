@@ -409,14 +409,28 @@ class WorkspaceCandidate:
 
 @dataclass(frozen=True)
 class ProcessWorkspaceAuthority:
-    """Exact process CWD retained only inside the local authority pipeline."""
+    """Private workspace/storage fact retained only in the authority pipeline.
+
+    ``cwd`` is present for host-addressable storage.  Sandboxed storage keeps
+    an opaque resource identity plus a POSIX logical root instead; lack of a
+    host path is therefore not confused with lack of workspace authority.
+    """
 
     process_instance_id: str
     candidate_id: str
     execution_domain_id: str
-    cwd: Path = field(repr=False)
     evidence_refs: tuple[str, ...] = ()
     agent_id: str | None = None
+    cwd: Path | None = field(default=None, repr=False)
+    storage_kind: str = "HOST_PATH"
+    storage_resource_identity: str | None = None
+    storage_locator: str | None = field(default=None, repr=False)
+    logical_root: str | None = None
+    durability: str = "DURABLE"
+    current_reachability: str = "AVAILABLE"
+    protection_capability: str = "SUPPORTED"
+    protection_reason_code: str = "STORAGE_BACKEND_SUPPORTED"
+    agent_mutation_capability: str = "UNKNOWN"
 
     def __post_init__(self) -> None:
         if not self.process_instance_id or not self.candidate_id:
@@ -425,7 +439,24 @@ class ProcessWorkspaceAuthority:
             raise ValueError("workspace authority requires an execution domain")
         if not self.evidence_refs:
             raise ValueError("workspace authority requires evidence refs")
-        object.__setattr__(self, "cwd", Path(self.cwd))
+        if self.cwd is not None:
+            object.__setattr__(self, "cwd", Path(self.cwd))
+        if self.storage_kind not in {
+            "HOST_PATH",
+            "DOCKER_BIND",
+            "DOCKER_NAMED_VOLUME",
+            "WSL_FS",
+            "CONTAINER_EPHEMERAL_FS",
+            "TMPFS",
+            "OTHER_UNSUPPORTED",
+        }:
+            raise ValueError("workspace authority storage kind is invalid")
+        if self.cwd is None and (
+            self.storage_resource_identity is None or self.logical_root is None
+        ):
+            raise ValueError("non-host workspace authority requires storage identity")
+        if self.cwd is not None and self.logical_root is not None:
+            raise ValueError("host workspace authority cannot also have a logical root")
         object.__setattr__(
             self,
             "evidence_refs",

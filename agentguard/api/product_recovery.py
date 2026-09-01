@@ -8,6 +8,8 @@ from pathlib import Path
 
 from agentguard.discovery.domains import SelfRuntimeAdapter
 from agentguard.recovery.contracts import RecoveryOperation, RecoveryRequest
+from agentguard.recovery.docker_volume_adapter import DockerVolumeRecoveryAdapter
+from agentguard.recovery.docker_volume_transport import DockerCliVolumeTransport
 from agentguard.recovery.policy import RestorePolicy
 from agentguard.recovery.service import RecoveryService
 from agentguard.recovery.workspace_adapter import HostWorkspaceRecoveryAdapter
@@ -142,12 +144,13 @@ def _recovery_context(
 ) -> _RecoveryContext:
     scope_service = WorkspaceScopeService(database)
     try:
-        active = scope_service.active_scope()
+        authorities = scope_service.authority_results()
         latest = scope_service.latest_result()
     except WorkspaceScopeError as exc:
         raise ProductRecoveryError("WORKSPACE_SCOPE_BINDING_INVALID") from exc
 
     workspace_artifact = None
+    workspace_load_reason = None
     if operation is not RecoveryOperation.SNAPSHOT and checkpoint_id is not None:
         checkpoint = (
             database.get_checkpoint(int(checkpoint_id))
@@ -155,32 +158,74 @@ def _recovery_context(
             else None
         )
         if checkpoint is not None:
-            workspace_artifact = snapshots.load_recovery_v3(
-                checkpoint["snapshot_path"]
+            workspace_artifact, workspace_load_reason = (
+                snapshots.load_recovery_v3_with_status(
+                    checkpoint["snapshot_path"]
+                )
             )
+            if workspace_artifact is None:
+                raise ProductRecoveryError(
+                    workspace_load_reason or "RECOVERY_MANIFEST_INVALID"
+                )
     artifact_workspace = (
         workspace_artifact.get("workspace")
         if isinstance(workspace_artifact, dict)
         else None
     )
-    wants_workspace = operation is RecoveryOperation.SNAPSHOT and latest is not None
+    wants_workspace = operation is RecoveryOperation.SNAPSHOT and bool(authorities)
     wants_workspace = wants_workspace or isinstance(artifact_workspace, dict)
 
     if wants_workspace:
-        if operation is RecoveryOperation.SNAPSHOT and latest is not None:
-            if latest.status == "UNAVAILABLE":
-                raise ProductRecoveryError(latest.reason_code)
-            if latest.status == "NOT_OBSERVED":
-                return _product_config_context(product_target, discovery_service)
-        if active is None:
-            raise ProductRecoveryError("WORKSPACE_SCOPE_BINDING_INVALID")
+        if operation is RecoveryOperation.SNAPSHOT:
+            if len(authorities) != 1:
+                raise ProductRecoveryError("WORKSPACE_SCOPE_AMBIGUOUS")
+            authority = authorities[0]
+        else:
+            workspace_id = artifact_workspace.get("workspace_id")
+            if not isinstance(workspace_id, str) or not workspace_id:
+                raise ProductRecoveryError("RECOVERY_MANIFEST_INVALID")
+            try:
+                authority = scope_service.resolve_authority(workspace_id)
+            except WorkspaceScopeError as exc:
+                raise ProductRecoveryError("WORKSPACE_SCOPE_BINDING_INVALID") from exc
+        if authority.authority_state != "BOUND" or authority.scope is None:
+            raise ProductRecoveryError(authority.reason_code)
+        active = authority.scope
         if isinstance(artifact_workspace, dict) and (
             artifact_workspace.get("workspace_id") != active.workspace_id
             or artifact_workspace.get("execution_domain_id")
             != active.execution_domain_id
             or artifact_workspace.get("root_digest") != active.root_digest
+            or (
+                active.storage_kind == "DOCKER_NAMED_VOLUME"
+                and (
+                    artifact_workspace.get("storage_kind") != active.storage_kind
+                    or artifact_workspace.get("storage_resource_identity")
+                    != active.storage_resource_identity
+                    or artifact_workspace.get("logical_root") != active.logical_root
+                )
+            )
         ):
             raise ProductRecoveryError("WORKSPACE_SCOPE_BINDING_INVALID")
+        if active.storage_kind == "DOCKER_NAMED_VOLUME":
+            if operation is RecoveryOperation.RESTORE and not _has_verified_test_restore(
+                database,
+                checkpoint_id,
+                active.execution_domain_id,
+            ):
+                raise ProductRecoveryError("RECOVERY_TEST_RESTORE_REQUIRED")
+            return _RecoveryContext(
+                scope_kind="DOCKER_NAMED_VOLUME",
+                domain_id=active.execution_domain_id,
+                target=None,
+                adapter=DockerVolumeRecoveryAdapter(
+                    scope=active,
+                    transport=DockerCliVolumeTransport(),
+                ),
+                workspace=active,
+            )
+        if active.root_path is None:
+            raise ProductRecoveryError(active.protection_reason_code)
         try:
             backend = current_user_permission_backend()
         except PermissionCapabilityError as exc:
@@ -196,6 +241,11 @@ def _recovery_context(
             ),
             workspace=active,
         )
+    if operation is RecoveryOperation.SNAPSHOT and latest is not None:
+        if latest.status == "UNAVAILABLE":
+            raise ProductRecoveryError(latest.reason_code)
+        if latest.status == "BOUND":
+            raise ProductRecoveryError("WORKSPACE_SCOPE_BINDING_INVALID")
     return _product_config_context(product_target, discovery_service)
 
 
@@ -225,6 +275,28 @@ def _checkpoint_evidence(database: StateDB, checkpoint_id: str | None) -> list[s
         (checkpoint_id,),
     ).fetchall()
     return [str(row[0]) for row in rows]
+
+
+def _has_verified_test_restore(
+    database: StateDB,
+    checkpoint_id: str | None,
+    execution_domain_id: str,
+) -> bool:
+    if database._conn is None or checkpoint_id is None:
+        return False
+    rows = database._conn.execute(
+        """SELECT event_type, result FROM evidence_ledger_events
+           WHERE checkpoint_id = ? AND execution_domain_id = ?
+             AND event_type IN (
+                 'TEST_RESTORE_STARTED', 'FILE_RESTORED', 'VALIDATOR_PASSED'
+             )""",
+        (checkpoint_id, execution_domain_id),
+    ).fetchall()
+    return {
+        event_type
+        for event_type, result in rows
+        if result == "AVAILABLE"
+    } == {"TEST_RESTORE_STARTED", "FILE_RESTORED", "VALIDATOR_PASSED"}
 
 
 __all__ = [

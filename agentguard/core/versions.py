@@ -127,6 +127,10 @@ def all_versions() -> dict[str, str | None]:
             if name == "codex" and cmd is not None and version is None:
                 version = windows_registered_tool_version(name)
             versions[name] = version
+        pi = host_tool_resolution("pi")
+        versions["pi"] = (
+            windows_registered_tool_version("pi") if pi.path is not None else None
+        )
     else:
         for name in ("claude", "cloudcli", "ccr"):
             cmd = _resolved_command(name)

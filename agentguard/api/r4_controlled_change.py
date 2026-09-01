@@ -217,7 +217,7 @@ def apply_controlled_change(
         requested_target=target,
         content=content,
     )
-    return {
+    response: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "supervision_session_id": session_id,
         "status": result.status,
@@ -229,6 +229,66 @@ def apply_controlled_change(
         "after_digest": result.after_digest,
         "checkpoint_id": checkpoint_id,
         "evidence_refs": list(result.evidence_refs),
+    }
+    if result.status == "COMPLETED":
+        response.update(_controlled_change_receipt(connection, session_id))
+    return response
+
+
+def _controlled_change_receipt(
+    connection: sqlite3.Connection,
+    session_id: str,
+) -> dict[str, object]:
+    """Project the completed action receipt only from verified Ledger facts."""
+    rows = connection.execute(
+        """SELECT event_id, event_type, result, transaction_id, payload_safe_json
+           FROM evidence_ledger_events
+           WHERE supervision_session_id = ? ORDER BY sequence""",
+        (session_id,),
+    ).fetchall()
+    by_type: dict[str, list[tuple[object, ...]]] = {}
+    for row in rows:
+        by_type.setdefault(str(row[1]), []).append(row)
+    required = {
+        "POLICY_EVALUATED",
+        "USER_APPROVED",
+        "OBSERVED_CHANGE",
+        "SESSION_COMPLETED",
+    }
+    if any(len(by_type.get(event_type, ())) != 1 for event_type in required):
+        raise ControlledChangeError("CONTROLLED_CHANGE_RECEIPT_UNAVAILABLE", 503)
+    policy = by_type["POLICY_EVALUATED"][0]
+    approval = by_type["USER_APPROVED"][0]
+    change = by_type["OBSERVED_CHANGE"][0]
+    completed = by_type["SESSION_COMPLETED"][0]
+    try:
+        change_payload = json.loads(str(change[4]))
+        completed_payload = json.loads(str(completed[4]))
+    except json.JSONDecodeError:
+        raise ControlledChangeError("CONTROLLED_CHANGE_RECEIPT_UNAVAILABLE", 503) from None
+    transaction_id = change[3]
+    workspace_id = completed_payload.get("workspace_id")
+    changed_object = change_payload.get("target_ref_digest")
+    if (
+        policy[2] not in {"ALLOW", "REVIEW", "BLOCK", "UNKNOWN"}
+        or approval[2] != "APPROVED"
+        or not isinstance(transaction_id, str)
+        or completed_payload.get("change_id") != transaction_id
+        or not isinstance(workspace_id, str)
+        or change_payload.get("workspace_id") != workspace_id
+        or not isinstance(changed_object, str)
+        or len(changed_object) != 64
+        or any(character not in "0123456789abcdef" for character in changed_object)
+    ):
+        raise ControlledChangeError("CONTROLLED_CHANGE_RECEIPT_UNAVAILABLE", 503)
+    return {
+        "action": "replace_agentguard_toml",
+        "transaction_id": transaction_id,
+        "workspace_id": workspace_id,
+        "policy_result": policy[2],
+        "approval_evidence_refs": [approval[0]],
+        "changed_objects": [changed_object],
+        "evidence_refs": [row[0] for row in rows],
     }
 
 

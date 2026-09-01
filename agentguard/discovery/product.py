@@ -20,7 +20,10 @@ from .agents import (
     PsutilProcessBackend,
     launcher_identity,
 )
-from .agents.processes import bounded_launcher_anchors_for
+from .agents.processes import (
+    bounded_launcher_anchors_for,
+    bounded_product_identity_for,
+)
 from .capabilities import AgentLifecycleStatus, CapabilityStatus, EvidenceReliability
 from .domains import SelfRuntimeAdapter
 from .domains.host_domains import (
@@ -52,11 +55,6 @@ _BASENAME_IDENTITY_EVIDENCE: dict[str, str] = {
 #: Generic runtimes that must never be guessed as Agents by basename alone.
 _GENERIC_RUNTIME_BASENAMES = frozenset({"node", "node.exe", "nodejs", "nodejs.exe"})
 
-#: Exact terminal wrapper used by the supervised Codex container. It is not
-#: itself an Agent identity; only an absolute, final known launcher path can
-#: supply the bounded identity evidence.
-_TERMINAL_WRAPPER_BASENAMES = frozenset({"ttyd", "ttyd.exe"})
-
 #: Canonical role enrichment for identities established by bounded evidence.
 _IDENTITY_ROLE_ENRICHMENT: dict[str, AgentRole] = {
     "CCR": AgentRole.MODEL_ROUTER,
@@ -64,13 +62,39 @@ _IDENTITY_ROLE_ENRICHMENT: dict[str, AgentRole] = {
     "CLOUDCLI": AgentRole.AGENT_HOST,
     "CODEX": AgentRole.EXECUTION_AGENT,
     "KIMI_CODE": AgentRole.EXECUTION_AGENT,
+    "PI": AgentRole.EXECUTION_AGENT,
+    "ZCODE": AgentRole.EXECUTION_AGENT,
 }
 
 # V1 passive discovery admits only identities established by bounded evidence.
 # Workspace binding and mutation authority remain separate and fail closed.
 _V1_PASSIVE_ADMISSION_IDENTITIES = frozenset(
-    ("CCR", "CLAUDE", "CLOUDCLI", "CODEX", "KIMI_CODE")
+    ("CCR", "CLAUDE", "CLOUDCLI", "CODEX", "KIMI_CODE", "PI", "ZCODE")
 )
+
+
+def host_reconciliation_basenames() -> frozenset[str]:
+    """Basenames whose appearance can justify bounded admission refresh."""
+
+    return frozenset(
+        (
+            *_BASENAME_IDENTITY_EVIDENCE,
+            *_GENERIC_RUNTIME_BASENAMES,
+            "pi agent desktop.exe",
+            "zcode.exe",
+        )
+    )
+
+
+def _private_path_is_at_or_below(candidate: object, root: str | None) -> bool:
+    """Compare private authority paths without projecting either value."""
+    if root is None:
+        return False
+    candidate_key = str(candidate).replace("\\", "/").rstrip("/").casefold()
+    root_key = str(root).replace("\\", "/").rstrip("/").casefold()
+    return bool(root_key) and (
+        candidate_key == root_key or candidate_key.startswith(root_key + "/")
+    )
 
 #: Unambiguous wrapper-directory tokens for container executable paths.
 #: Mirrors the admitted identities only — no new identity is invented for
@@ -131,12 +155,6 @@ def _admit_container_process(tokens: Sequence[str]) -> tuple[str, str] | None:
                 identity = _WRAPPER_PATH_TOKENS.get(token)
                 if identity is not None:
                     break
-    if identity is None and basename in _TERMINAL_WRAPPER_BASENAMES:
-        launcher = str(tokens[-1]).replace("\\", "/")
-        if launcher.startswith("/") or re.match(r"[A-Za-z]:/", launcher):
-            identity = _BASENAME_IDENTITY_EVIDENCE.get(
-                launcher.rsplit("/", 1)[-1].casefold()
-            )
     if identity is None or identity not in _V1_PASSIVE_ADMISSION_IDENTITIES:
         return None
     return identity, _IDENTITY_ROLE_ENRICHMENT[identity].value
@@ -151,11 +169,23 @@ def _resolve_bounded_launcher_identity(anchors: tuple[str, ...] | list[str]) -> 
 
 
 @dataclass(frozen=True)
+class HostAgentProcessAuthority:
+    """Private Agent-to-process binding for host observation; never serialized."""
+
+    agent_id: str
+    process_instance_id: str
+    pid: int
+    create_time: datetime
+    execution_domain_id: str
+
+
+@dataclass(frozen=True)
 class ProductDiscoveryReport:
     """Serializable discovery plus private, in-process workspace authority facts."""
 
     snapshot: DiscoverySnapshot
     workspace_authorities: tuple[ProcessWorkspaceAuthority, ...] = ()
+    host_agent_process_authorities: tuple[HostAgentProcessAuthority, ...] = ()
 
 
 class ProductDiscoveryService:
@@ -178,6 +208,7 @@ class ProductDiscoveryService:
 
     def _default_host_domain_observers(
         self,
+        authority_domain_id: str,
     ) -> tuple[Callable[[], HostDomainObservation], ...]:
         clock = self._clock
 
@@ -186,6 +217,7 @@ class ProductDiscoveryService:
                 admit_process=_admit_container_process,
                 clock=clock,
                 docker_executable=resolved_docker_executable() or "docker",
+                authority_domain_id=authority_domain_id,
             ),
             lambda: observe_wsl_domains(clock=clock),
         )
@@ -242,6 +274,7 @@ class ProductDiscoveryService:
         ).collect()
         evidence: list[ProbeEvidence] = [*runtime_snapshot.evidence, runtime_evidence]
         agents: list[AgentDescriptor] = []
+        host_agent_process_authorities: list[HostAgentProcessAuthority] = []
         workspace_authorities: list[ProcessWorkspaceAuthority] = []
         workspace_agents: dict[str, list[str]] = {}
         workspace_sources: dict[str, tuple[object, ProbeEvidence]] = {}
@@ -257,7 +290,14 @@ class ProductDiscoveryService:
 
         for fact in processes.facts:
             basename = (fact.executable_basename or "").casefold()
-            identity = _BASENAME_IDENTITY_EVIDENCE.get(basename)
+            bounded_product = bounded_product_identity_for(
+                self._process_backend, fact.pid
+            )
+            install_root: str | None = None
+            if bounded_product is not None:
+                identity, install_root = bounded_product
+            else:
+                identity = _BASENAME_IDENTITY_EVIDENCE.get(basename)
             if identity is None and basename in _GENERIC_RUNTIME_BASENAMES:
                 # Node-hosted Agents resolve only through bounded launcher
                 # identity; unresolved runtimes stay unclassified.
@@ -313,6 +353,11 @@ class ProductDiscoveryService:
                 ),
                 None,
             )
+            authority = authorities_by_process.get(fact.process_instance_id)
+            if authority is not None and _private_path_is_at_or_below(
+                authority.cwd, install_root
+            ):
+                candidate = None
             if candidate is not None:
                 workspace_ids = (candidate.candidate_id,)
                 workspace_agents.setdefault(candidate.candidate_id, []).append(agent_id)
@@ -335,7 +380,6 @@ class ProductDiscoveryService:
                     )
                     workspace_sources[candidate.candidate_id] = (candidate, workspace_evidence)
                     evidence.append(workspace_evidence)
-                authority = authorities_by_process.get(fact.process_instance_id)
                 if authority is not None and authority.candidate_id == candidate.candidate_id:
                     workspace_authorities.append(replace(authority, agent_id=agent_id))
             agents.append(
@@ -351,6 +395,16 @@ class ProductDiscoveryService:
                     confidence=0.8,
                 )
             )
+            if fact.create_time is not None:
+                host_agent_process_authorities.append(
+                    HostAgentProcessAuthority(
+                        agent_id=agent_id,
+                        process_instance_id=fact.process_instance_id,
+                        pid=fact.pid,
+                        create_time=fact.create_time,
+                        execution_domain_id=domain.domain_id,
+                    )
+                )
 
         workspaces = tuple(
             WorkspaceDescriptor(
@@ -395,12 +449,13 @@ class ProductDiscoveryService:
         observers = (
             self._host_domain_observers
             if self._host_domain_observers is not None
-            else self._default_host_domain_observers()
+            else self._default_host_domain_observers(domain.domain_id)
         )
         extra_domains: list[ExecutionDomainDescriptor] = []
         extra_runtimes: list[RuntimeDescriptor] = []
         extra_agents: list[AgentDescriptor] = []
         extra_workspaces: list[WorkspaceDescriptor] = []
+        extra_workspace_authorities: list[ProcessWorkspaceAuthority] = []
         observer_errors: list = []
         for observe in observers:
             try:
@@ -427,25 +482,87 @@ class ProductDiscoveryService:
             extra_runtimes.extend(observation.runtimes)
             extra_agents.extend(observation.agents)
             extra_workspaces.extend(observation.workspaces)
+            extra_workspace_authorities.extend(observation.workspace_authorities)
             evidence.extend(observation.evidence)
 
-        return ProductDiscoveryReport(
-            snapshot=DiscoverySnapshot(
-                snapshot_id=f"product-{nonce}",
-                observed_at=observed_at,
-                domains=(domain, *extra_domains),
-                runtimes=(runtime, *extra_runtimes),
-                agents=(*agents, *extra_agents),
-                workspaces=(*workspaces, *extra_workspaces),
-                evidence=tuple(evidence),
-                errors=(*runtime_snapshot.errors, *processes.errors, *observer_errors),
-                status=(
-                    CapabilityStatus.AVAILABLE
-                    if processes.status is CapabilityStatus.AVAILABLE
-                    else CapabilityStatus.DEGRADED
-                ),
+        snapshot = DiscoverySnapshot(
+            snapshot_id=f"product-{nonce}",
+            observed_at=observed_at,
+            domains=(domain, *extra_domains),
+            runtimes=(runtime, *extra_runtimes),
+            agents=(*agents, *extra_agents),
+            workspaces=(*workspaces, *extra_workspaces),
+            evidence=tuple(evidence),
+            errors=(*runtime_snapshot.errors, *processes.errors, *observer_errors),
+            status=(
+                CapabilityStatus.AVAILABLE
+                if processes.status is CapabilityStatus.AVAILABLE
+                else CapabilityStatus.DEGRADED
             ),
-            workspace_authorities=tuple(workspace_authorities),
+        )
+        report = ProductDiscoveryReport(
+            snapshot=snapshot,
+            workspace_authorities=(
+                *workspace_authorities,
+                *extra_workspace_authorities,
+            ),
+            host_agent_process_authorities=tuple(host_agent_process_authorities),
+        )
+        from .workspace_authority import resolve_workspace_authorities
+
+        workspace_ids_by_agent: dict[str, set[str]] = {}
+        for resolved in resolve_workspace_authorities(
+            report,
+            home_path=self._home_path,
+        ):
+            if resolved.status != "BOUND" or resolved.workspace_id is None:
+                continue
+            for agent_id in resolved.agent_ids:
+                workspace_ids_by_agent.setdefault(agent_id, set()).add(
+                    resolved.workspace_id
+                )
+        resolved_agent_workspaces = {
+            agent_id: next(iter(workspace_ids))
+            for agent_id, workspace_ids in workspace_ids_by_agent.items()
+            if len(workspace_ids) == 1
+        }
+        if not resolved_agent_workspaces:
+            return report
+
+        remapped_agents = tuple(
+            replace(
+                item,
+                workspace_ids=(resolved_agent_workspaces[item.agent_id],),
+            )
+            if item.agent_id in resolved_agent_workspaces
+            else item
+            for item in snapshot.agents
+        )
+        remapped_workspaces: list[WorkspaceDescriptor] = []
+        for item in snapshot.workspaces:
+            mapped = {
+                resolved_agent_workspaces[agent_id]
+                for agent_id in item.agent_ids
+                if agent_id in resolved_agent_workspaces
+            }
+            unresolved = {
+                agent_id
+                for agent_id in item.agent_ids
+                if agent_id not in resolved_agent_workspaces
+            }
+            if len(mapped) == 1 and not unresolved:
+                remapped_workspaces.append(
+                    replace(item, workspace_id=next(iter(mapped)))
+                )
+            else:
+                remapped_workspaces.append(item)
+        return replace(
+            report,
+            snapshot=replace(
+                snapshot,
+                agents=remapped_agents,
+                workspaces=tuple(remapped_workspaces),
+            ),
         )
 
 
@@ -503,8 +620,10 @@ def _stable_id(prefix: str, *parts: str) -> str:
 
 
 __all__ = [
+    "HostAgentProcessAuthority",
     "ProductDiscoveryReport",
     "ProductDiscoveryService",
     "current_execution_domain",
+    "host_reconciliation_basenames",
     "unavailable_product_snapshot",
 ]
