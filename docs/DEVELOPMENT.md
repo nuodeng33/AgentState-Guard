@@ -3,9 +3,9 @@
 Updated 2026-10-15. Use the branch containing the dated workspace update; an old
 default-branch checkout or published package may not contain these modules.
 
-The current source-sync PR is a development snapshot with a known failing
-workspace-authority test, not a verified release. See the source-sync verification
-entry in [CHANGELOG](CHANGELOG.md) before relying on a passing full-suite claim.
+The current source-sync PR is a development snapshot, not a verified release.
+See the source-sync verification entry in [CHANGELOG](CHANGELOG.md) for dated
+test results and the correction to the earlier workspace-authority test report.
 
 ## Checkout and install
 
@@ -29,6 +29,13 @@ Core tests, frontend checks and wheel build. Desktop/Android checks have their
 own platform requirements. Live Docker/WSL and provider checks require explicit
 opt-in and access to those actual environments; do not set live-test variables
 in an ordinary cloud unit-test job.
+
+Leave pytest's temporary directory at its default system location, or choose a
+fresh system-temp `--basetemp` **outside every Git checkout**. Workspace tests
+resolve ancestor Git roots: placing their fake projects under this repository
+would incorrectly turn distinct directories into the same Git workspace and
+could scan the source checkout. The test entry point rejects this configuration;
+it does not skip the affected tests or change production authority rules.
 
 ## Run locally
 

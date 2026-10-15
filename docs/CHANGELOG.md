@@ -51,14 +51,23 @@ into the repository. It does not announce a package or installer release.
   feedback browser script passed (explicit fixture API, no model calls).
 - The earlier 93-test Work/transaction/execution regression remains dated evidence
   in the acceptance notes. New source-sync spot checks: 32 passed, 1 platform skip.
-- A full local backend run showed failures and was interrupted after extended
-  lack of progress; it is **not** a passing full-suite result. The fail-fast rerun
-  finished with **858 passed, 5 skipped, 1 failed** at
-  `tests/test_host_workspace_authority.py::test_distinct_agent_roots_fail_closed`:
-  expected `UNAVAILABLE`, observed `BOUND`. This authority-boundary discrepancy
-  remains unresolved; downstream tests were not reached in that rerun. GitHub
-  Actions is an additional verification gate. No tests were disabled to make this
-  source snapshot appear green.
+- Correction: the initial full run and its **858 passed, 5 skipped, 1 failed**
+  fail-fast rerun used `--basetemp` inside this Git checkout. Synthetic directories
+  inherited the checkout's Git root, invalidating workspace-authority fixtures.
+  The same authority/optimization tests pass outside the checkout; a fresh full
+  run in system temp completed with **1304 passed, 12 skipped**. Production
+  authority rules and assertions were not relaxed. Tests now reject a repository-
+  local `--basetemp` before executing.
+- GitHub Core CI separately failed during collection because direct HTTP tests
+  import `httpx` but the dev extra declared only `httpx2`. Both test dependencies
+  are now explicit. Core workflow concurrency supersedes older runs for the same
+  branch without disabling checks or changing notification preferences.
+- A brand-new dev virtual environment passed `pip check`, collected all **1316**
+  tests, and passed **78** API/Work/execution tests, including the two modules
+  previously blocked by the missing import. This is local Windows validation of
+  a fresh dependency install; the Linux/Python CI matrix is verified separately.
+- Cloud rerun results remain separate from the local full-suite result. No tests
+  were disabled to make this snapshot appear green.
 
 ## 2026-07-23
 
