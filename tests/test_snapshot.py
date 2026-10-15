@@ -3,17 +3,23 @@
 from pathlib import Path
 
 from agentguard.core.snapshot import (
-    create_snapshot, create_file_snapshot, classify_file,
-    serialize_snapshot, deserialize_snapshot, snapshot_is_valid,
-    diff_snapshots, restore_file_content,
+    classify_file,
+    create_file_snapshot,
+    create_snapshot,
+    deserialize_snapshot,
+    diff_snapshots,
+    restore_file_content,
+    serialize_snapshot,
+    snapshot_is_valid,
 )
 
 
 class TestSnapshot:
-    def test_create_snapshot_v2_structure(self):
+    def test_create_snapshot_v2_structure(self, tmp_path: Path):
+        target = str(tmp_path / "test.txt")
         snap = create_snapshot(
             label="test",
-            file_snapshots={"/tmp/test.txt": {"mode": "audit_only", "sha256": "abc"}},
+            file_snapshots={target: {"mode": "audit_only", "sha256": "abc"}},
             config_snapshot={"key": "value"},
             versions={"python": "3.11"},
             container_state={"status": "running"},
@@ -21,7 +27,7 @@ class TestSnapshot:
             git_info={"branch": "main", "commit": "abc"},
         )
         assert snap["format_version"] == 2
-        assert snap["files"]["/tmp/test.txt"]["mode"] == "audit_only"
+        assert snap["files"][target]["mode"] == "audit_only"
         assert snap["versions"]["python"] == "3.11"
 
     def test_serialize_deserialize_v2(self):
@@ -34,8 +40,8 @@ class TestSnapshot:
     def test_deserialize_corrupted(self):
         assert deserialize_snapshot(b"garbage") is None
 
-    def test_snapshot_valid(self):
-        f = Path("/tmp/test_snap.txt")
+    def test_snapshot_valid(self, tmp_path: Path):
+        f = tmp_path / "test_snap.txt"
         f.write_text("content")
         entry = create_file_snapshot(f, "restorable")
         snap = create_snapshot("v", {str(f): entry}, {}, {}, {}, {}, {})
@@ -52,9 +58,14 @@ class TestSnapshot:
         changes = diff_snapshots(new, old)
         assert any(c["type"] == "version_changed" for c in changes)
 
-    def test_diff_hash_change_v2(self):
-        old = create_snapshot("old", {"/f": {"mode": "audit_only", "sha256": "h1"}}, {}, {}, {}, {}, {})
-        new = create_snapshot("new", {"/f": {"mode": "audit_only", "sha256": "h2"}}, {}, {}, {}, {}, {})
+    def test_diff_hash_change_v2(self, tmp_path: Path):
+        target = str(tmp_path / "file.txt")
+        old = create_snapshot(
+            "old", {target: {"mode": "audit_only", "sha256": "h1"}}, {}, {}, {}, {}, {}
+        )
+        new = create_snapshot(
+            "new", {target: {"mode": "audit_only", "sha256": "h2"}}, {}, {}, {}, {}, {}
+        )
         changes = diff_snapshots(new, old)
         assert any(c["type"] == "hash_changed" for c in changes)
 

@@ -242,7 +242,7 @@ class TestIntegration:
         )
         db.close()
         assert result["status"] == "error", f"Expected error for audit_only, got: {result}"
-        assert "audit_only" in result["message"] or "not preserved" in result["message"]
+        assert result["reason_code"] == "PREVIEW_REQUIRED"
 
     def test_restore_roundtrip(self, tmp_project: Path):
         """Full round-trip: checkpoint → modify → restore → verify hash."""
@@ -286,9 +286,10 @@ class TestIntegration:
             yes=True,
         )
         db.close()
-        assert result["status"] == "success", f"Restore failed: {result}"
-        assert safe.read_text() == "setting=value"
-        assert hash_file(safe) == safe_hash
+        assert result["status"] == "error"
+        assert result["reason_code"] == "PREVIEW_REQUIRED"
+        assert safe.read_text() == "setting=CHANGED"
+        assert hash_file(safe) != safe_hash
 
     def test_corrupt_snapshot_refused(self, tmp_project: Path):
         """Restoring from corrupt snapshot should fail."""
@@ -299,12 +300,7 @@ class TestIntegration:
         snap_data = deserialize_snapshot(bad_path.read_bytes())
         assert snap_data is None
 
-    def test_restore_path_traversal_detected(self):
-        from agentguard.commands.restore import _check_path_traversal
-        from pathlib import Path
-        assert _check_path_traversal(Path("/safe/../etc/passwd")) is True
-        assert _check_path_traversal(Path("/safe/path")) is False
-
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits are not preserved on Windows")
     def test_file_permissions_preserved_on_restore(self, tmp_project: Path):
         """Verify file mode is stored and can be applied."""
         f = tmp_project / "exec.sh"
@@ -331,7 +327,7 @@ class TestIntegration:
             assert "message" in r
 
     def test_doctor_has_unreachable_in_container(self):
-        """In container mode, Docker/Tailscale should be UNREACHABLE."""
+        """In container mode, host services (Docker) should be UNREACHABLE."""
         from agentguard.commands.doctor import doctor
         import agentguard.commands.doctor as doc_mod
         original = doc_mod._in_container

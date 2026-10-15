@@ -1,0 +1,3 @@
+BUILD SUCCESSFUL in 30s
+19 actionable tasks: 1 executed, 18 up-to-date
+> Task :app:testDebugUnitTest NO-SOURCE

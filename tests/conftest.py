@@ -1,10 +1,23 @@
 """Shared test fixtures."""
 
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator, Tuple
 
 import pytest
+
+
+def pytest_configure(config):
+    # Workspace tests deliberately resolve the nearest Git root. A temp tree
+    # inside any checkout changes their inputs and can scan the checkout itself.
+    base = config.getoption("basetemp")
+    if base:
+        directory = Path(base).resolve()
+        if any((parent / ".git").exists() for parent in (directory, *directory.parents)):
+            raise pytest.UsageError(
+                "--basetemp must be outside every Git checkout; workspace tests "
+                "resolve ancestor Git roots. Use a new system-temp directory."
+            )
 
 
 @pytest.fixture

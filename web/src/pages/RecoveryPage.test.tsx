@@ -1,0 +1,157 @@
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+
+import type { RecoveryItem, RecoveryView } from '../api/types';
+import { RecoveryViewBody } from './RecoveryPage';
+
+function item(partial: Partial<RecoveryItem>): RecoveryItem {
+  return {
+    checkpoint_id: 'cp-1',
+    execution_domain_id: 'self-runtime',
+    status: 'COMPLETE',
+    reason_code: 'RECOVERY_COVERAGE_COMPLETE',
+    requested_targets: 3,
+    authorized_snapshot_targets: 3,
+    intact_manifest_blob_targets: 3,
+    authorized_snapshot_coverage: 1,
+    manifest_blob_coverage: 1,
+    test_restore_verified_targets: 3,
+    test_restore_status: 'VERIFIED_R2',
+    recovery_level: 'R3',
+    r1_verified: true,
+    r2_verified: true,
+    r3_verified: true,
+    trusted_baseline_status: 'NONE',
+    trusted_baseline_id: null,
+    evidence_refs: ['evt-cp-1'],
+    ...partial,
+  };
+}
+
+const R3_UNTRUSTED: RecoveryView = {
+  schema_version: 'r4-p8-1',
+  view: 'recovery',
+  status: 'AVAILABLE',
+  reason_code: 'R4_RECOVERY_AVAILABLE',
+  evidence_refs: ['evt-cp-1'],
+  items: [item({})],
+  recovery_level: 'R3',
+  r1_verified: true,
+  r2_verified: true,
+  r3_verified: true,
+  test_restore_status: 'VERIFIED_R2',
+  trusted_baseline_status: 'NONE',
+  trusted_baseline_id: null,
+  checkpoint_count: 1,
+  latest_checkpoint: item({}),
+  actual_restore_status: 'NOT_RUN',
+  recovery_verified: false,
+  verified_at: null,
+  capabilities: { create_checkpoint: true, test_restore: true, restore: true },
+  limitations: [],
+};
+
+const R0_BROKEN_ITEM = item({
+  checkpoint_id: 'cp-broken',
+  status: 'EVIDENCE_INSUFFICIENT',
+  reason_code: 'RECOVERY_ARTIFACT_NOT_FOUND',
+  requested_targets: 0,
+  authorized_snapshot_targets: 0,
+  intact_manifest_blob_targets: 0,
+  authorized_snapshot_coverage: null,
+  manifest_blob_coverage: null,
+  test_restore_verified_targets: null,
+  test_restore_status: 'NOT_RUN_P6',
+  recovery_level: 'R0',
+  r1_verified: false,
+  r2_verified: false,
+  r3_verified: false,
+});
+
+const R0_FAIL_CLOSED: RecoveryView = {
+  ...R3_UNTRUSTED,
+  items: [R0_BROKEN_ITEM],
+  recovery_level: 'R0',
+  r1_verified: false,
+  r2_verified: false,
+  r3_verified: false,
+  test_restore_status: 'NOT_RUN_P6',
+  latest_checkpoint: R0_BROKEN_ITEM,
+  actual_restore_status: 'NOT_RUN',
+  recovery_verified: false,
+  verified_at: null,
+};
+
+const DEGRADED: RecoveryView = {
+  ...R3_UNTRUSTED,
+  status: 'DEGRADED',
+  reason_code: 'R4_DATABASE_UNREACHABLE',
+  evidence_refs: [],
+  items: [],
+  recovery_level: 'R0',
+  r1_verified: false,
+  r2_verified: false,
+  r3_verified: false,
+  test_restore_status: 'NOT_RUN_P6',
+  trusted_baseline_status: 'NONE',
+  trusted_baseline_id: null,
+  checkpoint_count: 0,
+  latest_checkpoint: null,
+  actual_restore_status: 'NOT_RUN',
+  recovery_verified: false,
+  verified_at: null,
+};
+
+describe('RecoveryPage R3 vs Trusted Baseline separation', () => {
+  it('shows R3 in the chain while Trusted Baseline stays NONE', () => {
+    const { container } = render(<RecoveryViewBody data={R3_UNTRUSTED} />);
+
+    const current = container.querySelector('.chain-step.is-current');
+    expect(current?.textContent).toContain('R3');
+    expect(current?.textContent).toContain('verified');
+
+    const baselinePanel = container.querySelector('.baseline-panel');
+    expect(baselinePanel?.querySelector('.badge')?.textContent).toBe('NONE');
+    expect(baselinePanel?.querySelector('.badge-ok')).toBeNull();
+    // The only TRUSTED mention allowed is the explanatory note.
+    expect(baselinePanel?.textContent).toContain('does not imply TRUSTED');
+  });
+});
+
+describe('RecoveryPage R0 fail-closed display', () => {
+  it('fails closed at view level and per checkpoint, never "recoverable"', () => {
+    const { container } = render(<RecoveryViewBody data={R0_FAIL_CLOSED} />);
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts.some((el) => el.textContent?.includes('fail closed'))).toBe(true);
+    expect(alerts.some((el) => el.textContent?.includes('Do not treat it as restorable'))).toBe(
+      true,
+    );
+    const current = container.querySelector('.chain-step.is-current');
+    expect(current?.textContent).toContain('R0');
+    expect(current?.className).toContain('tone-bad');
+    expect(container.textContent).not.toContain('Recoverable');
+  });
+
+  it('fails closed when the backend is degraded', () => {
+    render(<RecoveryViewBody data={DEGRADED} />);
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('Recovery view degraded — fail closed');
+    expect(alert.textContent).toContain('R4_DATABASE_UNREACHABLE');
+    expect(screen.getByText('DEGRADED')).toBeTruthy();
+  });
+
+  it('shows an honest EMPTY state with R0 chain and NONE baseline', () => {
+    const empty: RecoveryView = {
+      ...DEGRADED,
+      status: 'EMPTY',
+      reason_code: 'R4_STATE_EMPTY',
+    };
+    const { container } = render(<RecoveryViewBody data={empty} />);
+    expect(screen.getByText('No recovery checkpoints')).toBeTruthy();
+    const current = container.querySelector('.chain-step.is-current');
+    expect(current?.textContent).toContain('R0');
+    expect(container.querySelector('.baseline-panel .badge')?.textContent).toBe('NONE');
+    // EMPTY is not dressed up as an error, but R0 is still not "recoverable".
+    expect(container.textContent).not.toContain('Recoverable');
+  });
+});

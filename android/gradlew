@@ -1,0 +1,16 @@
+#!/bin/bash
+# Shim: local Gradle is absent; download the wrapper-declared distribution once.
+set -euo pipefail
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
+DIST=gradle-8.7
+if [ ! -x "$HOME/.gradle/$DIST/bin/gradle" ]; then
+  mkdir -p "$HOME/.gradle"
+  echo "Downloading $DIST..."
+  for i in 1 2 3; do
+    rm -f /tmp/gradle.zip
+    curl -sL --max-time 900 -C - -o /tmp/gradle.zip https://services.gradle.org/distributions/$DIST-bin.zip && break
+    echo "retry $i"; sleep 3
+  done
+  (cd "$HOME/.gradle" && jar xf /tmp/gradle.zip)
+fi
+exec "$HOME/.gradle/$DIST/bin/gradle" "$@"

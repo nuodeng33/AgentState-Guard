@@ -1,11 +1,13 @@
 """Garbage collection for blob store and checkpoints."""
 
 import sqlite3
+import os
+import uuid
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .blob import BlobStore
-from ..core.sanitizer import sanitize_text
 
 
 class GCPlan:
@@ -17,6 +19,7 @@ class GCPlan:
         self.protected_checkpoints: List[int] = []
         self.estimated_savings: int = 0
         self.notes: List[str] = []
+        self.retention: Dict[str, Any] = {}
 
 
 def plan_gc(
@@ -41,6 +44,14 @@ def plan_gc(
     - Checkpoints referenced by pending transactions are never deleted
     """
     plan = GCPlan()
+    plan.retention = {
+        "keep_last_n": keep_last_n,
+        "keep_daily": keep_daily,
+        "keep_weekly": keep_weekly,
+        "keep_monthly": keep_monthly,
+        "protected_ids": list(protected_ids or []),
+        "last_known_good_id": last_known_good_id,
+    }
     protected = set(protected_ids or [])
     if last_known_good_id:
         protected.add(last_known_good_id)
@@ -105,7 +116,11 @@ def plan_gc(
     orphan_info = []
     for sha256 in orphans:
         row = conn.execute(
-            "SELECT size_bytes FROM blobs WHERE sha256 = ?", (sha256,)
+            """SELECT size_bytes FROM blobs b WHERE b.sha256 = ?
+               AND b.ref_count <= 0
+               AND NOT EXISTS (SELECT 1 FROM protection_blob_refs p WHERE p.sha256 = b.sha256)
+               AND NOT EXISTS (SELECT 1 FROM snapshot_files s WHERE s.blob_sha256 = b.sha256)""",
+            (sha256,),
         ).fetchone()
         if row:
             orphan_info.append(sha256)
@@ -141,35 +156,79 @@ def execute_gc(conn: sqlite3.Connection, blob_store: BlobStore, plan: GCPlan,
         result["estimated_savings"] = plan.estimated_savings
         return result
 
-    # Delete checkpoints
-    for cp in plan.checkpoints_to_delete:
-        try:
-            cp_row = conn.execute(
-                "SELECT snapshot_path FROM checkpoints WHERE id = ?", (cp["id"],)
-            ).fetchone()
-            if cp_row:
-                snap_path = cp_row[0]
-                # Remove snapshot file
-                blob_store._blob_path("")  # just to get dir
-                import os
-                snap_full = blob_store.blob_dir.parent / snap_path
-                if snap_full.is_file():
-                    snap_full.unlink()
-            conn.execute("DELETE FROM checkpoints WHERE id = ?", (cp["id"],))
-            result["checkpoints_deleted"] += 1
-        except Exception as e:
-            result["errors"].append(f"checkpoint {cp['id']}: {e}")
+    if conn.in_transaction:
+        raise RuntimeError("GC_REQUIRES_NO_ACTIVE_TRANSACTION")
 
-    # Remove orphan blobs
-    for sha256 in plan.blobs_to_remove:
-        try:
-            if blob_store.remove_from_disk(sha256):
-                conn.execute("DELETE FROM blobs WHERE sha256 = ?", (sha256,))
-                result["blobs_removed"] += 1
-        except Exception as e:
-            result["errors"].append(f"blob {sha256}: {e}")
+    staged: list[tuple[Path, Path]] = []
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        # A plan is advisory: retention and references may have changed since creation.
+        current = plan_gc(conn, blob_store, **plan.retention)
+        current_checkpoints = {cp["id"] for cp in current.checkpoints_to_delete}
+        current_blobs = set(current.blobs_to_remove)
+        for cp in plan.checkpoints_to_delete:
+            cp_id = cp["id"]
+            if cp_id not in current_checkpoints:
+                continue
+            row = conn.execute(
+                "SELECT snapshot_path FROM checkpoints WHERE id = ?", (cp_id,)
+            ).fetchone()
+            if row is None:
+                continue
+            path = _snapshot_path(blob_store, row[0])
+            if path.is_file():
+                _stage_file(path, staged)
+            conn.execute("DELETE FROM snapshot_files WHERE checkpoint_id = ?", (cp_id,))
+            conn.execute("DELETE FROM checkpoints WHERE id = ?", (cp_id,))
+            result["checkpoints_deleted"] += 1
+
+        for sha256 in plan.blobs_to_remove:
+            if sha256 not in current_blobs:
+                continue
+            # Recheck after checkpoint changes, while the write lock still excludes new refs.
+            row = conn.execute(
+                """SELECT size_bytes FROM blobs b WHERE b.sha256 = ? AND b.ref_count <= 0
+                   AND NOT EXISTS (SELECT 1 FROM protection_blob_refs p WHERE p.sha256 = b.sha256)
+                   AND NOT EXISTS (SELECT 1 FROM snapshot_files s WHERE s.blob_sha256 = b.sha256)""",
+                (sha256,),
+            ).fetchone()
+            if row is None:
+                continue
+            path = blob_store._blob_path(sha256)
+            if path.is_file():
+                _stage_file(path, staged)
+            conn.execute("DELETE FROM blobs WHERE sha256 = ?", (sha256,))
+            result["blobs_removed"] += 1
+            result["space_reclaimed_bytes"] += row[0]
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        for original, staged_path in reversed(staged):
+            os.replace(staged_path, original)
+        raise
+    for _, staged_path in staged:
+        staged_path.unlink()
 
     return result
+
+
+def _snapshot_path(blob_store: BlobStore, relative: str) -> Path:
+    if not isinstance(relative, str):
+        raise ValueError("GC_SNAPSHOT_PATH_INVALID")
+    path = Path(relative)
+    if path.is_absolute() or not path.parts or path.parts[0] != "snapshots" or ".." in path.parts:
+        raise ValueError("GC_SNAPSHOT_PATH_INVALID")
+    root = blob_store.blob_dir.parent.resolve()
+    candidate = (root / path).resolve()
+    if not candidate.is_relative_to(root / "snapshots"):
+        raise ValueError("GC_SNAPSHOT_PATH_INVALID")
+    return candidate
+
+
+def _stage_file(path: Path, staged: list[tuple[Path, Path]]) -> None:
+    staged_path = path.with_name(f"{path.name}.gc-{uuid.uuid4().hex}")
+    os.replace(path, staged_path)
+    staged.append((path, staged_path))
 
 
 def _parse_ts(ts: str) -> Optional[datetime]:

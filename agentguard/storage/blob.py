@@ -3,9 +3,11 @@
 import gzip
 import hashlib
 import os
+import re
 import sqlite3
 import tempfile
 import time
+import zlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -17,41 +19,50 @@ class BlobStore:
     and referenced by SQLite with ref counting.
     """
 
+    MAX_BLOB_BYTES = 128 * 1024 * 1024
+    _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+
     def __init__(self, blob_dir: Path):
         self.blob_dir = blob_dir
 
     def _blob_path(self, sha256: str) -> Path:
+        if not isinstance(sha256, str) or self._DIGEST.fullmatch(sha256) is None:
+            raise ValueError("INVALID_BLOB_DIGEST")
         prefix = sha256[:4]
         return self.blob_dir / prefix / sha256
 
     def put(self, data: bytes, conn: sqlite3.Connection) -> str:
         """Store blob, return SHA-256. Deduplicates automatically."""
         sha256 = hashlib.sha256(data).hexdigest()
-        compressed = gzip.compress(data)
         path = self._blob_path(sha256)
 
         # Check if already exists
         existing = conn.execute(
             "SELECT sha256 FROM blobs WHERE sha256 = ?", (sha256,)
         ).fetchone()
-        if existing:
+        if existing and self.get(sha256) == data:
             conn.execute("UPDATE blobs SET ref_count = ref_count + 1 WHERE sha256 = ?",
                          (sha256,))
             return sha256
 
+        compressed = gzip.compress(data)
         # Atomic write
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(path.parent))
         try:
-            os.write(fd, compressed)
+            offset = 0
+            while offset < len(compressed):
+                written = os.write(fd, compressed[offset:])
+                if written <= 0:
+                    raise OSError("BLOB_SHORT_WRITE")
+                offset += written
             os.fsync(fd)
             os.close(fd)
+            fd = -1
             os.replace(tmp, path)
         except Exception:
-            try:
+            if fd >= 0:
                 os.close(fd)
-            except OSError:
-                pass
             try:
                 os.unlink(tmp)
             except OSError:
@@ -59,29 +70,34 @@ class BlobStore:
             raise
 
         conn.execute(
-            "INSERT OR IGNORE INTO blobs (sha256, size_bytes, compressed_size, ref_count, created_at) "
-            "VALUES (?, ?, ?, 1, ?)",
+            "INSERT INTO blobs (sha256, size_bytes, compressed_size, ref_count, created_at) "
+            "VALUES (?, ?, ?, 1, ?) "
+            "ON CONFLICT(sha256) DO UPDATE SET ref_count = ref_count + 1, "
+            "size_bytes = excluded.size_bytes, compressed_size = excluded.compressed_size",
             (sha256, len(data), len(compressed), time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())),
         )
         return sha256
 
     def get(self, sha256: str) -> Optional[bytes]:
         """Retrieve blob content by SHA-256."""
-        path = self._blob_path(sha256)
-        if not path.is_file():
+        try:
+            path = self._blob_path(sha256)
+        except ValueError:
             return None
         try:
-            compressed = path.read_bytes()
-            return gzip.decompress(compressed)
-        except (gzip.BadGzipFile, OSError):
+            with gzip.open(path, "rb") as source:
+                data = source.read(self.MAX_BLOB_BYTES + 1)
+                if len(data) > self.MAX_BLOB_BYTES or source.read(1):
+                    return None
+            if hashlib.sha256(data).hexdigest() != sha256:
+                return None
+            return data
+        except (gzip.BadGzipFile, EOFError, OSError, ValueError, zlib.error):
             return None
 
     def verify(self, sha256: str) -> bool:
         """Verify blob integrity: hash matches."""
-        data = self.get(sha256)
-        if data is None:
-            return False
-        return hashlib.sha256(data).hexdigest() == sha256
+        return self.get(sha256) is not None
 
     def release(self, sha256: str, conn: sqlite3.Connection) -> bool:
         """Decrement ref count. If zero, mark for GC (don't delete now)."""
@@ -112,7 +128,10 @@ class BlobStore:
 
     def remove_from_disk(self, sha256: str) -> bool:
         """Delete a blob file from disk. Does NOT update DB."""
-        path = self._blob_path(sha256)
+        try:
+            path = self._blob_path(sha256)
+        except ValueError:
+            return False
         if path.is_file():
             path.unlink()
             return True

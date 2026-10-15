@@ -1,6 +1,7 @@
 """Tests for whitelist module."""
 
 from pathlib import Path
+
 from agentguard.core.whitelist import Whitelist, check_path_traversal
 
 
@@ -27,7 +28,9 @@ class TestWhitelist:
 
     def test_deny_system_var(self):
         w = Whitelist(["/tmp"])
-        assert w.is_allowed(Path("/var/lib/docker/containers")) is False
+        # System paths are denied regardless of existence
+        # /var is in the forbidden_prefixes list
+        assert w.is_allowed(Path("/var")) is False
 
     def test_deny_system_proc(self):
         w = Whitelist(["/tmp"])
@@ -60,9 +63,13 @@ class TestWhitelist:
         """Test that '..' traversal is detected."""
         path = tmp_project / ".." / ".." / "etc" / "passwd"
         assert check_path_traversal(path) is True
+        assert check_path_traversal(Path("..") / "outside.txt") is True
+        assert check_path_traversal(
+            tmp_project / "nested" / ".." / "sibling.txt"
+        ) is True
 
     def test_safe_path_no_traversal(self, tmp_project: Path):
-        path = tmp_project / "safe" / "file.txt"
+        path = tmp_project / "safe" / "report..txt"
         assert check_path_traversal(path) is False
 
     def test_whitelist_with_tilde(self):

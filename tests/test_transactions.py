@@ -4,8 +4,8 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from agentguard.transactions.coverage import compute_coverage, coverage_summary
 from agentguard.core.whitelist import Whitelist
+from agentguard.transactions.coverage import compute_coverage, coverage_summary
 
 
 class TestCoverage:
@@ -13,46 +13,51 @@ class TestCoverage:
         c = compute_coverage([], Whitelist([]), {})
         assert c["coverage_pct"] == 100.0
 
-    def test_all_recoverable(self):
-        wl = Whitelist(["/tmp/test"])
-        entries = {"/tmp/test/file.txt": {"mode": "restorable", "content_gz": "abc"}}
-        c = compute_coverage(["/tmp/test/file.txt"], wl, entries)
+    def test_all_recoverable(self, tmp_path: Path):
+        target = (tmp_path / "test" / "file.txt").resolve()
+        wl = Whitelist([str(target.parent)])
+        entries = {str(target): {"mode": "restorable", "content_gz": "abc"}}
+        c = compute_coverage([str(target)], wl, entries)
         assert c["coverage_label"] == "fully_recoverable"
 
-    def test_not_in_whitelist(self):
-        wl = Whitelist(["/safe"])
-        c = compute_coverage(["/unsafe/file.txt"], wl, {})
+    def test_not_in_whitelist(self, tmp_path: Path):
+        wl = Whitelist([str(tmp_path / "safe")])
+        c = compute_coverage([str(tmp_path / "unsafe" / "file.txt")], wl, {})
         assert len(c["not_recoverable"]) == 1
         assert c["coverage_pct"] < 100
 
-    def test_audit_only_not_recoverable(self):
-        wl = Whitelist(["/tmp"])
-        entries = {"/tmp/secret.txt": {"mode": "audit_only"}}
-        c = compute_coverage(["/tmp/secret.txt"], wl, entries)
+    def test_audit_only_not_recoverable(self, tmp_path: Path):
+        target = (tmp_path / "secret.txt").resolve()
+        wl = Whitelist([str(tmp_path)])
+        entries = {str(target): {"mode": "audit_only"}}
+        c = compute_coverage([str(target)], wl, entries)
         assert len(c["not_recoverable"]) == 1
 
-    def test_mixed_coverage(self):
-        wl = Whitelist(["/tmp"])
+    def test_mixed_coverage(self, tmp_path: Path):
+        wl = Whitelist([str(tmp_path)])
+        good = (tmp_path / "good.txt").resolve()
+        bad = (tmp_path / "bad.txt").resolve()
         entries = {
-            "/tmp/good.txt": {"mode": "restorable", "content_gz": "abc"},
-            "/tmp/bad.txt": {"mode": "audit_only"},
+            str(good): {"mode": "restorable", "content_gz": "abc"},
+            str(bad): {"mode": "audit_only"},
         }
-        c = compute_coverage(["/tmp/good.txt", "/tmp/bad.txt"], wl, entries)
+        c = compute_coverage([str(good), str(bad)], wl, entries)
         assert len(c["fully_recoverable"]) == 1
         assert len(c["not_recoverable"]) == 1
         assert c["coverage_pct"] == 50.0
 
-    def test_coverage_summary(self):
-        wl = Whitelist(["/tmp"])
-        entries = {"/tmp/f.txt": {"mode": "restorable", "content_gz": "abc"}}
-        c = compute_coverage(["/tmp/f.txt"], wl, entries)
+    def test_coverage_summary(self, tmp_path: Path):
+        target = (tmp_path / "f.txt").resolve()
+        wl = Whitelist([str(tmp_path)])
+        entries = {str(target): {"mode": "restorable", "content_gz": "abc"}}
+        c = compute_coverage([str(target)], wl, entries)
         summary = coverage_summary(c)
         assert "fully_recoverable" in summary
         assert "100.0%" in summary
 
-    def test_no_checkpoint_entry(self):
-        wl = Whitelist(["/tmp"])
-        c = compute_coverage(["/tmp/unknown.txt"], wl, {})
+    def test_no_checkpoint_entry(self, tmp_path: Path):
+        wl = Whitelist([str(tmp_path)])
+        c = compute_coverage([str(tmp_path / "unknown.txt")], wl, {})
         assert len(c["not_recoverable"]) == 1
 
 
@@ -88,6 +93,25 @@ class TestTransactionEngine:
         assert result["status"] == "planned"
         assert result["transaction_id"] >= 1
 
+    def test_create_plan_records_warning_as_legacy_safe_detail(self):
+        self._setup()
+        from agentguard.storage.audit import get_events, verify_chain
+        from agentguard.transactions.engine import TransactionEngine
+
+        engine = TransactionEngine(self.db, self.snapshots, self.config)
+        result = engine.create_plan(
+            "warning plan", [str(self.tmp_dir / "outside-whitelist")]
+        )
+
+        assert result["status"] == "planned"
+        event = get_events(self.db._conn, event_type="transaction.plan")[0]
+        assert event["result"] == "success"
+        details = self.db._conn.execute(
+            "SELECT details_safe FROM audit_events WHERE event_type = 'transaction.plan'"
+        ).fetchone()[0]
+        assert "success_with_warnings" in details
+        assert verify_chain(self.db._conn) == []
+
     def test_transition_valid(self):
         self._setup()
         from agentguard.transactions.engine import TransactionEngine
@@ -105,7 +129,7 @@ class TestTransactionEngine:
         engine = TransactionEngine(self.db, self.snapshots, self.config)
         plan = engine.create_plan("invalid test", [])
         txn_id = plan["transaction_id"]
-        r = engine.verify(txn_id)  # planned -> verifying is invalid
+        r = engine.verify(txn_id)
         assert r["status"] == "error"
 
     def test_list_transactions(self):

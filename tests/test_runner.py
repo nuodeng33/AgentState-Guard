@@ -1,23 +1,29 @@
 """Tests for runner module."""
 
-import pytest
+import os
+import sys
 from pathlib import Path
-from agentguard.core.runner import run_command, CommandResult, which
+
+import pytest
+
+from agentguard.core.runner import CommandResult, run_command, which
 
 
 class TestRunner:
     def test_run_success(self):
-        result = run_command(["echo", "hello"], timeout=5)
+        result = run_command([sys.executable, "-c", "print('hello')"], timeout=5)
         assert result.success is True
         assert "hello" in result.stdout
 
     def test_run_with_stdout(self):
-        result = run_command(["echo", "test-output"], timeout=5)
+        result = run_command([sys.executable, "-c", "print('test-output')"], timeout=5)
         assert result.returncode == 0
         assert result.stdout == "test-output"
 
     def test_run_with_exit_code(self):
-        result = run_command(["bash", "-c", "exit 42"], timeout=5)
+        result = run_command(
+            [sys.executable, "-c", "import sys; sys.exit(42)"], timeout=5
+        )
         assert result.returncode == 42
         assert result.success is False
 
@@ -26,7 +32,9 @@ class TestRunner:
             run_command(["nonexistent-command-xyz"], timeout=5)
 
     def test_run_timeout(self):
-        result = run_command(["sleep", "10"], timeout=1)
+        result = run_command(
+            [sys.executable, "-c", "import time; time.sleep(10)"], timeout=1
+        )
         assert result.timed_out is True
         assert result.returncode == -1
 
@@ -40,24 +48,41 @@ class TestRunner:
         assert r.success is False
         assert "error msg" in r.output
 
-    def test_which_found(self):
-        path = which("echo")
+    def test_which_found(self, monkeypatch):
+        executable = Path(sys.executable)
+        monkeypatch.setenv(
+            "PATH", str(executable.parent) + os.pathsep + os.environ.get("PATH", "")
+        )
+        path = which(executable.name)
         assert path is not None
-        assert "/echo" in path or path.endswith("echo")
+        assert Path(path).resolve() == executable.resolve()
 
     def test_which_not_found(self):
         assert which("nonexistent-cmd-xyz789") is None
 
     def test_run_with_cwd(self, tmp_project: Path):
-        result = run_command(["pwd"], timeout=5, cwd=tmp_project)
+        result = run_command(
+            [sys.executable, "-c", "import os; print(os.getcwd())"],
+            timeout=5,
+            cwd=tmp_project,
+        )
         assert result.success
-        assert str(tmp_project.resolve()) in result.stdout
+        assert Path(result.stdout).resolve() == tmp_project.resolve()
 
     def test_stderr_captured(self):
-        result = run_command(["bash", "-c", "echo err-msg >&2"], timeout=5)
+        result = run_command(
+            [sys.executable, "-c", "import sys; print('err-msg', file=sys.stderr)"],
+            timeout=5,
+        )
         assert "err-msg" in result.stderr
 
-    def test_run_ls(self):
-        result = run_command(["ls", "/"], timeout=5)
+    def test_run_directory_listing(self, tmp_project: Path):
+        (tmp_project / "entry.txt").write_text("content")
+        script = "from pathlib import Path; print(*(p.name for p in Path('.').iterdir()))"
+        result = run_command(
+            [sys.executable, "-c", script],
+            timeout=5,
+            cwd=tmp_project,
+        )
         assert result.success is True
-        assert "etc" in result.stdout or "usr" in result.stdout
+        assert "entry.txt" in result.stdout.splitlines()

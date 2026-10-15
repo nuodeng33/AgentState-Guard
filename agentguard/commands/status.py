@@ -1,25 +1,21 @@
-"""status command — quick environment health check."""
+"""status command — quick bounded environment probe (no health verdict)."""
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from ..core.docker import docker_available, container_running
-from ..core.tailscale import tailscale_available, tailscale_status
 from ..core.runner import run_command
 from ..core.versions import all_versions
 from ..storage.db import StateDB
 
 
 def status(config: dict, db: Optional[StateDB] = None) -> Dict[str, Any]:
-    """Run a quick status check of the environment."""
+    """Collect bounded environment facts; callers render them verbatim."""
     result: Dict[str, Any] = {
         "timestamp_utc": __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc
         ).isoformat(),
         "checks": {},
         "versions": {},
-        "files": {},
-        "drift_detected": False,
     }
 
     # Docker
@@ -35,30 +31,8 @@ def status(config: dict, db: Optional[StateDB] = None) -> Dict[str, Any]:
     port_open = _check_port(port)
     result["checks"]["port_3001"] = port_open
 
-    # Tailscale
-    ts_ok = tailscale_available()
-    result["checks"]["tailscale_available"] = ts_ok
-    if ts_ok:
-        connected, msg = tailscale_status()
-        result["checks"]["tailscale_connected"] = connected
-
     # Versions
     result["versions"] = all_versions()
-
-    # Key config files
-    key_files = [
-        "/home/agent/.claude/settings.json",
-    ]
-    for f in key_files:
-        p = Path(f)
-        result["files"][f] = {
-            "exists": p.is_file() if p else False,
-        }
-
-    # Check for drift vs latest checkpoint
-    if db is not None:
-        cps = db.list_checkpoints(limit=1)
-        result["drift_detected"] = len(cps) > 0  # placeholder: real diff in diff cmd
 
     return result
 

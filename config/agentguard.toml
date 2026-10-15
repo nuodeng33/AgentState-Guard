@@ -2,7 +2,7 @@
 # TOML format — Python 3.11+ stdlib tomllib, no external dependencies
 
 [checks]
-commands = ["docker", "tailscale", "node", "python3", "git"]
+commands = ["docker", "node", "python3", "git"]
 container_name = "agent-dev"
 port = 3001
 
