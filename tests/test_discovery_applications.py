@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -216,9 +217,20 @@ def test_argv_extraction_never_returns_inline_code_or_other_arguments():
 def test_new_unknown_path_program_is_automatically_retained_as_candidate(tmp_path, monkeypatch):
     executable = tmp_path / "new-unlisted-agent.exe"
     executable.write_bytes(b"fixture; not executed")
+    executable.chmod(0o755)
     monkeypatch.setenv("PATH", str(tmp_path))
     found = inventory(())
     candidate = next(item for item in found["items"] if item["path"] == str(executable))
     assert candidate["status"] == "AVAILABLE"
     assert classify_metadata(candidate, "local") is None
     assert found["coverage"]["methods"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable-bit contract")
+def test_unknown_non_executable_path_file_is_not_a_program(tmp_path, monkeypatch):
+    document = tmp_path / "not-a-program"
+    document.write_bytes(b"fixture; not executable")
+    document.chmod(0o644)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    found = inventory(())
+    assert all(item["path"] != str(document) for item in found["items"])

@@ -68,6 +68,11 @@ into the repository. It does not announce a package or installer release.
   a fresh dependency install; the Linux/Python CI matrix is verified separately.
 - Cloud rerun results remain separate from the local full-suite result. No tests
   were disabled to make this snapshot appear green.
+- The first post-dependency Linux run reached all tests and exposed a PATH
+  inventory fixture without POSIX execute permission (1298 passed, 17 skipped,
+  1 failed on Python 3.12). The fixture now sets executable mode explicitly;
+  a POSIX negative test also verifies ordinary non-executable files stay excluded.
+  Production discovery rules remain unchanged.
 
 ## 2026-07-23
 
