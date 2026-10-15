@@ -7,7 +7,7 @@
  */
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
 
@@ -92,9 +92,11 @@ function smokeFetch(input: RequestInfo | URL): Promise<Response> {
 
 describe('App smoke (product IA)', () => {
   beforeEach(() => {
+    history.replaceState(null, '', '/');
     fetchCalls.length = 0;
     vi.stubGlobal('fetch', smokeFetch);
   });
+  afterEach(() => { history.replaceState(null, '', '/'); });
 
   it('navigates the seven-surface IA without a white screen and never persists the token', async () => {
     render(<App />);
@@ -144,4 +146,37 @@ describe('App smoke (product IA)', () => {
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
+  it('hides the Guard shell inside Work and preserves the workbench across Environment visits', async () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    history.replaceState(null, '', `/?work=${id}`);
+    const detail = { id, title: 'Immersive work', owner: 'Owner', revision: 1,
+      requirement_version: 1, requirement: 'Real requirement', tasks: [], artifacts: [] };
+    vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
+      const path = String(input);
+      fetchCalls.push(path);
+      if (path === `/api/v1/works/${id}`) return Promise.resolve(json(detail));
+      if (path === `/api/v1/works/${id}/view`) return Promise.resolve(json({ revision: 1, state: {
+        schema_version: 1, surface: 'board', viewport: { x: 77, y: 39, zoom: 1 },
+        space: { viewport: { x: 0, y: 0, zoom: 1 }, nodes: [
+          { kind: 'requirement', ref_id: id, version: 1, x: 0, y: 0 },
+        ] },
+        cards: [{ kind: 'requirement', ref_id: id, version: 1, x: 0, y: 0, width: 400, height: 430, scroll: 0 }],
+      } }));
+      if (path === `/api/v1/works/${id}/requirements/1`) return Promise.resolve(json({ body: 'Real requirement' }));
+      return smokeFetch(input);
+    });
+    const { container } = render(<App />);
+    expect(await screen.findByText('Real requirement')).toBeTruthy();
+    expect(container.querySelector('.app-sidebar')).toBeNull();
+    const layout = (container.querySelector('.work-world') as HTMLElement).style.transform;
+    fireEvent.click(screen.getByRole('button', { name: 'Environment' }));
+    expect(await screen.findByText('No runtime records')).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace' }));
+    expect(await screen.findByText('Real requirement')).toBeTruthy();
+    expect(container.querySelector('.app-sidebar')).toBeNull();
+    expect((container.querySelector('.work-world') as HTMLElement).style.transform).toBe(layout);
+    expect(fetchCalls.filter(path => path === `/api/v1/works/${id}`)).toHaveLength(1);
+  });
+
 });

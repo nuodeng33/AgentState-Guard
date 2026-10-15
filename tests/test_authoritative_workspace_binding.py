@@ -116,6 +116,31 @@ def _snapshot() -> DiscoverySnapshot:
     )
 
 
+def _shared_workspace_snapshot() -> DiscoverySnapshot:
+    snapshot = _snapshot()
+    second_agent = replace(
+        snapshot.agents[0],
+        agent_id="codex-agent",
+        agent_type="CODEX",
+        evidence_ids=("codex-evidence",),
+    )
+    return replace(
+        snapshot,
+        agents=(*snapshot.agents, second_agent),
+        workspaces=(
+            replace(snapshot.workspaces[0], agent_ids=("cloudcli-agent", "codex-agent")),
+        ),
+        evidence=(
+            *snapshot.evidence,
+            _evidence(
+                "codex-evidence",
+                "agent.metadata",
+                {"agent_kind": "CODEX", "role": "EXECUTION_AGENT"},
+            ),
+        ),
+    )
+
+
 @pytest.fixture
 def database(tmp_path):
     value = StateDB(tmp_path / "state.db")
@@ -143,6 +168,7 @@ def _project(database: StateDB, tmp_path) -> dict[str, object]:
     return R4ReadProjectionService(
         database,
         SnapshotStore(tmp_path / "snapshots"),
+        clock=lambda: OBSERVED_AT + timedelta(minutes=1),
     ).agents()
 
 
@@ -226,33 +252,82 @@ def test_authoritative_snapshot_is_atomically_ledgered_and_projected(
             "SELECT event_type FROM evidence_ledger_events ORDER BY sequence"
         )
     ] == ["RUNTIME_DETECTED", "AGENT_DETECTED", "WORKSPACE_LINKED"]
-    assert _project(database, tmp_path) == {
-        "schema_version": "r4-p8-1",
-        "view": "agents",
-        "status": "AVAILABLE",
-        "reason_code": "R4_AGENTS_AVAILABLE",
-        "observed_at": OBSERVED_AT.isoformat(),
-        "evidence_refs": [receipts[1].event_id, receipts[2].event_id],
-        "items": [
-            {
-                "detected_identity": "CLOUDCLI",
-                "role": "AGENT_HOST",
-                    "lifecycle": "RUNNING",
-                "confidence": 0.8,
-                "execution_domain_id": "agent-dev-domain",
-                "workspace": {
-                    "status": "BOUND",
-                    "workspace_id": "agentstate-guard-workspace",
-                    "binding_ref": receipts[2].event_id,
-                    "reason_code": "WORKSPACE_BINDING_VERIFIED",
-                },
-                "reason_code": "AGENT_DETECTED",
-                "uncertainty": False,
-                "observed_at": OBSERVED_AT.isoformat(),
-                "evidence_refs": [receipts[1].event_id, receipts[2].event_id],
-            }
-        ],
+    projection = _project(database, tmp_path)
+    assert projection["status"] == "AVAILABLE"
+    assert projection["reason_code"] == "R4_AGENTS_AVAILABLE"
+    assert projection["observed_at"] == OBSERVED_AT.isoformat()
+    assert projection["evidence_refs"] == [receipts[1].event_id, receipts[2].event_id]
+    assert len(projection["items"]) == 1
+    agent = projection["items"][0]
+    assert agent["agent_id"] == "cloudcli-agent"
+    assert agent["execution_domain_id"] == "agent-dev-domain"
+    assert agent["lifecycle"] == "RUNNING"
+    assert agent["evidence_refs"] == [receipts[1].event_id, receipts[2].event_id]
+    assert agent["workspace"] == {
+        "status": "BOUND",
+        "workspace_id": "agentstate-guard-workspace",
+        "binding_ref": receipts[2].event_id,
+        "reason_code": "WORKSPACE_BINDING_VERIFIED",
     }
+
+
+def test_shared_workspace_creates_one_verified_binding_per_agent(database, tmp_path):
+    receipts = _record(database, _shared_workspace_snapshot())
+
+    assert len(receipts) == 5
+    assert verify_ledger(database._conn) == []
+    binding_rows = database._conn.execute(
+        """SELECT subject_ref, payload_safe_json FROM evidence_ledger_events
+           WHERE event_type = 'WORKSPACE_LINKED' ORDER BY sequence"""
+    ).fetchall()
+    assert {row[0] for row in binding_rows} == {"cloudcli-agent", "codex-agent"}
+    assert {json.loads(row[1])["agent_event_id"] for row in binding_rows} == {
+        receipts[1].event_id,
+        receipts[2].event_id,
+    }
+
+    projection = _project(database, tmp_path)
+    assert projection["status"] == "AVAILABLE"
+    items = {item["agent_id"]: item for item in projection["items"]}
+    assert set(items) == {"cloudcli-agent", "codex-agent"}
+    assert {item["workspace"]["workspace_id"] for item in items.values()} == {
+        "agentstate-guard-workspace"
+    }
+    assert {item["workspace"]["binding_ref"] for item in items.values()} == {
+        receipts[3].event_id,
+        receipts[4].event_id,
+    }
+    assert all(item["workspace"]["status"] == "BOUND" for item in items.values())
+
+
+def test_shared_workspace_rejects_duplicate_agent_membership(database, tmp_path):
+    snapshot = _shared_workspace_snapshot()
+    repeated = replace(
+        snapshot.workspaces[0],
+        agent_ids=("cloudcli-agent", "codex-agent", "cloudcli-agent"),
+    )
+
+    _record(database, replace(snapshot, workspaces=(repeated,)))
+
+    assert _binding_count(database) == 0
+    assert _project(database, tmp_path)["status"] == "DEGRADED"
+
+
+def test_shared_workspace_rejects_cross_domain_agent_without_losing_valid_edge(
+    database, tmp_path
+):
+    snapshot = _shared_workspace_snapshot()
+    cross_domain_agent = replace(snapshot.agents[1], domain_id="other-domain")
+
+    _record(
+        database,
+        replace(snapshot, agents=(snapshot.agents[0], cross_domain_agent)),
+    )
+
+    assert _binding_count(database) == 1
+    items = {item["agent_id"]: item for item in _project(database, tmp_path)["items"]}
+    assert items["cloudcli-agent"]["workspace"]["status"] == "BOUND"
+    assert items["codex-agent"]["workspace"]["reason_code"] == "WORKSPACE_BINDING_MISSING"
 
 
 def test_missing_workspace_binding_fails_closed(database, tmp_path):

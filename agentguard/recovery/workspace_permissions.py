@@ -76,6 +76,18 @@ class PermissionProof:
             "digest": self.digest,
         }
 
+    def matches(self, other: PermissionProof) -> bool:
+        """Compare restored permissions without rewriting persisted proof digests."""
+        if self.kind != other.kind:
+            return False
+        if self.kind == "WINDOWS_ATTRIBUTES_DACL":
+            return (
+                self.values["attributes"] == other.values["attributes"]
+                and _comparable_dacl(str(self.values["dacl_sddl"]))
+                == _comparable_dacl(str(other.values["dacl_sddl"]))
+            )
+        return hmac.compare_digest(self.digest, other.digest)
+
     @classmethod
     def from_dict(cls, value: object) -> PermissionProof:
         if not isinstance(value, dict) or set(value) != {"kind", "values", "digest"}:
@@ -99,6 +111,16 @@ class PermissionBackend(Protocol):
     def apply(self, path: Path, proof: PermissionProof) -> None: ...
 
     def verify(self, path: Path, proof: PermissionProof) -> bool: ...
+
+
+def _comparable_dacl(sddl: str) -> str:
+    # SetNamedSecurityInfo may add AI on regular files. Keep every ACE, its
+    # order, and the protection/request flags; only this propagation marker
+    # is irrelevant to the file's restored access permissions.
+    flags, separator, entries = sddl[2:].partition("(")
+    if re.fullmatch(r"(?:P|AR|AI)*", flags) is None:
+        return sddl
+    return "D:" + flags.replace("AI", "") + separator + entries
 
 
 class PosixPermissionBackend:
@@ -213,7 +235,7 @@ class WindowsPermissionBackend:
 
     def verify(self, path: Path, proof: PermissionProof) -> bool:
         try:
-            return hmac.compare_digest(self.capture(path).digest, proof.digest)
+            return self.capture(path).matches(proof)
         except PermissionCapabilityError as exc:
             raise PermissionCapabilityError(
                 "WORKSPACE_PERMISSION_VERIFY_UNAVAILABLE"
@@ -223,6 +245,8 @@ class WindowsPermissionBackend:
 class _CtypesWindowsSecurityApi:
     _SE_FILE_OBJECT = 1
     _DACL_SECURITY_INFORMATION = 0x00000004
+    _PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000
+    _UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000
     _SDDL_REVISION_1 = 1
     _INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
 
@@ -353,10 +377,16 @@ class _CtypesWindowsSecurityApi:
                 raise ctypes.WinError(ctypes.get_last_error())
             if not present.value:
                 raise OSError("WORKSPACE_PERMISSION_DACL_MISSING")
+            flags = dacl_sddl[2:].partition("(")[0]
+            protection = (
+                self._PROTECTED_DACL_SECURITY_INFORMATION
+                if "P" in flags
+                else self._UNPROTECTED_DACL_SECURITY_INFORMATION
+            )
             result = self._advapi32.SetNamedSecurityInfoW(
                 str(path),
                 self._SE_FILE_OBJECT,
-                self._DACL_SECURITY_INFORMATION,
+                self._DACL_SECURITY_INFORMATION | protection,
                 None,
                 None,
                 dacl,

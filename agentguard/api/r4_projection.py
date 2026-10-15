@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
@@ -219,9 +221,27 @@ def _latest_discovery_snapshot_id(connection: sqlite3.Connection) -> str | None:
 class R4ReadProjectionService:
     """Project only verified ledger and durable service facts into safe DTOs."""
 
-    def __init__(self, database: StateDB, snapshots: SnapshotStore) -> None:
+    def __init__(
+        self, database: StateDB, snapshots: SnapshotStore,
+        *, clock: Callable[[], datetime] | None = None,
+        observation_ttl_seconds: int = 120,
+    ) -> None:
         self._database = database
         self._snapshots = snapshots
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._observation_ttl_seconds = observation_ttl_seconds
+
+    def _freshness(self, observed_at: object) -> str:
+        try:
+            observed = datetime.fromisoformat(str(observed_at))
+            if observed.tzinfo is None:
+                return "UNKNOWN"
+            age = (self._clock() - observed).total_seconds()
+        except (ValueError, TypeError, OverflowError):
+            return "UNKNOWN"
+        if age < -5:
+            return "UNKNOWN"
+        return "FRESH" if age <= self._observation_ttl_seconds else "STALE"
 
     @staticmethod
     def unavailable(view: str) -> dict[str, Any]:
@@ -272,16 +292,19 @@ class R4ReadProjectionService:
                     if isinstance(capabilities, list)
                     else []
                 )
+                freshness = self._freshness(observed_at)
+                current = freshness == "FRESH"
                 items.append(
                     {
                         "runtime_type": runtime_type,
                         "execution_domain_id": domain,
-                        "availability": "AVAILABLE" if available else "UNKNOWN",
+                        "availability": "AVAILABLE" if available and current else "UNKNOWN",
                         "capabilities": safe_capabilities,
-                        "reason_code": "RUNTIME_DETECTED"
+                        "reason_code": f"RUNTIME_OBSERVATION_{freshness}" if not current else "RUNTIME_DETECTED"
                         if available
                         else "RUNTIME_STATE_UNCERTAIN",
-                        "uncertainty": not available or domain is None,
+                        "uncertainty": not available or not current or domain is None,
+                        "freshness": freshness,
                         "observed_at": observed_at,
                         "evidence_refs": [event_id],
                     }
@@ -404,18 +427,22 @@ class R4ReadProjectionService:
                 connection,
                 agent_event_id=event_id,
             )
+            freshness = self._freshness(observed_at)
+            current = freshness == "FRESH"
+            agent_id = _atom(payload.get("agent_id"))
             items.append(
                 {
+                    "agent_id": agent_id if agent_id == subject_ref else None,
                     "detected_identity": identity,
                     "role": _atom(value.get("role")) or "detected",
-                    "lifecycle": lifecycle if available else "UNKNOWN",
+                    "lifecycle": lifecycle if available and current else "UNKNOWN",
                     "confidence": confidence,
                     "execution_domain_id": domain,
                     "workspace": workspace,
-                    "reason_code": "AGENT_DETECTED"
+                    "reason_code": f"AGENT_OBSERVATION_{freshness}" if not current else "AGENT_DETECTED"
                     if available
                     else "AGENT_STATE_UNCERTAIN",
-                    "uncertainty": not available
+                    "uncertainty": not available or not current
                     or domain is None
                     or workspace["status"] != "BOUND",
                     "observed_at": observed_at,
@@ -427,6 +454,19 @@ class R4ReadProjectionService:
                             else []
                         ),
                     ],
+                    "association": None,
+                    "activity": "UNKNOWN",
+                    "presence": "CURRENT" if current else freshness,
+                    "freshness": freshness,
+                    "identity_basis": _atom(value.get("identity_basis")) or "UNSPECIFIED",
+                    "control_status": "NOT_CONNECTED",
+                    "source_id": _atom(value.get("source_id")),
+                    "management_capabilities": {
+                        "observe": current and available,
+                        "sessions": False,
+                        "start": False,
+                        "cancel": False,
+                    },
                 }
             )
         items.sort(
@@ -436,7 +476,7 @@ class R4ReadProjectionService:
                 item["evidence_refs"][0],
             )
         )
-        complete = bool(items) and all(not item["uncertainty"] for item in items)
+        complete = bool(items) and not failure_refs and all(not item["uncertainty"] for item in items)
         projection = _base(
             "agents",
             "AVAILABLE"

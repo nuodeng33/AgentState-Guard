@@ -44,8 +44,8 @@ class StateDB:
             raise RuntimeError(f"Schema migration failed: {results['errors']}")
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
-        """Run one explicit immediate transaction owned by this StateDB."""
+    def transaction(self, *, immediate: bool = True) -> Iterator[sqlite3.Connection]:
+        """Own one transaction; pure projections can request a deferred snapshot."""
         if self._conn is None:
             raise RuntimeError("Database is not connected")
         if self._transaction_active:
@@ -55,7 +55,7 @@ class StateDB:
 
         self._transaction_active = True
         try:
-            self._conn.execute("BEGIN IMMEDIATE")
+            self._conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
             try:
                 yield self._conn
             except BaseException:

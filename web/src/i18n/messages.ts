@@ -12,6 +12,7 @@
 import type { Locale } from './locale';
 
 export type MessageKey =
+  | 'nav.work'
   | 'app.brand.name'
   | 'app.brand.sub'
   | 'app.nav.primary'
@@ -318,6 +319,7 @@ const enUS: Messages = {
   'app.brand.sub': 'R4 Operations Console',
   'app.nav.primary': 'Primary',
   'nav.home': 'Home',
+  'nav.work': 'Workspace',
   'nav.environment': 'Environment',
   'nav.runtime': 'Runtime',
   'nav.agents': 'Agents',
@@ -632,6 +634,7 @@ const zhCN: Messages = {
   'app.brand.sub': 'R4 运营控制台',
   'app.nav.primary': '主导航',
   'nav.home': '首页',
+  'nav.work': '工作空间',
   'nav.environment': '环境',
   'nav.runtime': '运行环境',
   'nav.agents': '智能体',

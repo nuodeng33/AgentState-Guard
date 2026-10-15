@@ -35,7 +35,7 @@ def _decision() -> PolicyDecision:
 def _projector(tmp_path):
     database = StateDB(tmp_path / "state.db")
     database.connect()
-    projector = R4ReadProjectionService(database, SnapshotStore(tmp_path / "snapshots"))
+    projector = R4ReadProjectionService(database, SnapshotStore(tmp_path / "snapshots"), clock=lambda: OBSERVED_AT)
     return database, projector
 
 

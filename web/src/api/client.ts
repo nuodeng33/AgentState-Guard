@@ -74,6 +74,8 @@ export interface ApiClient {
    * per call; the only retry is the shared single 401 re-bootstrap.
    */
   post<T>(path: string, body: unknown): Promise<T>;
+  /** Authenticated event stream. Closing the reader never cancels execution. */
+  stream?(path: string, signal?: AbortSignal): Promise<Response>;
 }
 
 interface SessionResponse {
@@ -234,7 +236,37 @@ export function createApiClient(
     return (await response.json()) as T;
   }
 
-  return { bootstrap, get, post };
+  async function stream(path: string, signal?: AbortSignal): Promise<Response> {
+    const fetchStream = async (sessionToken: string) => {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      try {
+        return await callFetch(urlResolver(path), {
+          headers: { Accept: 'text/event-stream', 'X-Session-Token': sessionToken },
+          signal,
+        });
+      } catch {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        throw new ApiRequestError('API unreachable');
+      }
+    };
+    let response = await fetchStream(token ?? (await bootstrapSession()));
+    if (response.status === 401) {
+      await response.body?.cancel();
+      token = null;
+      response = await fetchStream(await bootstrapSession());
+      if (response.status === 401) {
+        await response.body?.cancel();
+        throw new SessionUnavailableError();
+      }
+    }
+    if (!response.ok) {
+      const failure = await readFailureBody(response);
+      throw new ApiRequestError(`API request failed (HTTP ${response.status})`, response.status, failure.reasonCode);
+    }
+    return response;
+  }
+
+  return { bootstrap, get, post, stream };
 }
 
 /** Shared singleton for the running app. Tests build isolated clients via createApiClient. */

@@ -129,15 +129,16 @@ def test_runtime_readiness_is_authenticated_and_checks_database(api, tmp_path):
 def test_r4_runtime_projects_verified_fact_and_unbound_agent_degrades(tmp_path):
     database = StateDB(tmp_path / "state.db")
     database.connect()
+    observed_at = datetime.now(UTC)
     snapshot = DiscoverySnapshot(
         snapshot_id="api-projection-snapshot",
-        observed_at=datetime(2026, 8, 9, tzinfo=UTC),
+        observed_at=observed_at,
         evidence=(
             ProbeEvidence(
                 evidence_id="runtime-safe-ref",
                 collector="runtime-probe",
                 source="local",
-                observed_at=datetime(2026, 8, 9, tzinfo=UTC),
+                observed_at=observed_at,
                 fact_type="runtime.metadata",
                 value={
                     "runtime_kind": "python",
@@ -151,7 +152,7 @@ def test_r4_runtime_projects_verified_fact_and_unbound_agent_degrades(tmp_path):
                 evidence_id="agent-safe-ref",
                 collector="agent-probe",
                 source="local",
-                observed_at=datetime(2026, 8, 9, tzinfo=UTC),
+                observed_at=observed_at,
                 fact_type="agent.metadata",
                 value={"agent_kind": "cloudcli", "execution_domain_id": "self-runtime"},
                 status=CapabilityStatus.AVAILABLE,
@@ -160,7 +161,7 @@ def test_r4_runtime_projects_verified_fact_and_unbound_agent_degrades(tmp_path):
         ),
     )
     with database.transaction() as connection:
-        for event in discovery_events(snapshot, recorded_at=datetime(2026, 8, 9, tzinfo=UTC)):
+        for event in discovery_events(snapshot, recorded_at=observed_at):
             EvidenceLedger().append(connection, event)
     database.close()
 

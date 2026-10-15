@@ -29,6 +29,20 @@ def _collect_current_processes():
     ).collect()
 
 
+def _user_home_paths() -> tuple[Path, ...]:
+    homes = [Path.home()]
+    if os.name == "nt":
+        drive = os.environ.get("HOMEDRIVE")
+        tail = os.environ.get("HOMEPATH")
+        if drive and tail:
+            homes.append(Path(drive + tail))
+    else:
+        import pwd
+
+        homes.append(Path(pwd.getpwuid(os.getuid()).pw_dir))
+    return tuple(homes)
+
+
 def test_real_psutil_finds_current_python_with_stable_private_fact():
     first = _collect_current_processes()
     second = _collect_current_processes()
@@ -56,16 +70,15 @@ def test_real_psutil_finds_current_python_with_stable_private_fact():
         assert workspace.path_kind is WorkspacePathKind.UNKNOWN
     else:
         cwd = Path.cwd()
-        try:
-            cwd.relative_to(Path.home())
-        except ValueError:
-            assert workspace.path_hint == os.path.normpath(os.getcwd())
-            assert workspace.path_kind is WorkspacePathKind.NATIVE
-        else:
+        if any(cwd.is_relative_to(home) for home in _user_home_paths()):
             assert workspace.path_hint == "~" or workspace.path_hint.startswith(
                 ("~/", "~\\")
             )
             assert workspace.path_kind is WorkspacePathKind.REDACTED
+            assert str(cwd) not in workspace.path_hint
+        else:
+            assert workspace.path_hint == os.path.normpath(os.getcwd())
+            assert workspace.path_kind is WorkspacePathKind.NATIVE
     encoded = str(first.to_dict()).casefold()
     for forbidden in (
         "command_line",

@@ -4,7 +4,7 @@
  * the POST /api/v1/discovery/refresh action — all against scripted fetch.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import EnvironmentPage from './EnvironmentPage';
@@ -114,7 +114,7 @@ describe('EnvironmentPage real backend wiring', () => {
 
     // Runtime + Agents projection bodies (unchanged K3 presentation).
     expect((await screen.findAllByText('python')).length).toBeGreaterThan(0);
-    expect(screen.getByText('claude-code')).toBeTruthy();
+    expect(screen.getByText('claude-code · edge-domain · Unknown instance')).toBeTruthy();
     expect(screen.getByText('R4_RUNTIME_AVAILABLE')).toBeTruthy();
     expect(screen.getByText('R4_AGENTS_AVAILABLE')).toBeTruthy();
     // Source times come from the backend projection, never from elapsed-time math.
@@ -176,5 +176,24 @@ describe('EnvironmentPage real backend wiring', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Refresh discovery' })).toBeTruthy();
     });
+  });
+
+  it('polls the agents projection while mounted without posting discovery refresh', async () => {
+    const fetchMock = vi.fn(envFetch);
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers();
+    try {
+      const view = render(<EnvironmentPage />);
+      await act(async () => { await Promise.resolve(); });
+      const reads = () => fetchMock.mock.calls.filter(([input]) => String(input) === '/api/v1/agents').length;
+      const initial = reads();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(reads()).toBeGreaterThan(initial);
+      expect(fetchMock.mock.calls.some(([input]) => String(input) === '/api/v1/discovery/refresh')).toBe(false);
+      view.unmount();
+      const unmounted = reads();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(reads()).toBe(unmounted);
+    } finally { vi.useRealTimers(); }
   });
 });

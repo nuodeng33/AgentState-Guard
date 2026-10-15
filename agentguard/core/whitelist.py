@@ -1,7 +1,7 @@
 """Path whitelist with traversal protection."""
 
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional
 
 
 class Whitelist:
@@ -92,21 +92,9 @@ class Whitelist:
 def check_path_traversal(path: Path) -> bool:
     """Return True if path attempts traversal outside its parent."""
     try:
-        raw = str(path)
-        # Check raw string for '..' components before resolution
-        if "/../" in raw or raw.startswith("../") or raw.endswith("/.."):
+        if ".." in path.parts:
             return True
-        resolved = path.resolve()
-        # Check if any '..' component would escape
-        parts = path.parts
-        depth = 0
-        for part in parts:
-            if part == "..":
-                depth -= 1
-            elif part != "." and part != "":
-                depth += 1
-            if depth < 0:
-                return True
+        path.resolve()
         return False
     except (OSError, RuntimeError):
         return True

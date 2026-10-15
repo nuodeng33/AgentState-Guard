@@ -141,30 +141,26 @@ def _workspace_binding_events(
     bindings: list[EvidenceEvent] = []
     for workspace in snapshot.workspaces:
         if (
-            len(workspace.agent_ids) != 1
+            not workspace.agent_ids
+            or len(set(workspace.agent_ids)) != len(workspace.agent_ids)
             or len(workspace.runtime_ids) != 1
             or not all(
                 _safe_atom(item)
                 for item in (
                     workspace.workspace_id,
                     workspace.domain_id,
-                    workspace.agent_ids[0],
                     workspace.runtime_ids[0],
                     snapshot.snapshot_id,
+                    *workspace.agent_ids,
                 )
             )
         ):
             continue
-        agent = agents.get(workspace.agent_ids[0])
         runtime = runtimes.get(workspace.runtime_ids[0])
         domain = domains.get(workspace.domain_id)
         if (
-            agent is None
-            or runtime is None
+            runtime is None
             or domain is None
-            or agent.runtime_id != runtime.runtime_id
-            or agent.workspace_ids != (workspace.workspace_id,)
-            or agent.domain_id != workspace.domain_id
             or runtime.domain_id != workspace.domain_id
             or not domain.evidence_ids
         ):
@@ -186,68 +182,78 @@ def _workspace_binding_events(
             if item in events_by_evidence
             and events_by_evidence[item].event_type is EventType.RUNTIME_DETECTED
         ]
-        agent_events = [
-            events_by_evidence[item]
-            for item in agent.evidence_ids
-            if item in events_by_evidence
-            and events_by_evidence[item].event_type is EventType.AGENT_DETECTED
-        ]
-        if len(runtime_events) != 1 or len(agent_events) != 1:
+        if len(runtime_events) != 1:
             continue
         runtime_event = runtime_events[0]
-        agent_event = agent_events[0]
-        if any(
-            event.result.casefold() != "available"
-            for event in (runtime_event, agent_event)
-        ):
+        if runtime_event.result.casefold() != "available":
             continue
-        source_refs = tuple(
-            sorted(
-                set(
-                    domain.evidence_ids
-                    + runtime.evidence_ids
-                    + agent.evidence_ids
-                    + workspace.evidence_ids
+        for agent_id in workspace.agent_ids:
+            agent = agents.get(agent_id)
+            if (
+                agent is None
+                or agent.runtime_id != runtime.runtime_id
+                or agent.workspace_ids != (workspace.workspace_id,)
+                or agent.domain_id != workspace.domain_id
+            ):
+                continue
+            agent_events = [
+                events_by_evidence[item]
+                for item in agent.evidence_ids
+                if item in events_by_evidence
+                and events_by_evidence[item].event_type is EventType.AGENT_DETECTED
+            ]
+            if len(agent_events) != 1:
+                continue
+            agent_event = agent_events[0]
+            if agent_event.result.casefold() != "available":
+                continue
+            source_refs = tuple(
+                sorted(
+                    set(
+                        domain.evidence_ids
+                        + runtime.evidence_ids
+                        + agent.evidence_ids
+                        + workspace.evidence_ids
+                    )
                 )
             )
-        )
-        if any(item not in evidence_by_id for item in source_refs):
-            continue
-        event_id = _binding_event_id(
-            snapshot,
-            domain_id=workspace.domain_id,
-            runtime_id=runtime.runtime_id,
-            agent_id=agent.agent_id,
-            workspace_id=workspace.workspace_id,
-        )
-        bindings.append(
-            EvidenceEvent(
-                schema_version=1,
-                event_id=event_id,
-                recorded_at=recorded_at,
-                observed_at=snapshot.observed_at,
-                event_family=EventFamily.DISCOVERY,
-                event_type=EventType.WORKSPACE_LINKED,
-                source="discovery.workspace-binding",
-                result="available",
-                execution_domain_id=workspace.domain_id,
-                supervision_session_id=None,
-                transaction_id=None,
-                checkpoint_id=None,
-                subject_ref=agent.agent_id,
-                evidence_refs=source_refs,
-                payload_safe={
-                    "fact_type": "workspace.binding",
-                    "snapshot_id": snapshot.snapshot_id,
-                    "binding_id": event_id,
-                    "workspace_id": workspace.workspace_id,
-                    "runtime_id": runtime.runtime_id,
-                    "agent_id": agent.agent_id,
-                    "runtime_event_id": runtime_event.event_id,
-                    "agent_event_id": agent_event.event_id,
-                },
+            if any(item not in evidence_by_id for item in source_refs):
+                continue
+            event_id = _binding_event_id(
+                snapshot,
+                domain_id=workspace.domain_id,
+                runtime_id=runtime.runtime_id,
+                agent_id=agent.agent_id,
+                workspace_id=workspace.workspace_id,
             )
-        )
+            bindings.append(
+                EvidenceEvent(
+                    schema_version=1,
+                    event_id=event_id,
+                    recorded_at=recorded_at,
+                    observed_at=snapshot.observed_at,
+                    event_family=EventFamily.DISCOVERY,
+                    event_type=EventType.WORKSPACE_LINKED,
+                    source="discovery.workspace-binding",
+                    result="available",
+                    execution_domain_id=workspace.domain_id,
+                    supervision_session_id=None,
+                    transaction_id=None,
+                    checkpoint_id=None,
+                    subject_ref=agent.agent_id,
+                    evidence_refs=source_refs,
+                    payload_safe={
+                        "fact_type": "workspace.binding",
+                        "snapshot_id": snapshot.snapshot_id,
+                        "binding_id": event_id,
+                        "workspace_id": workspace.workspace_id,
+                        "runtime_id": runtime.runtime_id,
+                        "agent_id": agent.agent_id,
+                        "runtime_event_id": runtime_event.event_id,
+                        "agent_event_id": agent_event.event_id,
+                    },
+                )
+            )
     return tuple(bindings)
 
 

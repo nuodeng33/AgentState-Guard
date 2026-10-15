@@ -9,6 +9,18 @@ K3 Desktop AppShell or Android Compose surfaces. K3 must preserve its existing
 navigation, visual tokens, typography, spacing, state panels, localization, and
 branding boundary.
 
+The approved local Work extension adds a scoped 2D relation space → aggregate
+workbench → optional focused reader, using the agreed spatial prototype rather
+than replacing Guard navigation. Its current DTO, persistence and conflict contract
+is [WORK_API.md](WORK_API.md). Existing Guard surfaces retain their tokens and
+authority boundaries. Work/task membership and exact artifact requirement versions
+may form relations; assignee labels and process observations do not prove Agent
+execution or authorship. No new Work routes are exposed through Device Link.
+Verified discovery identities may be explicitly linked to a Work and its tasks
+through the versioned Work API. 2D and 3D use the same saved task IDs for Agent
+edges; free-text assignee labels must not be matched to process names. The current
+association projection reports `activity: UNKNOWN`, independently of process lifecycle.
+
 ## Transport and authority boundaries
 
 - Core is the only product authority. It binds to `127.0.0.1:8787` and requires
@@ -100,6 +112,17 @@ Field mapping from `POST /api/v1/device-link/pairings`:
 
 ## Host-native workspace protection contract
 
+This section describes legacy checkpoint provenance and coverage. For continuous
+directory protection and **all new live restoration**, use
+[Core Directory Protection Backend](CORE_PROTECTION_BACKEND.md). The old
+`confirm: true` endpoint returns `409 PREVIEW_REQUIRED`; a verified V3 checkpoint
+may be imported into a registered scope and restored through a selected-file
+preview. Scope registration is independent of Agent lifetime and supports many
+directories per Work and many Works per directory. Detailed contents and paths
+are available only through the authenticated loopback protection API; they are
+not added to Device Link or AI context. Frontend wiring for these new routes is a
+separate deliverable.
+
 - A verified native Agent process and its exact working directory may establish
   one active server-owned workspace scope. The real root remains local Core
   state; DTOs and Ledger payloads expose only opaque IDs and digests.
@@ -113,11 +136,10 @@ Field mapping from `POST /api/v1/device-link/pairings`:
 - Windows permission capture/restore/verification runs as the current user.
   Unsupported or inaccessible DACL/attribute proof fails closed or degrades the
   affected coverage; workspace recovery never invokes UAC.
-- A post-checkpoint file in the current `restorable` scope is moved to
-  ASG-owned quarantine before the baseline is materialized. Quarantine failure
-  leaves the file in place and forces `RESTORABLE_SET_RESTORED` with
-  `POST_CHECKPOINT_RESIDUE_PRESENT`; it is never reported as full workspace
-  restore. Non-restorable categories are not removed by restore.
+- New restoration requires a five-minute server preview, its exact digest and
+  an idempotency key. It changes only selected file IDs, saves preimages, journals
+  each step, verifies the result and records the new version before reporting
+  success. External conflicts stop compensation and retain evidence for handling.
 
 ## Windows Device Link elevation contract
 
@@ -148,7 +170,12 @@ Field mapping from `POST /api/v1/device-link/pairings`:
 
 ## Deliberately absent
 
+Local Work managed execution now has an authenticated cursor/SSE stream and
+version-bound delivery decisions. Its capabilities and limits are documented in
+[MANAGED_SESSION_BACKEND.md](MANAGED_SESSION_BACKEND.md); these routes are not
+part of Device Link.
+
 There is no public Internet/cloud transport, relay, generic LAN browser,
-manual-IP onboarding, multi-device framework, realtime event protocol,
+manual-IP onboarding, multi-device framework, remote realtime event protocol,
 background daemon, replicated Android database, auto-approval, auto-restore,
 or Device Link access to privileged Core mutation surfaces.

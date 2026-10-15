@@ -9,6 +9,7 @@ import sys
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -66,6 +67,10 @@ class FakeProcess:
         self._running = running
         self._failures = dict(failures or {})
         self.oneshot_calls = 0
+        self.ppid_calls = 0
+        self.create_time_calls = 0
+        self.status_calls = 0
+        self.is_running_calls = 0
 
     def _value(self, field: str, value: object) -> object:
         failure = self._failures.get(field)
@@ -74,12 +79,14 @@ class FakeProcess:
         return value
 
     def ppid(self) -> int:
+        self.ppid_calls += 1
         return int(self._value("ppid", self._ppid))
 
     def name(self) -> str:
         return str(self._value("name", self._name))
 
     def create_time(self) -> float:
+        self.create_time_calls += 1
         value = (
             self._create_times.pop(0)
             if self._create_times
@@ -91,6 +98,7 @@ class FakeProcess:
         return float(value)
 
     def status(self) -> str:
+        self.status_calls += 1
         value = self._value("status", self._status)
         if isinstance(value, BaseException):
             raise value
@@ -103,6 +111,7 @@ class FakeProcess:
         return None if value is None else str(value)
 
     def is_running(self) -> bool:
+        self.is_running_calls += 1
         value = self._value("is_running", self._running)
         if isinstance(value, BaseException):
             raise value
@@ -188,7 +197,7 @@ def test_empty_process_iter_returns_available_empty_result():
     assert result.status is CapabilityStatus.AVAILABLE
     assert result.facts == ()
     assert module.process_iter_calls == [
-        ("pid", "ppid", "name", "create_time", "status")
+        ("pid",)
     ]
 
 
@@ -399,6 +408,103 @@ def test_pid_reuse_during_collection_rejects_old_running_identity():
     assert "PROCESS_INSTANCE_REPLACED" in _reason_codes(result)
 
 
+def test_windows_parent_map_is_read_once_after_initial_creation_times():
+    first = FakeProcess(410, ppid=9)
+    second = FakeProcess(411, ppid=10)
+    module = FakePsutil((first, second))
+    module.WINDOWS = True
+    map_calls = []
+
+    def parent_map():
+        map_calls.append((first.create_time_calls, second.create_time_calls))
+        return {410: 9, 411: 10}
+
+    module._psplatform = SimpleNamespace(ppid_map=parent_map)
+    result = _collect(module)
+
+    assert map_calls == [(1, 1)]
+    assert [fact.parent_pid for fact in result.facts] == [9, 10]
+    assert first.ppid_calls == second.ppid_calls == 0
+    assert first.create_time_calls == second.create_time_calls == 2
+
+
+def test_windows_parent_map_does_not_hide_pid_reuse_after_snapshot():
+    process = FakeProcess(410, ppid=9, create_times=(CREATED, CREATED + 10))
+    module = FakePsutil((process,))
+    module.WINDOWS = True
+    module._psplatform = SimpleNamespace(ppid_map=lambda: {410: 9})
+
+    result = _collect(module)
+
+    assert process.create_time_calls == 2
+    assert result.facts[0].current_state is ProcessState.EXITED
+    assert result.facts[0].parent_pid is None
+    assert "PROCESS_INSTANCE_REPLACED" in _reason_codes(result)
+
+
+def test_windows_creation_time_checks_use_distinct_psutil_objects():
+    process = FakeProcess(410, create_times=(CREATED, CREATED + 10))
+
+    class FreshProcessPsutil(FakePsutil):
+        def __init__(self):
+            super().__init__((process,))
+            self.WINDOWS = True
+            self._psplatform = SimpleNamespace(ppid_map=lambda: {410: 9})
+            self.creation_readers = []
+
+        def Process(self, pid):
+            source = super().Process(pid)
+            module = self
+
+            class ProcessView:
+                def create_time(self):
+                    module.creation_readers.append(self)
+                    return source.create_time()
+
+                def __getattr__(self, name):
+                    return getattr(source, name)
+
+            return ProcessView()
+
+    module = FreshProcessPsutil()
+    result = _collect(module)
+
+    assert len(module.creation_readers) == 2
+    assert module.creation_readers[0] is not module.creation_readers[1]
+    assert result.facts[0].current_state is ProcessState.EXITED
+    assert "PROCESS_INSTANCE_REPLACED" in _reason_codes(result)
+
+
+def test_windows_parent_map_failure_falls_back_to_individual_parent_read():
+    process = FakeProcess(410, ppid=9)
+    module = FakePsutil((process,))
+    module.WINDOWS = True
+
+    def failed_map():
+        raise RuntimeError("mapping unavailable")
+
+    module._psplatform = SimpleNamespace(ppid_map=failed_map)
+    result = _collect(module)
+
+    assert result.facts[0].parent_pid == 9
+    assert process.ppid_calls == 1
+    assert process.create_time_calls == 2
+
+
+def test_windows_checks_running_without_expensive_status_read():
+    process = FakeProcess(410, running=False)
+    module = FakePsutil((process,))
+    module.WINDOWS = True
+
+    result = _collect(module)
+
+    assert process.status_calls == 0
+    assert process.is_running_calls == 1
+    assert process.create_time_calls == 2
+    assert result.facts[0].current_state is ProcessState.EXITED
+    assert "PROCESS_EXITED" in _reason_codes(result)
+
+
 def test_missing_psutil_keeps_discovery_importable_and_is_not_empty_success():
     script = r'''
 import builtins
@@ -506,7 +612,6 @@ def test_production_backend_ast_contains_no_forbidden_calls():
     )
     tree = ast.parse(backend_path.read_text(encoding="utf-8"))
     forbidden = {
-        "cmdline",
         "environ",
         "open_files",
         "net_connections",
@@ -528,6 +633,19 @@ def test_production_backend_ast_contains_no_forbidden_calls():
     }
 
     assert called.isdisjoint(forbidden)
+
+
+def test_wrapper_arguments_only_expose_entry_identity():
+    from agentguard.discovery.agents.psutil_backend import PsutilProcessHandle
+
+    process = FakeProcess(410)
+    process.exe = lambda: r"C:\tools\node.exe"
+    process.cmdline = lambda: [r"C:\tools\node.exe", r"C:\tools\agent.js",
+                              "--token", "private-token", "private-prompt"]
+    metadata = PsutilProcessHandle(410, psutil_module=FakePsutil((process,))).application_metadata()
+    assert metadata["entry_path"] == r"C:\tools\agent.js"
+    assert set(metadata) == {"path", "entry_path", "electron_role"}
+    assert "private" not in json.dumps(metadata)
 
 
 @pytest.mark.parametrize(

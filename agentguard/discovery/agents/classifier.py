@@ -16,6 +16,21 @@ from .models import (
 )
 
 
+def package_name_from_entry(entry_path: str | None) -> str | None:
+    if not entry_path:
+        return None
+    parts = entry_path.replace("\\", "/").split("/")
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index].casefold() != "node_modules":
+            continue
+        name = parts[index + 1]
+        if name.startswith("@") and index + 2 < len(parts):
+            return f"{name}/{parts[index + 2]}".casefold()
+        if name and not name.startswith("."):
+            return name.casefold()
+    return None
+
+
 @dataclass(frozen=True)
 class AgentSignatureRule:
     """Explicit exact-match rule using only low-risk structured facts."""
@@ -27,6 +42,8 @@ class AgentSignatureRule:
     execution_domain_ids: tuple[str, ...] = ()
     required_flags: Mapping[str, bool] = field(default_factory=dict)
     observed_flag: str | None = None
+    package_names: tuple[str, ...] = ()
+    package_only: bool = False
     uncertainties: tuple[str, ...] = ("PRODUCT_IDENTITY_UNVERIFIED",)
     required_checks: tuple[str, ...] = ()
 
@@ -38,6 +55,11 @@ class AgentSignatureRule:
             raise ValueError("signature executable names must be basenames")
         object.__setattr__(self, "role", AgentRole(self.role))
         object.__setattr__(self, "executable_basenames", names)
+        object.__setattr__(
+            self, "package_names", tuple(str(item).casefold() for item in self.package_names)
+        )
+        if self.package_only and not self.package_names:
+            raise ValueError("package-only signature requires package names")
         object.__setattr__(
             self,
             "execution_domain_ids",
@@ -62,6 +84,8 @@ def classify_process(
         basename=fact.executable_basename,
         execution_domain_id=fact.execution_domain_id,
         fixed_facts=fact.fixed_facts,
+        package_name=(fact.program_metadata.get("package_name") or
+                      package_name_from_entry(fact.program_metadata.get("entry_path"))),
         rules=rules,
     )
     if fact.current_state is ProcessState.RUNNING:
@@ -140,6 +164,8 @@ def classify_executable(
     execution_domain_id: str,
     evidence_refs: tuple[str, ...],
     rules: tuple[AgentSignatureRule, ...],
+    package_name: str | None = None,
+    fixed_facts: Mapping[str, bool] | None = None,
 ) -> AgentClassification:
     """Classify executable presence as DETECTED, never as a running process."""
 
@@ -147,7 +173,8 @@ def classify_executable(
     rule = _matching_rule(
         basename=basename,
         execution_domain_id=execution_domain_id,
-        fixed_facts={},
+        fixed_facts=fixed_facts or {},
+        package_name=package_name,
         rules=rules,
     )
     role = rule.role if rule else AgentRole.TOOL_PROCESS
@@ -178,14 +205,17 @@ def _matching_rule(
     execution_domain_id: str,
     fixed_facts: Mapping[str, bool],
     rules: tuple[AgentSignatureRule, ...],
+    package_name: str | None = None,
 ) -> AgentSignatureRule | None:
     if basename is None:
         return None
     normalized = basename.casefold()
     for rule in rules:
-        if normalized not in rule.executable_basenames:
+        if normalized not in rule.executable_basenames and not rule.package_only:
             continue
         if rule.execution_domain_ids and execution_domain_id not in rule.execution_domain_ids:
+            continue
+        if rule.package_names and (package_name or "").casefold() not in rule.package_names:
             continue
         if any(fixed_facts.get(name) is not expected for name, expected in rule.required_flags.items()):
             continue
@@ -209,4 +239,5 @@ __all__ = [
     "AgentSignatureRule",
     "classify_executable",
     "classify_process",
+    "package_name_from_entry",
 ]

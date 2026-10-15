@@ -17,7 +17,7 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             assert engine.current_version(conn) == 0
-            assert len(engine.pending(conn)) == 9  # v1 through v9
+            assert len(engine.pending(conn)) == 19  # v1 through v19
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -31,9 +31,9 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             result = engine.migrate(conn)
-            assert len(result["applied"]) == 9
+            assert len(result["applied"]) == 19
             assert result["errors"] == []
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 19
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -49,7 +49,7 @@ class TestMigrations:
             engine.migrate(conn)
             result = engine.migrate(conn)
             assert result["applied"] == []
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 19
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -81,6 +81,12 @@ class TestMigrations:
             assert "device_link_bindings" in table_names
             assert "workspace_scope_observations" in table_names
             assert "workspace_quarantine_records" in table_names
+            assert "work_agent_links" in table_names
+            assert "work_agent_tasks" in table_names
+            assert "protection_scopes" in table_names
+            assert "protection_versions" in table_names
+            assert "protection_blob_refs" in table_names
+            assert "protection_operations" in table_names
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -125,13 +131,13 @@ class TestMigrations:
             conn.commit()
             engine = MigrationEngine(db_path)
             engine.migrate(conn)
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 19
             result = engine.rollback(conn, 0)
-            assert len(result["rolled_back"]) == 9
+            assert len(result["rolled_back"]) == 19
             assert engine.current_version(conn) == 0
             # Re-migrate
             engine.migrate(conn)
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 19
         finally:
             conn.close()
             db_path.unlink(missing_ok=True)
@@ -146,7 +152,7 @@ class TestMigrations:
             engine = MigrationEngine(db_path)
             engine.register(Migration(4, "Custom test", "CREATE TABLE custom_test (id INTEGER)", "DROP TABLE custom_test"))
             engine.migrate(conn)
-            assert engine.current_version(conn) == 9
+            assert engine.current_version(conn) == 19
             tables = conn.execute("SELECT name FROM sqlite_master WHERE name='custom_test'").fetchall()
             assert len(tables) == 1
         finally:

@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 import secrets
 import sqlite3
+import threading
+import time
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -39,6 +42,12 @@ class DiscoveryRefreshRequest(BaseModel):
     """Manual refresh accepts no caller-selected discovery authority."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class DiscoverySourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool
+    expected_revision: int = Field(ge=0)
 
 
 class AnalyzeCurrentEnvironmentRequest(BaseModel):
@@ -80,6 +89,7 @@ def create_app(
     discovery_service=None,
     product_startup_discovery: bool = False,
     device_link_controller=None,
+    protection_domains=None,
 ):
     """Create a FastAPI application instance.
 
@@ -89,6 +99,7 @@ def create_app(
     from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
+    from starlette.concurrency import run_in_threadpool
 
     from ..commands.doctor import doctor as _doctor
     from ..commands.status import status as _status_ptr
@@ -132,6 +143,16 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
         path = request.url.path
+        if path.startswith("/api/v1/protection/") or path in {"/api/v1/recovery/previews", "/api/v1/recovery/operations"}:
+            return JSONResponse({"reason_code": "PROTECTION_REQUEST_INVALID", "fields": [
+                {"location": error["loc"], "type": error["type"]} for error in exc.errors()
+            ]}, status_code=422)
+        if path == "/api/v1/works" or path.startswith("/api/v1/works/"):
+            return JSONResponse({
+                "reason_code": "WORK_REQUEST_INVALID",
+                "fields": [{"location": error["loc"], "type": error["type"]}
+                           for error in exc.errors()],
+            }, status_code=422)
         if request.method == "POST" and path == "/api/v1/discovery/refresh":
             return JSONResponse(
                 {
@@ -277,8 +298,17 @@ def create_app(
     product_config_target = cfg_o.ensure_product_config()
     cfg = cfg_o._data
     db_path = state_db_path or cfg_o.state_db()
-    db = StateDB(db_path)
+    from .work import work_router
+
+    app.include_router(work_router(db_path, agent_enricher=lambda result: enrich_agents(result)))
     snapshots_dir = cfg_o.snapshot_dir()
+    from ..recovery.protection import ProtectionRuntime
+    from ..recovery.protection_domains import DomainRegistry
+
+    domains = protection_domains or DomainRegistry(db_path.parent)
+    protection = ProtectionRuntime(db_path, db_path.parent, domains)
+    protection.snapshots = SnapshotStore(snapshots_dir)
+    app.state.protection = protection
     _ai_provider = assessment_provider
     _latest_ai_advisory: dict[str, object] = {
         "schema_version": "product-ai-advisory-1",
@@ -286,15 +316,92 @@ def create_app(
         "reason_code": "AI_ADVISORY_NOT_RUN",
         "evidence_refs": [],
     }
-    _product_discovery = discovery_service or ProductDiscoveryService()
+    from ..discovery.domains.docker_host import DockerHostProbe
+    from ..discovery.managed import ManagedDiscoveryService
+    from ..discovery.source_settings import SourceSettings
+
+    source_settings = SourceSettings(db_path)
+    _product_discovery = discovery_service or ManagedDiscoveryService(
+        native=ProductDiscoveryService(), docker=DockerHostProbe(),
+        preferences=source_settings.read, domain_registry=domains,
+    )
+    # Serialize collection, persistence and configuration as one generation.
+    # Reuse the manager lock so configure/refresh cannot acquire locks inversely.
+    discovery_lock = (
+        _product_discovery.lock if isinstance(_product_discovery, ManagedDiscoveryService)
+        else threading.RLock()
+    )
 
     def _get_db():
-        db.connect()
-        return db
+        current = StateDB(db_path)
+        current.connect()
+        return current
+
+    from ..discovery.catalog import (
+        DiscoveryCatalog,
+        SessionPageCache,
+        include_historical_sources,
+        record_sources,
+    )
+    from ..discovery.source_identity import resolve_source
+    from .discovery import discovery_router
+
+    session_pages = SessionPageCache()
+
+    @contextmanager
+    def catalog_context():
+        database = _get_db()
+        try:
+            yield DiscoveryCatalog(database, domains, _product_discovery, session_pages)
+        finally:
+            database.close()
+
+    def canonical_source(source_id):
+        database = _get_db()
+        try:
+            return resolve_source(database._conn, source_id)
+        finally:
+            database.close()
+
+    def registered_paths():
+        database = _get_db()
+        try:
+            return tuple(row[0] for row in database._conn.execute(
+                "SELECT path FROM discovery_applications WHERE source_id='local' AND registered=1 LIMIT 256"))
+        finally:
+            database.close()
+
+    def registered_programs():
+        database = _get_db()
+        try:
+            values = {}
+            for source_id, path in database._conn.execute("SELECT source_id,path FROM discovery_applications WHERE registered=1"):
+                values.setdefault(source_id, set()).add(path)
+            return values
+        finally:
+            database.close()
+
+    def enrich_agents(result):
+        with catalog_context() as catalog:
+            return catalog.enrich_agents(result)
+
+    domains.source_resolver = canonical_source
+    if isinstance(_product_discovery, ManagedDiscoveryService):
+        _product_discovery.catalog_context = catalog_context
+        _product_discovery.native._registered_paths = registered_paths
+        _product_discovery.registered_programs = registered_programs
+    app.include_router(discovery_router(catalog_context, discovery_lock))
 
     def _refresh_product_discovery() -> dict[str, object]:
+        with discovery_lock:
+            return _refresh_product_discovery_locked()
+
+    def _refresh_product_discovery_locked() -> dict[str, object]:
         unavailable = False
         authority_report = None
+        if isinstance(_product_discovery, ManagedDiscoveryService):
+            with catalog_context() as catalog:
+                catalog.reconcile()
         supports_workspace_authority = callable(
             getattr(_product_discovery, "discover_with_authority", None)
         )
@@ -309,14 +416,34 @@ def create_app(
             unavailable = True
         scope_result = None
         change_result = None
-        current_db = _get_db()
+        current_db = StateDB(db_path)
+        current_db.connect()
         try:
-            receipts = record_discovery_snapshot(
-                current_db,
-                snapshot,
-                recorded_at=datetime.now(UTC),
-            )
-            if supports_workspace_authority:
+            if isinstance(_product_discovery, ManagedDiscoveryService) and authority_report is not None:
+                catalog = DiscoveryCatalog(current_db, domains, _product_discovery)
+                catalog.observe(authority_report)
+                record_sources(current_db, _product_discovery.sources())
+                entry_key = frozenset((item.get("source_id"), item.get("agent_id"))
+                    for item in authority_report.application_observations if item.get("agent_id"))
+                new_entries = entry_key - getattr(_product_discovery, "inventory_entries", frozenset())
+                if new_entries or time.monotonic() - getattr(_product_discovery, "inventory_at", -60) >= 30:
+                    _product_discovery.inventory_coverage = catalog.refresh_inventory()
+                    _product_discovery.inventory_at = time.monotonic()
+                    _product_discovery.inventory_entries = entry_key
+            publication_key = (snapshot.status.value,
+                tuple(sorted((item.agent_id, item.agent_type, item.domain_id, item.lifecycle.value, item.workspace_ids) for item in snapshot.agents)),
+                tuple(sorted((item.runtime_id, item.status.value) for item in snapshot.runtimes)),
+                tuple(sorted((item["source_id"], item["state"], item.get("reason_code")) for item in _product_discovery.sources()["items"]))
+                    if isinstance(_product_discovery, ManagedDiscoveryService) else ())
+            publish = (not isinstance(_product_discovery, ManagedDiscoveryService) or
+                getattr(_product_discovery, "publication_key", None) != publication_key or
+                time.monotonic() - getattr(_product_discovery, "publication_at", -60) >= 30)
+            receipts = record_discovery_snapshot(current_db, snapshot, recorded_at=datetime.now(UTC)) if publish else []
+            if publish and isinstance(_product_discovery, ManagedDiscoveryService):
+                _product_discovery.publication_key = publication_key
+                _product_discovery.publication_at = time.monotonic()
+                _product_discovery.published_snapshot_id = snapshot.snapshot_id
+            if supports_workspace_authority and publish:
                 resolved_scope = (
                     resolve_host_workspace(authority_report)
                     if authority_report is not None
@@ -372,7 +499,7 @@ def create_app(
                 if unavailable
                 else "DISCOVERY_REFRESHED"
             ),
-            "snapshot_id": snapshot.snapshot_id,
+            "snapshot_id": getattr(_product_discovery, "published_snapshot_id", snapshot.snapshot_id),
             "observed_at": snapshot.observed_at.isoformat(),
             "affected_views": affected_views,
             "runtime_count": len(snapshot.runtimes),
@@ -409,8 +536,36 @@ def create_app(
             "evidence_refs": evidence_refs,
         }
 
+    from .protection import protection_router
+
+    app.include_router(protection_router(protection))
+    from ..execution.runtime import ExecutionRuntime
+    from .execution import delivery_router, execution_router
+
+    execution = ExecutionRuntime(db_path, domains, catalog_context, protection)
+    app.state.execution = execution
+    app.include_router(execution_router(execution))
+    app.include_router(delivery_router(execution))
+    protection.discovery_refresh = _refresh_product_discovery
+    protection.background_discovery = product_startup_discovery
+
+    @app.on_event("startup")
+    async def startup_protection():
+        execution.start()
+        protection.start()
+
+    @app.on_event("shutdown")
+    async def shutdown_protection():
+        await run_in_threadpool(execution.close)
+        await run_in_threadpool(protection.close)
+
     if product_startup_discovery:
         try:
+            if isinstance(_product_discovery, ManagedDiscoveryService):
+                with catalog_context() as catalog:
+                    catalog.reconcile()
+            with protection.service() as service:
+                service.restore_disconnections()
             _refresh_product_discovery()
         except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
             pass
@@ -425,6 +580,7 @@ def create_app(
 
     @app.get("/api/readiness")
     async def readiness():
+        current_db = None
         try:
             current_db = _get_db()
             current_db._conn.execute(
@@ -440,7 +596,8 @@ def create_app(
                 status_code=503,
             )
         finally:
-            db.close()
+            if current_db is not None:
+                current_db.close()
         return {
             "status": "ready",
             "database": "available",
@@ -521,7 +678,8 @@ def create_app(
 
     @app.get("/api/v1/agents")
     async def api_r4_agents():
-        return _r4_projection("agents")
+        result = _r4_projection("agents")
+        return enrich_agents(result) if isinstance(_product_discovery, ManagedDiscoveryService) else result
 
     @app.get("/api/v1/supervision")
     async def api_r4_supervision():
@@ -658,7 +816,7 @@ def create_app(
     @app.post("/api/v1/discovery/refresh")
     async def api_product_discovery_refresh(_body: DiscoveryRefreshRequest):
         try:
-            result = _refresh_product_discovery()
+            result = await run_in_threadpool(_refresh_product_discovery)
             if result["reason_code"] == "DISCOVERY_REFRESH_UNAVAILABLE":
                 return JSONResponse(result, status_code=503)
             return result
@@ -677,6 +835,40 @@ def create_app(
                 },
                 status_code=503,
             )
+
+    @app.get("/api/v1/discovery/sources")
+    def api_discovery_sources():
+        if not isinstance(_product_discovery, ManagedDiscoveryService):
+            return {"schema_version": "discovery-sources-1", "items": [],
+                    "reason_code": "SOURCE_MANAGEMENT_UNSUPPORTED"}
+        result = _product_discovery.sources()
+        with catalog_context() as catalog:
+            return include_historical_sources(catalog.db, result)
+
+    @app.post("/api/v1/discovery/sources/{source_id}/configure")
+    def api_configure_discovery_source(source_id: str, body: DiscoverySourceRequest):
+        if not isinstance(_product_discovery, ManagedDiscoveryService):
+            return JSONResponse({"reason_code": "SOURCE_MANAGEMENT_UNSUPPORTED"}, status_code=409)
+        with _product_discovery.lock:
+            source_id = canonical_source(source_id)
+            source = next((item for item in _product_discovery.sources()["items"]
+                           if item["source_id"] == source_id), None)
+            if source is None:
+                return JSONResponse({"reason_code": "DISCOVERY_SOURCE_NOT_FOUND"}, status_code=404)
+            if not source["configurable"]:
+                return JSONResponse({"reason_code": "DISCOVERY_SOURCE_NOT_CONFIGURABLE"}, status_code=409)
+            try:
+                setting = source_settings.set_enabled(source_id, body.enabled, body.expected_revision)
+            except ValueError:
+                return JSONResponse({"reason_code": "DISCOVERY_SOURCE_REVISION_CONFLICT"}, status_code=409)
+            except sqlite3.DatabaseError:
+                return JSONResponse({"reason_code": "DISCOVERY_SOURCE_SAVE_FAILED"}, status_code=503)
+            # The setting remains durable even when its subsequent observation fails.
+            try:
+                refresh = _refresh_product_discovery()
+            except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
+                refresh = {"status": "UNAVAILABLE", "reason_code": "DISCOVERY_REFRESH_UNAVAILABLE"}
+            return {**setting, "refresh": refresh}
 
     def _supervision_action(
         session_id: str,
@@ -894,6 +1086,7 @@ def create_app(
         }
         if _ai_provider is None or not callable(getattr(_ai_provider, "analyze", None)):
             return JSONResponse(unavailable, status_code=503)
+        current_db = None
         try:
             current_db = _get_db()
             projector = R4ReadProjectionService(
@@ -913,7 +1106,8 @@ def create_app(
                 status_code=503,
             )
         finally:
-            db.close()
+            if current_db is not None:
+                current_db.close()
         try:
             result = _ai_provider.analyze(context)
         except Exception:  # noqa: BLE001 - external provider boundary fails closed.

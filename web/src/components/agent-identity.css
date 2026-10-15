@@ -1,0 +1,10 @@
+.agent-identity-label { overflow-wrap: anywhere; }
+.agent-identity-details { margin-top: 14px; border-top: 1px solid currentColor; padding-top: 10px; font-size: 12px; }
+.agent-identity-details summary { cursor: pointer; }
+.agent-identity-details dl { display: grid; gap: 8px; margin: 12px 0; }
+.agent-identity-details dl > div { display: grid; grid-template-columns: minmax(120px, 32%) minmax(0, 1fr); gap: 10px; }
+.agent-identity-details dt { opacity: .7; }
+.agent-identity-details dd { margin: 0; overflow-wrap: anywhere; }
+.agent-identity-details dd button { margin-left: 10px; }
+.agent-identity-details dd small { margin-left: 8px; }
+@media (max-width: 600px) { .agent-identity-details dl > div { display: block; }.agent-identity-details dt { margin-bottom: 2px; } }

@@ -48,7 +48,19 @@ export interface AgentWorkspace {
   binding_ref: string | null;
 }
 
+export interface ExternalControlCapabilities {
+  create: boolean;
+  continue: boolean;
+  send: boolean;
+  stream: boolean;
+  cancel: boolean;
+  reason_code: string;
+  ownership: 'EXTERNAL';
+}
+
 export interface AgentItem {
+  /** Opaque observed process identity; discovery refreshes preserve it for that process lifetime. */
+  agent_id?: string | null;
   detected_identity: string;
   role: string;
   /** Backend-owned lifecycle (e.g. DETECTED | UNKNOWN). Rendered verbatim. */
@@ -60,9 +72,119 @@ export interface AgentItem {
   uncertainty: boolean;
   observed_at?: string | null;
   evidence_refs: string[];
+  application_id?: string | null;
+  program_path?: string | null;
+  source_id?: string | null;
+  source_label?: string | null;
+  source_short_id?: string | null;
+  pid?: number | null;
+  cwd?: string | null;
+  control_capabilities?: ExternalControlCapabilities | null;
 }
 
 export type AgentsView = R4ViewDto<AgentItem>;
+
+export interface DiscoverySource {
+  source_id: string;
+  kind: string;
+  label: string;
+  short_id?: string | null;
+  state: string;
+  reason_code: string;
+  agent_count: number;
+  configurable: boolean;
+  revision: number;
+  enabled: boolean;
+  freshness: string;
+  session_probe_available: boolean;
+  session_status: string;
+}
+
+export interface DiscoveryInventoryCoverage {
+  source_id: string;
+  status: string;
+  requested?: number;
+  observed?: number;
+  missing?: number;
+  reason_code: string;
+}
+
+export interface DiscoverySources {
+  items: DiscoverySource[];
+  inventory_coverage?: DiscoveryInventoryCoverage[];
+}
+
+export interface DiscoveryApplication {
+  id: string;
+  source_id: string;
+  path: string;
+  observed_entry?: string | null;
+  label?: string | null;
+  provider: string;
+  classification?: 'RECOGNIZED' | 'USER_REGISTERED' | 'UNCLASSIFIED';
+  version?: string | null;
+  status: string;
+  reason_code: string;
+  registered: boolean;
+  running: boolean;
+  instances: { agent_id: string; pid: number | null; cwd: string | null; observed_at: string | null }[];
+  observed_at: string;
+  freshness: string;
+  installation_observed_at?: string | null;
+  installation_freshness: 'FRESH' | 'STALE' | 'UNKNOWN';
+  control_capabilities: ExternalControlCapabilities;
+}
+
+export interface DiscoverySessionStore {
+  id: string;
+  source_id: string;
+  provider: string;
+  path: string;
+  status: string;
+  reason_code: string;
+  identity?: string | null;
+  registered: boolean;
+  observed_at: string;
+  freshness: string;
+  control_capabilities?: ExternalControlCapabilities;
+}
+
+export interface DiscoveryPage<T> {
+  items: T[];
+  has_more: boolean;
+  next_offset: number | null;
+  unclassified_count?: number;
+}
+
+export interface DiscoverySession {
+  session_id: string;
+  binding_id?: string;
+  store_id?: string;
+  provider?: string;
+  title: string | null;
+  updated_at: string | null;
+  cwd?: string | null;
+  native_provider?: string | null;
+  native_session_id?: string | null;
+  app_session_id?: string | null;
+  mapping_status?: string | null;
+  control_capabilities?: ExternalControlCapabilities;
+}
+
+export interface DiscoverySessionsPage {
+  store_id?: string;
+  provider?: string;
+  status: string;
+  reason_code: string;
+  sessions: DiscoverySession[];
+  has_more: boolean;
+  next_offset?: number | null;
+  observed_at?: string;
+  metadata_scope?: 'PAGE';
+  candidate_count?: number;
+  candidate_offset?: number;
+  candidate_end?: number;
+}
 
 /* ---- Supervision ---- */
 

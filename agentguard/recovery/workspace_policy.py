@@ -188,6 +188,20 @@ def scan_workspace(
             scan_reason = "WORKSPACE_SCAN_DEPTH_LIMIT_REACHED"
             return False
         try:
+            directory_before = directory.lstat()
+        except OSError:
+            complete = False
+            scan_reason = "WORKSPACE_DIRECTORY_UNREACHABLE"
+            return False
+        if (
+            not stat.S_ISDIR(directory_before.st_mode)
+            or _is_reparse(directory_before)
+            or directory_before.st_dev != root_info.st_dev
+        ):
+            complete = False
+            scan_reason = "WORKSPACE_DIRECTORY_CHANGED_DURING_SCAN"
+            return False
+        try:
             children = sorted(
                 os.scandir(directory),
                 key=lambda item: (item.name.casefold(), item.name),
@@ -221,7 +235,7 @@ def scan_workspace(
                 scan_reason = "WORKSPACE_SCAN_CONTAINMENT_FAILED"
                 return False
             try:
-                info = child.stat(follow_symlinks=False)
+                info = path.lstat()
             except PermissionError:
                 if not add(_metadata_entry(relative, "SPECIAL", "unreachable", "WORKSPACE_OBJECT_PERMISSION_DENIED", 0)):
                     return False
@@ -233,6 +247,10 @@ def scan_workspace(
 
             if child.is_symlink() or _is_reparse(info):
                 if not add(_metadata_entry(relative, "SPECIAL", "excluded", "WORKSPACE_REPARSE_POINT_EXCLUDED", 0)):
+                    return False
+                continue
+            if info.st_dev != root_info.st_dev:
+                if not add(_metadata_entry(relative, "SPECIAL", "excluded", "WORKSPACE_MOUNT_EXCLUDED", 0, info=info)):
                     return False
                 continue
             if stat.S_ISDIR(info.st_mode):
@@ -247,6 +265,10 @@ def scan_workspace(
                 if not add(_metadata_entry(relative, "SPECIAL", "excluded", "WORKSPACE_OBJECT_UNSUPPORTED", int(info.st_size))):
                     return False
                 continue
+            if info.st_nlink > 1:
+                if not add(_metadata_entry(relative, "FILE", "excluded", "WORKSPACE_HARDLINK_EXCLUDED", int(info.st_size), info=info)):
+                    return False
+                continue
             if path.suffix.casefold() in _EXCLUDED_SUFFIXES:
                 if not add(_metadata_entry(relative, "FILE", "excluded", "WORKSPACE_GENERATED_OUTPUT_EXCLUDED", int(info.st_size))):
                     return False
@@ -257,7 +279,7 @@ def scan_workspace(
                 continue
 
             try:
-                content, current_info = _read_regular_once(path)
+                content, current_info = _read_regular_once(path, limits.max_file_bytes, info, canonical_root)
             except PermissionError:
                 if not add(_metadata_entry(relative, "FILE", "unreachable", "WORKSPACE_CONTENT_PERMISSION_DENIED", int(info.st_size), info=info)):
                     return False
@@ -298,6 +320,7 @@ def scan_workspace(
                     return False
                 continue
             try:
+                proof_parents = _parent_states(path, canonical_root)
                 proof = permission_backend.capture(path)
             except PermissionCapabilityError as exc:
                 if not add(
@@ -313,6 +336,10 @@ def scan_workspace(
                 ):
                     return False
                 continue
+            except OSError:
+                if not add(_metadata_entry(relative, "FILE", "unreachable", "WORKSPACE_DIRECTORY_CHANGED_DURING_SCAN", len(content), info=current_info)):
+                    return False
+                continue
             try:
                 proof_info = path.lstat()
             except OSError:
@@ -325,6 +352,10 @@ def scan_workspace(
                 or current_info.st_ino != proof_info.st_ino
                 or current_info.st_size != proof_info.st_size
                 or current_info.st_size != len(content)
+                or current_info.st_mtime_ns != proof_info.st_mtime_ns
+                or current_info.st_ctime_ns != proof_info.st_ctime_ns
+                or proof_info.st_nlink > 1
+                or not _parents_stable(path, canonical_root, proof_parents)
             ):
                 if not add(_metadata_entry(relative, "FILE", "unreachable", "WORKSPACE_CONTENT_CHANGED_DURING_SCAN", int(current_info.st_size), info=current_info)):
                     return False
@@ -344,6 +375,14 @@ def scan_workspace(
                 )
             ):
                 return False
+        try:
+            directory_after = directory.lstat()
+        except OSError:
+            directory_after = None
+        if directory_after is None or not _same_identity(directory_before, directory_after):
+            complete = False
+            scan_reason = "WORKSPACE_DIRECTORY_CHANGED_DURING_SCAN"
+            return False
         return True
 
     walk(canonical_root, 0)
@@ -356,25 +395,101 @@ def scan_workspace(
     )
 
 
-def _read_regular_once(path: Path) -> tuple[bytes, os.stat_result]:
+def _read_regular_once(
+    path: Path, max_bytes: int, expected: os.stat_result, root: Path
+) -> tuple[bytes, os.stat_result]:
+    parents_before = _parent_states(path, root)
+    before_path = path.lstat()
+    if not _same_file_state(expected, before_path):
+        raise OSError("WORKSPACE_CONTENT_CHANGED_DURING_SCAN")
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or _is_reparse(info)
+            or info.st_nlink > 1
+            or info.st_dev != root.stat().st_dev
+            or not _same_object(before_path, info)
+            or info.st_size > max_bytes
+        ):
             raise OSError("WORKSPACE_OBJECT_UNSUPPORTED")
         with os.fdopen(descriptor, "rb", closefd=False) as source:
-            content = source.read()
+            content = source.read(max_bytes + 1)
         after = os.fstat(descriptor)
     finally:
         os.close(descriptor)
+    path_after = path.lstat()
     if (
-        info.st_dev != after.st_dev
-        or info.st_ino != after.st_ino
-        or info.st_size != after.st_size
+        not _same_file_state(info, after)
         or after.st_size != len(content)
+        or len(content) > max_bytes
+        or not _parents_stable(path, root, parents_before)
+        or not _same_file_state(before_path, path_after)
+        or not _same_object(after, path_after)
     ):
         raise OSError("WORKSPACE_CONTENT_CHANGED_DURING_SCAN")
-    return content, after
+    return content, path_after
+
+
+def _same_file_state(left: os.stat_result, right: os.stat_result) -> bool:
+    return all(
+        getattr(left, name) == getattr(right, name)
+        for name in ("st_dev", "st_ino", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
+    )
+
+
+def _same_object(left: os.stat_result, right: os.stat_result) -> bool:
+    return all(
+        getattr(left, name) == getattr(right, name)
+        for name in ("st_dev", "st_ino", "st_nlink", "st_size")
+    )
+
+
+def _same_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return (
+        left.st_dev == right.st_dev
+        and left.st_ino == right.st_ino
+        and stat.S_ISDIR(right.st_mode)
+        and not _is_reparse(right)
+    )
+
+
+def _parent_states(path: Path, root: Path) -> tuple[tuple[Path, os.stat_result], ...]:
+    try:
+        relative = path.relative_to(root)
+    except ValueError as exc:
+        raise OSError("WORKSPACE_SCAN_CONTAINMENT_FAILED") from exc
+    states = []
+    current = root
+    root_device = root.lstat().st_dev
+    for part in relative.parts[:-1]:
+        info = current.lstat()
+        if not stat.S_ISDIR(info.st_mode) or _is_reparse(info) or info.st_dev != root_device:
+            raise OSError("WORKSPACE_DIRECTORY_CHANGED_DURING_SCAN")
+        states.append((current, info))
+        current = current / part
+    info = current.lstat()
+    if not stat.S_ISDIR(info.st_mode) or _is_reparse(info) or info.st_dev != root_device:
+        raise OSError("WORKSPACE_DIRECTORY_CHANGED_DURING_SCAN")
+    states.append((current, info))
+    return tuple(states)
+
+
+def _parents_stable(
+    path: Path,
+    root: Path,
+    previous: tuple[tuple[Path, os.stat_result], ...] | None = None,
+) -> bool:
+    try:
+        before = previous or _parent_states(path, root)
+        after = _parent_states(path, root)
+    except OSError:
+        return False
+    return len(before) == len(after) and all(
+        left_path == right_path and _same_identity(left, right)
+        for (left_path, left), (right_path, right) in zip(before, after)
+    )
 
 
 def _metadata_entry(

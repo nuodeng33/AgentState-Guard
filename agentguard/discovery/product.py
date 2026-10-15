@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+import os
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ from .agents import (
     AgentRole,
     ProcessBackend,
     ProcessCollector,
+    ProcessFact,
     ProcessState,
     ProcessWorkspaceAuthority,
     PsutilProcessBackend,
@@ -28,17 +30,18 @@ from .models import (
     RuntimeDescriptor,
     WorkspaceDescriptor,
 )
+from .signatures import (
+    PRODUCT_AGENT_REGISTRY,
+    PRODUCT_SIGNATURES,
+    kind_for_classification,
+    package_name_from_entry,
+)
 
 _COLLECTOR = "product-discovery"
 _AGENT_SIGNATURES: dict[str, tuple[str, AgentRole]] = {
-    "ccr": ("CCR", AgentRole.MODEL_ROUTER),
-    "ccr.exe": ("CCR", AgentRole.MODEL_ROUTER),
-    "claude": ("CLAUDE", AgentRole.EXECUTION_AGENT),
-    "claude.exe": ("CLAUDE", AgentRole.EXECUTION_AGENT),
-    "cloudcli": ("CLOUDCLI", AgentRole.AGENT_HOST),
-    "cloudcli.exe": ("CLOUDCLI", AgentRole.AGENT_HOST),
-    "codex": ("CODEX", AgentRole.EXECUTION_AGENT),
-    "codex.exe": ("CODEX", AgentRole.EXECUTION_AGENT),
+    basename: (kind, rule.role)
+    for kind, rule in PRODUCT_SIGNATURES if not rule.package_names
+    for basename in rule.executable_basenames
 }
 
 
@@ -48,6 +51,7 @@ class ProductDiscoveryReport:
 
     snapshot: DiscoverySnapshot
     workspace_authorities: tuple[ProcessWorkspaceAuthority, ...] = ()
+    application_observations: tuple[dict, ...] = ()
 
 
 class ProductDiscoveryService:
@@ -60,16 +64,25 @@ class ProductDiscoveryService:
         process_backend: ProcessBackend | None = None,
         clock: Callable[[], datetime] | None = None,
         home_path: str | None = None,
+        registered_paths: Callable[[], Iterable[str]] | None = None,
     ) -> None:
         self._runtime_adapter = runtime_adapter or SelfRuntimeAdapter()
         self._process_backend = process_backend or PsutilProcessBackend()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._home_path = home_path if home_path is not None else str(Path.home())
+        self._registered_paths = registered_paths or (lambda: ())
 
     def discover(self) -> DiscoverySnapshot:
         return self.discover_with_authority().snapshot
 
     def discover_with_authority(self) -> ProductDiscoveryReport:
+        return self._discover(include_processes=True)
+
+    def discover_runtime(self) -> DiscoverySnapshot:
+        """Observe host authority without unrelated Agent/process enumeration."""
+        return self._discover(include_processes=False).snapshot
+
+    def _discover(self, *, include_processes: bool) -> ProductDiscoveryReport:
         runtime_snapshot = self._runtime_adapter.discover()
         domain = current_execution_domain(runtime_snapshot.domains)
         if domain is None or domain.kind is ExecutionDomainKind.UNKNOWN:
@@ -109,6 +122,14 @@ class ProductDiscoveryService:
             confidence=0.95,
         )
 
+        if not include_processes:
+            return ProductDiscoveryReport(snapshot=DiscoverySnapshot(
+                snapshot_id=f"product-{nonce}", observed_at=observed_at,
+                domains=(domain,), runtimes=(runtime,),
+                evidence=(*runtime_snapshot.evidence, runtime_evidence),
+                errors=runtime_snapshot.errors, status=runtime_snapshot.status,
+            ))
+
         processes = ProcessCollector(
             backend=self._process_backend,
             execution_domain_id=domain.domain_id,
@@ -130,19 +151,51 @@ class ProductDiscoveryService:
         authorities_by_process = {
             item.process_instance_id: item for item in processes.workspace_authorities
         }
+        classifications = {
+            item.process_instance_id: item
+            for item in PRODUCT_AGENT_REGISTRY.discover(processes.facts).candidates
+        }
+        kinds = {
+            instance_id: kind_for_classification(item.evidence_refs)
+            for instance_id, item in classifications.items()
+        }
+        facts_by_pid = {item.pid: item for item in processes.facts}
+        registered_paths = _canonical_registered_paths(self._registered_paths)
+        application_observations: list[dict] = []
+        seen_agent_ids: set[str] = set()
 
         for fact in processes.facts:
-            signature = _AGENT_SIGNATURES.get((fact.executable_basename or "").casefold())
-            if signature is None or fact.current_state is not ProcessState.RUNNING:
+            if fact.current_state is not ProcessState.RUNNING:
                 continue
-            agent_type, role = signature
+            agent_type = kinds.get(fact.process_instance_id)
+            classification = classifications.get(fact.process_instance_id)
+            registered = False
+            if agent_type is None and registered_paths and _canonical_process_path(fact) in registered_paths:
+                agent_type = "UNKNOWN"
+                registered = True
+            role = (
+                AgentRole.TOOL_PROCESS if registered else
+                classification.role if classification is not None else AgentRole.UNKNOWN
+            )
+            root = _zcode_root(fact, facts_by_pid, kinds) if agent_type == "ZCODE" else fact
+            agent_id = (
+                _stable_id("external-agent", agent_type, root.process_instance_id)
+                if agent_type else None
+            )
+            if agent_type is None:
+                application_observations.append(_application_observation(fact, None, observed_at))
+                continue
+            if agent_id in seen_agent_ids:
+                continue
+            fact = root
+            application_observations.append(_application_observation(fact, agent_id, observed_at))
             source = next(
                 (process_evidence.get(ref) for ref in fact.evidence_refs if ref in process_evidence),
                 None,
             )
             if source is None:
                 continue
-            agent_id = _stable_id("external-agent", agent_type, fact.process_instance_id)
+            seen_agent_ids.add(agent_id)
             agent_evidence_id = f"product-agent-{hashlib.sha256(agent_id.encode()).hexdigest()[:24]}-{nonce[:8]}"
             agent_status = (
                 CapabilityStatus.AVAILABLE
@@ -158,10 +211,16 @@ class ProductDiscoveryService:
                     "execution_domain_id": domain.domain_id,
                     "lifecycle": AgentLifecycleStatus.RUNNING.value,
                     "role": role.value,
+                    "identity_basis": (
+                        "USER_REGISTRATION" if registered else
+                        "PACKAGE_ENTRY_MATCH" if fact.program_metadata.get("package_name") else
+                        "PROCESS_NAME_MATCH"
+                    ),
+                    "source_id": "local",
                 },
                 summary=None,
-                reliability=EvidenceReliability.HIGH,
-                confidence=0.8,
+                reliability=EvidenceReliability.MEDIUM,
+                confidence=0.5,
                 status=agent_status,
                 error=None,
                 sanitized=True,
@@ -211,7 +270,7 @@ class ProductDiscoveryService:
                     runtime_id=runtime_id,
                     workspace_ids=workspace_ids,
                     evidence_ids=(agent_evidence_id,),
-                    confidence=0.8,
+                    confidence=0.5,
                 )
             )
 
@@ -269,6 +328,7 @@ class ProductDiscoveryService:
                 ),
             ),
             workspace_authorities=tuple(workspace_authorities),
+            application_observations=tuple(application_observations),
         )
 
 
@@ -323,6 +383,86 @@ def current_execution_domain(
 def _stable_id(prefix: str, *parts: str) -> str:
     material = "\x1f".join(parts).encode("utf-8")
     return f"{prefix}-{hashlib.sha256(material).hexdigest()[:24]}"
+
+
+def _canonical_path(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        path = Path(value).resolve(strict=True)
+        return os.path.normcase(str(path)) if path.is_file() else None
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _canonical_registered_paths(provider: Callable[[], Iterable[str]]) -> set[str]:
+    try:
+        values = tuple(provider())[:100]
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return set()
+    return {canonical for value in values if isinstance(value, str)
+            if (canonical := _canonical_path(value)) is not None}
+
+
+def _canonical_process_path(fact: ProcessFact) -> str | None:
+    return _canonical_path(fact.program_metadata.get("entry_path") or fact.program_metadata.get("path"))
+
+
+def _zcode_root(
+    fact: ProcessFact, facts_by_pid: dict[int, ProcessFact], kinds: dict[str, str | None]
+) -> ProcessFact:
+    roles = {"renderer", "utility", "gpu-process", "crashpad-handler"}
+    current = fact
+    for _ in range(8):
+        if current.program_metadata.get("electron_role") not in roles:
+            break
+        path = current.program_metadata.get("path")
+        parent = facts_by_pid.get(current.parent_pid) if current.parent_pid is not None else None
+        if (
+            not path or parent is None or parent.create_time is None
+            or current.create_time is None or parent.create_time > current.create_time
+            or kinds.get(parent.process_instance_id) != "ZCODE"
+            or os.path.normcase(os.path.normpath(parent.program_metadata.get("path") or ""))
+            != os.path.normcase(os.path.normpath(path))
+        ):
+            break
+        current = parent
+    return current
+
+
+def _application_observation(fact: ProcessFact, agent_id: str | None, observed_at: datetime) -> dict:
+    metadata = fact.program_metadata
+    path = metadata.get("path")
+    entry_path = metadata.get("entry_path")
+    package_name = metadata.get("package_name") or package_name_from_entry(entry_path)
+    path_identity = (
+        "path-sha256:" + hashlib.sha256(os.path.normcase(os.path.normpath(path)).encode()).hexdigest()
+        if path else None
+    )
+    return {
+        "agent_id": agent_id,
+        "process_instance_id": fact.process_instance_id,
+        "pid": fact.pid,
+        "parent_pid": fact.parent_pid,
+        "create_time": fact.create_time.isoformat() if fact.create_time else None,
+        "source_id": "local",
+        "execution_domain_id": fact.execution_domain_id,
+        "program": {
+            "path": path,
+            "executable_basename": fact.executable_basename,
+            "entry_path": entry_path,
+            "package_name": package_name,
+            "version": metadata.get("version"),
+            "identity": metadata.get("identity") or path_identity,
+            "status": "RUNNING",
+            "reason_code": metadata.get("reason_code") or (
+                "PROCESS_PATH_OBSERVED" if path else "PROCESS_PATH_UNAVAILABLE"
+            ),
+            "electron_role": metadata.get("electron_role"),
+        },
+        "cwd": fact.observed_cwd,
+        "observed_at": observed_at.isoformat(),
+    }
 
 
 __all__ = [

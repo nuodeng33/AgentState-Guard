@@ -304,8 +304,15 @@ def _existing_checkpoint(
 
 
 def _production_snapshot(discovery_service=None) -> tuple[DiscoverySnapshot, str]:
+    from agentguard.discovery.managed import ManagedDiscoveryService
+
     try:
-        snapshot = (discovery_service or ProductDiscoveryService()).discover()
+        service = discovery_service or ProductDiscoveryService()
+        # This action targets Core's own local configuration. Foreign domains
+        # are observations, and cannot determine its host write authority.
+        if isinstance(service, ManagedDiscoveryService):
+            service = service.native
+        snapshot = service.discover_runtime() if isinstance(service, ProductDiscoveryService) else service.discover()
     except (OSError, RuntimeError, TypeError, ValueError):
         raise ControlledChangeError("CONTROLLED_CHANGE_DISCOVERY_UNAVAILABLE", 503) from None
     domains = {

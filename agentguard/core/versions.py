@@ -24,8 +24,8 @@ def exact_product_sha(cwd: Path | None = None) -> str | None:
     try:
         result = run_command(["git", "rev-parse", "HEAD"], timeout=5, cwd=repository)
     except (FileNotFoundError, PermissionError):
-        return None
-    if result.success and is_exact_git_sha(result.stdout):
+        result = None
+    if result is not None and result.success and is_exact_git_sha(result.stdout):
         return result.stdout
     if cwd is None and is_exact_git_sha(_EMBEDDED_PRODUCT_SHA):
         return _EMBEDDED_PRODUCT_SHA

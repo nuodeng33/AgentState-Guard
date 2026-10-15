@@ -130,6 +130,18 @@ def test_legacy_manifest_digest_remains_byte_for_byte_compatible(tmp_path):
     ).hexdigest()
 
     assert manifest_digest(snapshot) == expected
+    assert validate_snapshot_v3(snapshot)[0] is True
+
+
+@pytest.mark.parametrize("path", [
+    "workspace/file.txt", "/workspace/../file.txt", r"C:\workspace\file.txt",
+    "/workspace/wrong-scope/source.txt", "/workspace//source.txt",
+])
+def test_workspace_manifest_rejects_noncanonical_or_wrong_scope_paths(tmp_path, path):
+    snapshot = _workspace_snapshot(tmp_path)
+    snapshot["manifest"][0]["logical_path"] = path
+
+    assert validate_snapshot_v3(snapshot)[0] is False
 
 
 def test_workspace_manifest_digest_binds_coverage(tmp_path):

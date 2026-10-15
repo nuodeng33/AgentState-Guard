@@ -44,10 +44,9 @@ def _client(root: Path) -> tuple[TestClient, dict[str, str]]:
     return client, {"X-Session-Token": token}
 
 
-def test_product_recovery_round_trip_uses_server_owned_target(tmp_path):
+def test_product_checkpoint_and_test_restore_require_preview_before_live_restore(tmp_path):
     client, headers = _client(tmp_path)
     target = tmp_path / "config" / "agentguard.toml"
-    original = target.read_bytes()
 
     created = client.post("/api/v1/recovery/checkpoints", json={}, headers=headers)
     assert created.status_code == 200
@@ -68,23 +67,23 @@ def test_product_recovery_round_trip_uses_server_owned_target(tmp_path):
         headers=headers,
     )
     assert denied.status_code == 409
-    assert denied.json()["reason_code"] == "RECOVERY_CONFIRMATION_REQUIRED"
+    assert denied.json()["reason_code"] == "PREVIEW_REQUIRED"
 
     restored = client.post(
         f"/api/v1/recovery/{checkpoint_id}/restore",
         json={"confirm": True},
         headers=headers,
     )
-    assert restored.status_code == 200
-    assert restored.json()["reason_code"] == "RECOVERY_RESTORED_AND_VERIFIED"
-    assert target.read_bytes() == original
+    assert restored.status_code == 409
+    assert restored.json()["reason_code"] == "PREVIEW_REQUIRED"
+    assert target.read_text(encoding="utf-8") == "[checks]\nport = 9999\n"
 
     projection = client.get("/api/v1/recovery", headers=headers).json()
     assert projection["checkpoint_count"] == 1
     assert projection["latest_checkpoint"]["checkpoint_id"] == checkpoint_id
     assert projection["test_restore_status"] == "VERIFIED_R2"
-    assert projection["actual_restore_status"] == "VERIFIED"
-    assert projection["recovery_verified"] is True
+    assert projection["actual_restore_status"] != "VERIFIED"
+    assert projection["recovery_verified"] is False
 
 
 def test_product_recovery_rejects_caller_selected_authority(tmp_path):
@@ -128,4 +127,5 @@ def test_product_restore_fails_closed_when_target_becomes_symlink(tmp_path):
 
     assert restored.status_code == 409
     assert restored.json()["status"] == "UNCHANGED"
+    assert restored.json()["reason_code"] == "PREVIEW_REQUIRED"
     assert other.read_text(encoding="utf-8") == "safe = true\n"

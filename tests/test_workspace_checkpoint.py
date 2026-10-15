@@ -16,7 +16,6 @@ from agentguard.discovery import (
 )
 from agentguard.discovery.agents import ProcessWorkspaceAuthority
 from agentguard.discovery.product import ProductDiscoveryReport
-from agentguard.recovery import workspace_adapter
 from agentguard.recovery.workspace_permissions import (
     PermissionCapabilityError,
     PosixPermissionBackend,
@@ -250,7 +249,7 @@ def test_created_audit_and_excluded_objects_are_never_projected_recoverable(tmp_
     assert all(item["recovery_disposition"] != "RECOVERABLE" for item in observed)
 
 
-def test_workspace_test_restore_then_restore_quarantines_created_restorable(tmp_path):
+def test_workspace_test_restore_then_legacy_restore_requires_preview_without_writes(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     modified = workspace / "modified.txt"
@@ -294,23 +293,17 @@ def test_workspace_test_restore_then_restore_quarantines_created_restorable(tmp_
         headers=headers,
     )
 
-    assert restored.status_code == 200
-    body = restored.json()
-    assert body["reason_code"] == "WORKSPACE_RESTORED_AND_VERIFIED"
-    assert body["post_restore_status"] == "POST_RESTORE_VERIFIED"
-    assert body["verified_targets"] == 2
-    assert body["quarantined_targets"] == 1
-    assert body["residue_targets"] == 0
-    assert modified.read_text(encoding="utf-8") == "before"
-    assert deleted.read_text(encoding="utf-8") == "restore me"
-    assert not created.exists()
+    assert restored.status_code == 409
+    assert restored.json()["reason_code"] == "PREVIEW_REQUIRED"
+    assert modified.read_text(encoding="utf-8") == "after"
+    assert not deleted.exists()
+    assert created.read_text(encoding="utf-8") == "quarantine me"
     assert sensitive.read_text(encoding="utf-8") == "API_KEY=after"
     assert generated.read_text(encoding="utf-8") == "after excluded"
 
     quarantine_root = Config(product_state).snapshot_dir().parent / "workspace-quarantine"
     quarantined = list(quarantine_root.rglob("*.item"))
-    assert len(quarantined) == 1
-    assert quarantined[0].read_text(encoding="utf-8") == "quarantine me"
+    assert quarantined == []
     database = StateDB(product_state / "state.db")
     database.connect()
     try:
@@ -320,15 +313,14 @@ def test_workspace_test_restore_then_restore_quarantines_created_restorable(tmp_
         ).fetchone()
     finally:
         database.close()
-    assert record[0:2] == ("QUARANTINED", "POST_CHECKPOINT_FILE_QUARANTINED")
-    assert len(record[2]) == 64
+    assert record is None
 
     projection = client.get("/api/v1/recovery", headers=headers).json()
-    assert projection["latest_checkpoint"]["actual_restore_status"] == "VERIFIED"
-    assert projection["recovery_verified"] is True
+    assert projection["latest_checkpoint"]["actual_restore_status"] != "VERIFIED"
+    assert projection["recovery_verified"] is False
 
 
-def test_quarantine_failure_leaves_residue_and_downgrades_restore(tmp_path, monkeypatch):
+def test_legacy_restore_does_not_enter_writer_without_preview(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     baseline = workspace / "baseline.txt"
@@ -341,11 +333,14 @@ def test_quarantine_failure_leaves_residue_and_downgrades_restore(tmp_path, monk
     created = workspace / "created.txt"
     created.write_text("must remain", encoding="utf-8")
 
+    calls = []
+
     def _unavailable(*_args, **_kwargs):
-        raise OSError("quarantine unavailable")
+        calls.append(True)
+        raise AssertionError("legacy writer must not run")
 
     monkeypatch.setattr(
-        "agentguard.recovery.workspace_adapter._quarantine_file", _unavailable
+        "agentguard.recovery.workspace_adapter.HostWorkspaceRecoveryAdapter._materialize_restorable_set", _unavailable
     )
     restored = client.post(
         f"/api/v1/recovery/{checkpoint['checkpoint_id']}/restore",
@@ -353,20 +348,17 @@ def test_quarantine_failure_leaves_residue_and_downgrades_restore(tmp_path, monk
         headers=headers,
     )
 
-    assert restored.status_code == 200
-    body = restored.json()
-    assert body["reason_code"] == "RESTORABLE_SET_RESTORED"
-    assert body["post_restore_status"] == "POST_CHECKPOINT_RESIDUE_PRESENT"
-    assert body["quarantined_targets"] == 0
-    assert body["residue_targets"] == 1
-    assert baseline.read_text(encoding="utf-8") == "before"
+    assert restored.status_code == 409
+    assert restored.json()["reason_code"] == "PREVIEW_REQUIRED"
+    assert calls == []
+    assert baseline.read_text(encoding="utf-8") == "after"
     assert created.read_text(encoding="utf-8") == "must remain"
     projection = client.get("/api/v1/recovery", headers=headers).json()
     assert projection["latest_checkpoint"]["actual_restore_status"] != "VERIFIED"
     assert projection["recovery_verified"] is False
 
 
-def test_current_user_permission_apply_failure_does_not_require_uac_or_mutate_target(
+def test_legacy_restore_does_not_apply_permissions_without_preview(
     tmp_path, monkeypatch
 ):
     class _ApplyDeniedBackend(PosixPermissionBackend):
@@ -394,16 +386,60 @@ def test_current_user_permission_apply_failure_does_not_require_uac_or_mutate_ta
     )
 
     assert restored.status_code == 409
-    assert restored.json()["reason_code"] == "WORKSPACE_PERMISSION_APPLY_DENIED"
+    assert restored.json()["reason_code"] == "PREVIEW_REQUIRED"
     assert baseline.read_text(encoding="utf-8") == "after"
 
 
-def test_quarantine_root_inside_workspace_is_rejected_without_creating_it(tmp_path):
+def test_import_legacy_v3_checkpoint_then_preview_and_restore_native_bytes(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    unsafe = workspace / ".agentguard" / "workspace-quarantine"
+    target = workspace / "notes.txt"
+    original = b"first line\r\nsecond line\r\n"
+    target.write_bytes(original)
+    client, headers, _product_state = _client(tmp_path, workspace)
 
-    resolved = workspace_adapter._prepare_quarantine_root(unsafe, workspace)
+    checkpoint = client.post("/api/v1/recovery/checkpoints", json={}, headers=headers)
+    assert checkpoint.status_code == 200, checkpoint.text
+    checkpoint_id = checkpoint.json()["checkpoint_id"]
+    target.write_bytes(b"changed\n")
 
-    assert resolved is None
-    assert not unsafe.exists()
+    registered = client.post(
+        "/api/v1/protection/scopes",
+        json={"source_id": "local", "path": str(workspace), "request_id": "import-register"},
+        headers=headers,
+    )
+    assert registered.status_code == 201, registered.text
+    scope_id = registered.json()["scope_id"]
+    imported = client.post(
+        f"/api/v1/protection/scopes/{scope_id}/checkpoints/{checkpoint_id}/import",
+        json={}, headers=headers,
+    )
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["status"] == "IMPORTED"
+    version_id = imported.json()["version_id"]
+    versions = client.get(f"/api/v1/protection/scopes/{scope_id}/versions", headers=headers)
+    assert versions.status_code == 200
+    version = next(item for item in versions.json()["items"] if item["id"] == version_id)
+    assert version["kind"] == "IMPORTED_V3"
+    file_id = next(item["file_id"] for item in version["files"] if item["relative_path"] == "notes.txt")
+
+    preview = client.post(
+        "/api/v1/recovery/previews",
+        json={"scope_id": scope_id, "mode": "restore_version", "file_ids": [file_id], "version_id": version_id},
+        headers=headers,
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["status"] == "READY"
+    queued = client.post(
+        "/api/v1/recovery/operations",
+        json={"preview_id": preview.json()["preview_id"], "digest": preview.json()["digest"], "request_id": "import-restore"},
+        headers=headers,
+    )
+    assert queued.status_code == 202, queued.text
+    executed = client.post(
+        f"/api/v1/recovery/operations/{queued.json()['id']}/reconcile",
+        json={}, headers=headers,
+    )
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["state"] == "SUCCEEDED"
+    assert target.read_bytes() == original

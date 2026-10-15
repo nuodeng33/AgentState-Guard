@@ -1,4 +1,5 @@
 import type { AgentItem, AgentsView } from '../api/types';
+import { AgentIdentityDetails, AgentIdentityLabel } from '../components/AgentIdentity';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceRefs } from '../components/EvidenceRefs';
 import { KeyValue, KeyValueGrid, orDash } from '../components/KeyValue';
@@ -48,7 +49,7 @@ export function AgentsViewBody({ data }: { data: AgentsView }) {
 
       {data.items.map((item) => (
         <AgentCard
-          key={`${item.execution_domain_id}:${item.detected_identity}:${item.evidence_refs[0]}`}
+          key={item.agent_id ?? item.evidence_refs[0]}
           item={item}
         />
       ))}
@@ -63,7 +64,7 @@ export function AgentCard({ item }: { item: AgentItem }) {
   return (
     <section className="card">
       <div className="card-head">
-        <span className="card-title">{item.detected_identity}</span>
+        <span className="card-title"><AgentIdentityLabel item={item} /></span>
         <span className="card-badges">
           <StateBadge label={item.lifecycle} tone={lifecycleTone(item.lifecycle)} />
           {item.uncertainty && <StateBadge label={t('runtime.uncertain')} tone="warn" />}
@@ -80,6 +81,7 @@ export function AgentCard({ item }: { item: AgentItem }) {
         <KeyValue k={t('kv.workspaceBinding')} v={orDash(item.workspace.binding_ref)} />
         <KeyValue k="reason_code" v={<code>{item.reason_code}</code>} />
       </KeyValueGrid>
+      <AgentIdentityDetails item={item} />
       <EvidenceRefs refs={item.evidence_refs} />
     </section>
   );

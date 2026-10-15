@@ -1,0 +1,3 @@
+# Preserve upstream vendor and generated shader whitespace verbatim.
+web/src/vendor/three.module.js -whitespace
+agentguard/web_static/assets/*.js -whitespace

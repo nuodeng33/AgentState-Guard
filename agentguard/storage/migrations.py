@@ -537,6 +537,152 @@ class MigrationEngine:
             )
         )
 
+        self.register(Migration(
+            10,
+            "Local work and immutable requirements",
+            """
+            CREATE TABLE works (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK(revision > 0),
+                requirement_version INTEGER NOT NULL CHECK(requirement_version > 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE work_requirements (
+                work_id TEXT NOT NULL REFERENCES works(id),
+                version INTEGER NOT NULL CHECK(version > 0),
+                body TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (work_id, version)
+            );
+            CREATE TRIGGER work_requirements_no_update BEFORE UPDATE ON work_requirements
+            BEGIN SELECT RAISE(ABORT, 'WORK_REQUIREMENT_IMMUTABLE'); END;
+            CREATE TRIGGER work_requirements_no_delete BEFORE DELETE ON work_requirements
+            BEGIN SELECT RAISE(ABORT, 'WORK_REQUIREMENT_IMMUTABLE'); END;
+            CREATE TABLE work_tasks (
+                id TEXT PRIMARY KEY,
+                work_id TEXT NOT NULL REFERENCES works(id),
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                assignee TEXT,
+                dependencies_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX idx_work_tasks_work ON work_tasks(work_id, id);
+            CREATE TABLE work_requests (
+                request_id TEXT PRIMARY KEY,
+                request_digest TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """,
+            """
+            DROP TABLE IF EXISTS work_requests;
+            DROP TABLE IF EXISTS work_tasks;
+            DROP TRIGGER IF EXISTS work_requirements_no_delete;
+            DROP TRIGGER IF EXISTS work_requirements_no_update;
+            DROP TABLE IF EXISTS work_requirements;
+            DROP TABLE IF EXISTS works;
+            """,
+        ))
+
+        self.register(Migration(11, "Text artifacts and saved workbench", """
+            CREATE TABLE work_artifacts (
+                id TEXT PRIMARY KEY, work_id TEXT NOT NULL REFERENCES works(id),
+                latest_version INTEGER NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE INDEX idx_work_artifacts_work ON work_artifacts(work_id);
+            CREATE TABLE work_artifact_versions (
+                artifact_id TEXT NOT NULL REFERENCES work_artifacts(id),
+                version INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+                requirement_version INTEGER NOT NULL, created_at TEXT NOT NULL,
+                PRIMARY KEY(artifact_id, version)
+            );
+            CREATE TRIGGER work_artifact_versions_no_update BEFORE UPDATE ON work_artifact_versions
+            BEGIN SELECT RAISE(ABORT, 'WORK_ARTIFACT_IMMUTABLE'); END;
+            CREATE TRIGGER work_artifact_versions_no_delete BEFORE DELETE ON work_artifact_versions
+            BEGIN SELECT RAISE(ABORT, 'WORK_ARTIFACT_IMMUTABLE'); END;
+            CREATE TABLE work_views (
+                work_id TEXT PRIMARY KEY REFERENCES works(id), revision INTEGER NOT NULL,
+                state_json TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+        """, """
+            DROP TABLE IF EXISTS work_views;
+            DROP TRIGGER IF EXISTS work_artifact_versions_no_delete;
+            DROP TRIGGER IF EXISTS work_artifact_versions_no_update;
+            DROP TABLE IF EXISTS work_artifact_versions;
+            DROP TABLE IF EXISTS work_artifacts;
+        """))
+
+        self.register(Migration(12, "Verified work Agent associations", """
+            CREATE TABLE work_agent_links (
+                work_id TEXT NOT NULL REFERENCES works(id),
+                agent_id TEXT NOT NULL,
+                detected_identity TEXT NOT NULL,
+                role TEXT NOT NULL,
+                execution_domain_id TEXT,
+                observed_at TEXT NOT NULL,
+                evidence_ref TEXT NOT NULL,
+                linked_at TEXT NOT NULL,
+                PRIMARY KEY(work_id, agent_id)
+            );
+            CREATE INDEX idx_work_agent_links_agent ON work_agent_links(agent_id);
+        """, """
+            DROP INDEX IF EXISTS idx_work_agent_links_agent;
+            DROP TABLE IF EXISTS work_agent_links;
+        """))
+
+        self.register(Migration(13, "User-linked Agent task assignments", """
+            CREATE TABLE work_agent_tasks (
+                work_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                task_id TEXT NOT NULL REFERENCES work_tasks(id),
+                PRIMARY KEY(work_id, agent_id, task_id),
+                FOREIGN KEY(work_id, agent_id)
+                    REFERENCES work_agent_links(work_id, agent_id)
+            );
+            CREATE INDEX idx_work_agent_tasks_task ON work_agent_tasks(work_id, task_id);
+        """, """
+            DROP INDEX IF EXISTS idx_work_agent_tasks_task;
+            DROP TABLE IF EXISTS work_agent_tasks;
+        """))
+
+        self.register(Migration(14, "Discovery source preferences", """
+            CREATE TABLE discovery_source_settings (
+                source_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)),
+                revision INTEGER NOT NULL CHECK(revision > 0),
+                updated_at TEXT NOT NULL
+            );
+        """, "DROP TABLE IF EXISTS discovery_source_settings;"))
+
+        from .protection_schema import PROTECTION_DOWN_SQL, PROTECTION_SQL
+
+        self.register(Migration(15, "Continuous protection and durable recovery", PROTECTION_SQL, PROTECTION_DOWN_SQL))
+
+        from .protection_schema import PROTECTION_OPTIMIZATION_DOWN_SQL, PROTECTION_OPTIMIZATION_SQL
+
+        self.register(Migration(16, "Protection summaries and logical retention accounting",
+            PROTECTION_OPTIMIZATION_SQL, PROTECTION_OPTIMIZATION_DOWN_SQL))
+
+        from .discovery_schema import DISCOVERY_CATALOG_DOWN_SQL, DISCOVERY_CATALOG_SQL
+
+        self.register(Migration(17, "Program registrations and isolated session stores",
+                                DISCOVERY_CATALOG_SQL, DISCOVERY_CATALOG_DOWN_SQL))
+
+        from .execution_schema import EXECUTION_DOWN_SQL, EXECUTION_SQL
+
+        self.register(Migration(18, "Explicit Work sessions and durable provider runs",
+                                EXECUTION_SQL, EXECUTION_DOWN_SQL))
+
+        from .delivery_schema import DELIVERY_DOWN_SQL, DELIVERY_SQL
+
+        self.register(Migration(19, "Version-bound Work submissions and decisions",
+                                DELIVERY_SQL, DELIVERY_DOWN_SQL))
+
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration
 

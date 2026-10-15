@@ -14,10 +14,10 @@
  * verdict is derived. reason_code tokens stay verbatim.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { apiClient, type ApiClient } from '../api/client';
-import { getDoctor, getStatus, refreshDiscovery } from '../api/product';
+import { DISCOVERY_POLL_INTERVAL_MS, getDoctor, getStatus, refreshDiscovery } from '../api/product';
 import type { AgentsView, RuntimeView } from '../api/types';
 import { useAsync } from '../api/useAsync';
 import { useR4View } from '../api/useR4View';
@@ -50,6 +50,23 @@ export default function EnvironmentPage({ client = apiClient }: { client?: ApiCl
   // Authoritative read projections; existing presentation bodies reused as-is.
   const runtime = useR4View<RuntimeView>('runtime', client);
   const agents = useR4View<AgentsView>('agents', client);
+  const agentReadBusy = agents.phase === 'loading' || agents.refreshing;
+  const agentReadBusyRef = useRef(agentReadBusy);
+  const pendingAgentReload = useRef(false);
+  agentReadBusyRef.current = agentReadBusy;
+  useEffect(() => {
+    if (!agentReadBusy && pendingAgentReload.current) {
+      pendingAgentReload.current = false;
+      agents.reload();
+    }
+  }, [agentReadBusy, agents.reload]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || agentReadBusyRef.current) return;
+      agents.reload();
+    }, DISCOVERY_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [agents.reload]);
   // Bounded host projections; re-read whenever `attempt` bumps.
   const status = useAsync(() => getStatus(client), [client, attempt]);
   const doctor = useAsync(() => getDoctor(client), [client, attempt]);
@@ -57,7 +74,8 @@ export default function EnvironmentPage({ client = apiClient }: { client?: ApiCl
   const reloadAll = () => {
     setAttempt((n) => n + 1);
     runtime.reload();
-    agents.reload();
+    if (agentReadBusyRef.current) pendingAgentReload.current = true;
+    else agents.reload();
   };
 
   const runRefresh = () => {

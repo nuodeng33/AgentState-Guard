@@ -98,6 +98,8 @@ def validate_snapshot_v3(
 
     paths: set[str] = set()
     referenced_blobs: set[str] = set()
+    # Workspace paths belong to a portable logical namespace, not the host OS.
+    path_type = PurePosixPath if workspace is not None else PurePath
     for entry in manifest:
         if not isinstance(entry, dict) or set(entry) != _ENTRY_FIELDS:
             return False, "RECOVERY_MANIFEST_INVALID", None
@@ -109,8 +111,8 @@ def validate_snapshot_v3(
             or not domain
             or not isinstance(logical_path, str)
             or not logical_path
-            or not PurePath(logical_path).is_absolute()
-            or ".." in PurePath(logical_path).parts
+            or not path_type(logical_path).is_absolute()
+            or ".." in path_type(logical_path).parts
             or logical_path.casefold() in paths
         ):
             return False, "RECOVERY_MANIFEST_INVALID", None

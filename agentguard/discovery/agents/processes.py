@@ -303,6 +303,21 @@ class ProcessCollector:
         parent_pid = self._optional_value(handle.parent_pid, errors)
         basename = self._optional_value(handle.executable_basename, errors)
         fixed_facts = self._optional_value(handle.fixed_boolean_facts, errors)
+        program_metadata: Mapping[str, str | None] = {}
+        metadata_reader = getattr(handle, "application_metadata", None)
+        if callable(metadata_reader):
+            try:
+                candidate = metadata_reader()
+                if isinstance(candidate, Mapping):
+                    program_metadata = {
+                        str(key): value
+                        for key, value in candidate.items()
+                        if key in {"path", "entry_path", "package_name", "version",
+                                   "identity", "status", "reason_code", "electron_role"}
+                        and (value is None or isinstance(value, str) and len(value) <= 4096)
+                    }
+            except Exception:  # noqa: BLE001 - optional local-only metadata
+                program_metadata = {}
         safe_basename = _basename(basename) if isinstance(basename, str) else None
         safe_identity = (
             f"sha256:{hashlib.sha256(safe_basename.casefold().encode()).hexdigest()}"
@@ -357,6 +372,7 @@ class ProcessCollector:
             safe_identity = None
             identity_kind = ExecutableIdentityKind.UNKNOWN
             safe_fixed = {}
+            program_metadata = {}
             workspace_candidates = ()
             exact_cwd = None
         zombie_during_read = any(
@@ -409,6 +425,8 @@ class ProcessCollector:
             fixed_facts=safe_fixed,
             supported_fixed_fact_names=tuple(sorted(safe_fixed)),
             collector=self._collector,
+            program_metadata=program_metadata,
+            observed_cwd=str(exact_cwd) if exact_cwd is not None else None,
         )
         record = _process_evidence(fact, observed_at, errors[0] if errors else None)
         workspace_authorities = (

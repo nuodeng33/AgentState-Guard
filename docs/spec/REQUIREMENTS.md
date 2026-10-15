@@ -43,7 +43,7 @@
 
 | ID | Description | Risk | Required | Module | Acceptance |
 |----|------------|------|----------|--------|-----------|
-| ASG-SEC-001 | No Docker socket access | H | YES | all | Verify container check |
+| ASG-SEC-001 | No mounted Docker socket or generic Docker command API; bounded host CLI observation is permitted under the [discovery boundary](../CORE_DISCOVERY_MANAGEMENT.md) | H | YES | all | Verify local endpoint, fixed commands, server-enumerated targets and no lifecycle operations |
 | ASG-SEC-002 | No credential storage | H | YES | all | Sanitizer covers all outputs |
 | ASG-SEC-003 | Path traversal protection | H | YES | core | All path inputs validated |
 | ASG-SEC-004 | Audit hash chain | M | YES | storage | Event integrity |
@@ -66,3 +66,25 @@
 | ASG-REL-002 | GUI accessible via agentguard ui | H | YES | web | Browser opens |
 | ASG-REL-003 | Open-source files | L | YES | repo | README, LICENSE, CONTRIBUTING |
 | ASG-REL-004 | Documentation | M | YES | docs | CLI, GUI, architecture, security |
+
+## Local Work extension
+
+The approved [Work product addendum](../../../output/asg-backend-review-20260927/产品规格增补.md)
+defines WS-001–WS-015. The current [Work API](../WORK_API.md) provides requirements,
+tasks, manual text artifact versions and independently saved spatial views. These
+requirements add to the Guard contract above; they do not introduce a Work health
+score or infer completion from process activity. Historical status in the original
+acceptance matrix is not current verification evidence.
+
+- WS-007/008: real relation nodes open an aggregate workbench; focus reading is optional.
+- WS-007: entering a Work hides the overview and Guard shell. Initially show its
+  stable core; related objects expand on demand. No decorative object may stand
+  in for a real Agent. A saved empty workbench must offer usable content selection.
+- WS-009/010: returning and reopening preserve both viewports and card references;
+  moving or closing a reference never changes dependencies or deletes content.
+- WS-011/012: failed/conflicting saves are explicit and existing Guard navigation remains.
+  Returning is never gated on a successful save. Unsaved layouts stay isolated by
+  Work in memory while navigating; an old asynchronous response cannot replace
+  another Work's layout. Browser close still warns about unsaved local drafts.
+- WS-013: relations use actual membership and exact requirement/artifact versions;
+  manual responsibility labels do not establish Agent identity or execution.

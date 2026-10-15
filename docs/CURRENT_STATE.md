@@ -1,5 +1,7 @@
 # Current State
 
+> 当前工作空间与受管执行的能力边界见 [MANAGED_SESSION_BACKEND.md](MANAGED_SESSION_BACKEND.md)，最近的定向修复与历史证据见 [受管会话验收记录](MANAGED_SESSION_ACCEPTANCE_20260930.md)。2026-10-15 已修复断线输出保留，并接通工作级待办、执行上下文与要求变更确认；前端完整 196 项、后端相关 99 项测试通过。8787 已加载最终构建，原两项 Work 保留；浏览器交互检查使用夹具 API，跨环境执行和新的真实提供方运行未验收。下文保留早期 Guard 阶段记录，分支、测试数和 CI 状态均不是当前工作树的验收结论。
+
 **Version:** 0.9.0.dev0
 **Branch:** feat/device-link
 **HEAD:** local R4-P7 recovery trust boundary series (verify with `git rev-parse HEAD`)

@@ -66,6 +66,8 @@ def run_product_recovery(
     confirmed: bool = False,
     discovery_service=None,
 ) -> dict[str, object]:
+    if operation is RecoveryOperation.RESTORE:
+        raise ProductRecoveryError("PREVIEW_REQUIRED")
     context = _recovery_context(
         database,
         snapshots,

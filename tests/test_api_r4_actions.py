@@ -10,6 +10,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
@@ -54,19 +55,13 @@ def _create_session(
 
 
 def _post(base_url: str, path: str, token: str | None, payload: object):
-    request = urllib.request.Request(
-        f"{base_url}{path}",
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    if token is not None:
-        request.add_header("X-Session-Token", token)
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.status, json.loads(response.read())
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read())
+    # urllib forces Connection: close; on Windows an early 401 can reset the
+    # socket while its separately sent request body is still arriving.
+    # Keep the real TCP connection alive until the response has been read.
+    headers = {"X-Session-Token": token} if token is not None else {}
+    with httpx.Client(trust_env=False, timeout=5) as client:
+        response = client.post(f"{base_url}{path}", headers=headers, json=payload)
+        return response.status_code, response.json()
 
 
 def _preflight(

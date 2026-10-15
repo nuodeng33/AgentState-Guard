@@ -31,7 +31,7 @@ from agentguard.discovery import (
 from agentguard.discovery.agents import ProcessAccessDeniedError
 from agentguard.discovery.product import ProductDiscoveryService
 
-NOW = datetime(2026, 8, 12, 9, 0, tzinfo=UTC)
+NOW = datetime.now(UTC)
 
 
 class _RuntimeAdapter:
@@ -104,6 +104,23 @@ class _ProcessBackend:
         if self._failure is not None:
             raise self._failure
         return self._handles
+
+
+def test_runtime_authority_does_not_scan_processes(monkeypatch):
+    from agentguard.api.r4_controlled_change import _production_snapshot
+    from agentguard.discovery.managed import ManagedDiscoveryService
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("host configuration authority must not scan Agent processes")
+
+    monkeypatch.setattr("agentguard.discovery.product.ProcessCollector.collect", forbidden)
+    service = ProductDiscoveryService(runtime_adapter=_RuntimeAdapter())
+    managed = ManagedDiscoveryService(native=service, docker=None)
+    snapshot, domain_id = _production_snapshot(managed)
+    assert domain_id == "windows-current"
+    assert snapshot.status is CapabilityStatus.AVAILABLE
+    assert snapshot.agents == snapshot.workspaces == ()
+    assert any(e.fact_type == "runtime.metadata" for e in snapshot.evidence)
 
 
 def test_product_discovery_separates_self_runtime_from_external_agents():
@@ -312,8 +329,9 @@ def _running_failing_api(root: Path):
 
 
 def test_packaged_startup_records_discovery_and_refresh_replaces_visible_agents(
-    tmp_path,
+    tmp_path, monkeypatch,
 ):
+    monkeypatch.setitem(globals(), "NOW", datetime.now(UTC))
     with _running_api(tmp_path) as (base_url, token):
         startup_agents = _request(base_url, "/api/v1/agents", token)[1]
         status, refreshed = _request(

@@ -15,6 +15,7 @@ from agentguard.recovery.workspace_permissions import (
 )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits require a POSIX filesystem")
 def test_posix_mode_capture_apply_and_verify(tmp_path):
     target = tmp_path / "file.txt"
     target.write_text("content", encoding="utf-8")
@@ -100,3 +101,44 @@ def test_permission_backend_never_changes_process_privileges(monkeypatch, tmp_pa
     proof = PosixPermissionBackend().capture(target)
 
     assert proof.kind == "POSIX_MODE"
+
+
+@pytest.mark.parametrize("changed", [
+    "D:AI(A;;FA;;;SY)", "D:P(A;;FA;;;SY)", "D:AR(A;;FA;;;SY)",
+    "D:(A;;FR;;;SY)", "D:(A;;FA;;;BA)", "D:(A;ID;FA;;;SY)",
+])
+def test_windows_permission_comparison_ignores_only_auto_inherited_marker(changed):
+    original = PermissionProof(
+        kind="WINDOWS_ATTRIBUTES_DACL",
+        values={"attributes": 32, "dacl_sddl": "D:(A;;FA;;;SY)"},
+    )
+    other = PermissionProof(
+        kind=original.kind, values={"attributes": 32, "dacl_sddl": changed},
+    )
+    assert original.matches(other) is changed.startswith("D:AI(")
+    assert original.digest != other.digest
+    assert PermissionProof.from_dict(other.to_dict()) == other
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires native Windows DACL API")
+@pytest.mark.parametrize("protected", [False, True])
+def test_native_windows_permission_roundtrip_on_regular_file(tmp_path, protected):
+    source = tmp_path / "source.txt"
+    target = tmp_path / "target.txt"
+    source.write_text("source")
+    target.write_text("target")
+    backend = WindowsPermissionBackend()
+    proof = backend.capture(source)
+    if protected:
+        dacl = str(proof.values["dacl_sddl"])
+        proof = PermissionProof(kind=proof.kind, values={
+            "attributes": proof.values["attributes"],
+            "dacl_sddl": "D:P" + dacl[2:],
+        })
+        backend.apply(source, proof)
+        proof = backend.capture(source)
+    backend.apply(target, proof)
+
+    assert backend.verify(target, proof)
+    captured = backend.capture(target)
+    assert ("P" in str(captured.values["dacl_sddl"]).partition("(")[0]) is protected

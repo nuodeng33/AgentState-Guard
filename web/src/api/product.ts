@@ -25,6 +25,10 @@ import type {
   SupervisionActionResult,
 } from './types';
 
+// Visible observation pages share a cadence; requests never overlap or trigger
+// a full discovery POST. Hidden pages pause in their existing lifecycle guards.
+export const DISCOVERY_POLL_INTERVAL_MS = 2_000;
+
 export function getStatus(client: ApiClient = apiClient) {
   return client.get<StatusView>('/api/status');
 }

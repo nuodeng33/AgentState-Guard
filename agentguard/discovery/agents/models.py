@@ -181,6 +181,10 @@ class ProcessFact:
     supported_fixed_fact_names: tuple[str, ...] = ()
     collector: str = ""
     schema_version: str = CURRENT_SCHEMA_VERSION
+    program_metadata: Mapping[str, str | None] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    observed_cwd: str | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         state = _enum_or_unknown(ProcessState, self.current_state)
@@ -257,6 +261,20 @@ class ProcessFact:
             "supported_fixed_fact_names",
             supported_fixed_fact_names,
         )
+        allowed_program_fields = {
+            "path", "entry_path", "package_name", "version", "identity",
+            "status", "reason_code", "electron_role",
+        }
+        if any(key not in allowed_program_fields for key in self.program_metadata):
+            raise ValueError("unsupported program metadata field")
+        if any(
+            value is not None and (not isinstance(value, str) or len(value) > 4096)
+            for value in self.program_metadata.values()
+        ):
+            raise ValueError("program metadata value is invalid")
+        object.__setattr__(self, "program_metadata", dict(self.program_metadata))
+        if self.observed_cwd is not None and len(self.observed_cwd) > 4096:
+            raise ValueError("observed cwd is too long")
 
     def to_dict(self) -> dict[str, Any]:
         return {

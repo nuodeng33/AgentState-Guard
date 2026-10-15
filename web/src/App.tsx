@@ -9,10 +9,12 @@ import EnvironmentPage from './pages/EnvironmentPage';
 import HomePage from './pages/HomePage';
 import RecoveryPage from './pages/RecoveryPage';
 import SettingsPage from './pages/SettingsPage';
+import WorkPage from './pages/WorkPage';
 import SupervisionPage from './pages/SupervisionPage';
 import './styles/app.css';
 
 const TITLE_KEYS: Record<PageKey, MessageKey> = {
+  work: 'nav.work',
   home: 'nav.home',
   environment: 'nav.environment',
   changes: 'nav.changes',
@@ -23,18 +25,19 @@ const TITLE_KEYS: Record<PageKey, MessageKey> = {
 };
 
 /**
- * Product shell root. Primary navigation is exactly the V1 IA: Home,
- * Environment, Changes, Supervision, Recovery, Devices, Settings. Runtime
- * and Agents are folded into Environment (their presentation bodies are
- * reused verbatim); AI capability lives under Settings and the bounded
- * advisory components, not as a standalone surface. Every surface keeps
- * exact backend semantics and never fabricates state.
+ * Work owns its immersive shell and stays mounted while visiting Guard,
+ * preserving local layout drafts. The existing Guard surfaces retain their
+ * navigation and authoritative backend semantics outside that shell.
  */
 export default function App() {
-  const [page, setPage] = useState<PageKey>('home');
+  const [page, setPage] = useState<PageKey>(new URLSearchParams(location.search).has('work') || new URLSearchParams(location.search).has('workspace') ? 'work' : 'home');
+  const [workVisited, setWorkVisited] = useState(page === 'work');
   const t = useT();
+  const navigate = (next: PageKey) => { if (next === 'work') setWorkVisited(true); setPage(next); };
   return (
-    <AppShell page={page} onNavigate={setPage} title={t(TITLE_KEYS[page])}>
+    <>
+    {workVisited && <div hidden={page !== 'work'}><WorkPage onNavigate={navigate} visible={page === 'work'} /></div>}
+    {page !== 'work' && <AppShell page={page} onNavigate={navigate} title={t(TITLE_KEYS[page])}>
       {page === 'home' && <HomePage />}
       {page === 'environment' && <EnvironmentPage />}
       {page === 'changes' && <ChangesPage />}
@@ -42,6 +45,7 @@ export default function App() {
       {page === 'recovery' && <RecoveryPage />}
       {page === 'devices' && <DevicesPage />}
       {page === 'settings' && <SettingsPage />}
-    </AppShell>
+    </AppShell>}
+    </>
   );
 }

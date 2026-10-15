@@ -6,6 +6,7 @@ import type { MessageKey } from '../i18n/messages';
 import { StatusBanner } from './StatusBanner';
 
 export type PageKey =
+  | 'work'
   | 'home'
   | 'environment'
   | 'changes'
@@ -15,6 +16,7 @@ export type PageKey =
   | 'settings';
 
 const NAV_ITEMS: Array<{ key: PageKey; labelKey: MessageKey; icon: IconName }> = [
+  { key: 'work', labelKey: 'nav.work', icon: 'environment' },
   { key: 'home', labelKey: 'nav.home', icon: 'home' },
   { key: 'environment', labelKey: 'nav.environment', icon: 'environment' },
   { key: 'changes', labelKey: 'nav.changes', icon: 'changes' },
@@ -34,12 +36,14 @@ export function AppShell({
   onNavigate,
   client,
   title,
+  navigationLocked = false,
   children,
 }: {
   page: PageKey;
   onNavigate: (page: PageKey) => void;
   client?: ApiClient;
   title: string;
+  navigationLocked?: boolean;
   children: ReactNode;
 }) {
   const t = useT();
@@ -58,6 +62,9 @@ export function AppShell({
             <button
               key={item.key}
               type="button"
+              title={t(item.labelKey)}
+              aria-label={t(item.labelKey)}
+              disabled={navigationLocked && item.key !== page}
               className={`app-nav-item${item.key === page ? ' is-active' : ''}`}
               aria-current={item.key === page ? 'page' : undefined}
               onClick={() => onNavigate(item.key)}

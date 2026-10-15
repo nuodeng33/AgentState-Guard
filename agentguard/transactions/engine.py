@@ -190,66 +190,10 @@ class TransactionEngine:
         return {"status": "ok", "message": "Transaction committed", "txn_id": txn_id}
 
     def undo(self, txn_id: int, yes: bool = False) -> dict[str, Any]:
-        """Undo a committed transaction by restoring pre-checkpoint files.
-
-        For now, undo = restore the pre-checkpoint if it exists.
-        """
-        row = self.conn.execute(
-            "SELECT id, status, pre_checkpoint FROM transactions WHERE id = ?",
-            (txn_id,),
-        ).fetchone()
-        if not row:
-            return {"status": "error", "message": f"Transaction #{txn_id} not found"}
-
-        if row[1] not in ("committed", "rolled_back"):
-            return {"status": "error", "message": f"Cannot undo transaction in state: {row[1]}"}
-
-        pre_cp_id = row[2]
-        if not pre_cp_id:
-            return {"status": "error", "message": "No pre-checkpoint available for undo"}
-
-        self._transition(txn_id, "rolling_back")
-
-        # Restore files from pre-checkpoint
-        from ..commands.restore import cmd_restore
-        whitelist_obj = Whitelist(self.config.get("security", {}).get("restore_whitelist", []))
-        restorable_paths = self.config.get("security", {}).get("restore_whitelist", [])
-
-        steps = self.conn.execute(
-            "SELECT id, file_path FROM transaction_steps WHERE txn_id = ?",
-            (txn_id,),
-        ).fetchall()
-
-        errors = []
-        restored_count = 0
-        for step in steps:
-            _step_id, file_path = step
-            if file_path and Path(file_path).exists():
-                result = cmd_restore(
-                    target_path=file_path,
-                    checkpoint_id=pre_cp_id,
-                    db=self.db,
-                    snapshots=self.snapshots,
-                    whitelist=whitelist_obj,
-                    restorable_paths=restorable_paths,
-                    yes=True,
-                )
-                if result.get("status") in ("success", "hash_mismatch"):
-                    restored_count += 1
-                else:
-                    errors.append(f"{file_path}: {result.get('message', 'unknown')}")
-
-        if errors:
-            self._transition(txn_id, "rollback_failed")
-            append_event(self.conn, "transaction.undo", "cli", "failure",
-                         {"txn_id": txn_id, "errors": errors})
-            return {"status": "error", "errors": errors, "restored": restored_count}
-
-        self._transition(txn_id, "rolled_back")
-        append_event(self.conn, "transaction.undo", "cli", "success",
-                     {"txn_id": txn_id})
-        return {"status": "ok", "message": "Transaction undone", "txn_id": txn_id,
-                "restored": restored_count}
+        """Legacy undo has no reviewed live-state binding or durable step journal."""
+        return {"status": "error", "reason_code": "PREVIEW_REQUIRED",
+                "message": "Use the protection recovery preview and operation API",
+                "txn_id": txn_id}
 
     def list_transactions(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.conn.execute(
