@@ -18,6 +18,9 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: desktop-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
   SIDECAR_PORT: 8787
@@ -221,6 +224,9 @@ jobs:
             exit 1
           }
           Write-Host "Port $port closed: clean shutdown"
+          # All readiness/API/process/port assertions passed. Do not propagate
+          # taskkill's stale native exit through the Actions pwsh wrapper.
+          exit 0
 
   # ── 4. Tauri Build ─────────────────────────────────────────────
   tauri-build:
@@ -372,6 +378,8 @@ jobs:
             }
             Write-Host "Clean shutdown"
           }
+          # Unhandled errors above still fail; only confirmed success reaches here.
+          exit 0
 
   # ── 6. MSI Install / Uninstall ─────────────────────────────────
   msi-smoke:
@@ -519,6 +527,8 @@ jobs:
             }
             Write-Host "Packaged main process tree stopped cleanly"
           }
+          # Keep this outside finally so startup/API/cleanup failures cannot pass.
+          exit 0
 
       - name: Upload packaged main smoke logs
         if: always()

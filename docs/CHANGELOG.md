@@ -73,6 +73,13 @@ into the repository. It does not announce a package or installer release.
   1 failed on Python 3.12). The fixture now sets executable mode explicitly;
   a POSIX negative test also verifies ordinary non-executable files stay excluded.
   Production discovery rules remain unchanged.
+- Desktop Windows smoke logs showed successful API checks, MSI startup and
+  cleanup followed by exit 1: the Actions PowerShell wrapper propagated a stale
+  native cleanup exit code. Each smoke step now explicitly succeeds only after
+  all assertions; exits are outside `finally`, so primary/cleanup failures remain
+  failures. Real PowerShell cleanup-block regression and packaging checks:
+  **14 passed**. Same-branch desktop runs now supersede stale runs; actual cloud
+  sidecar/MSI validation remains separate from these isolated checks.
 
 ## 2026-07-23
 
