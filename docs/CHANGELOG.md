@@ -52,9 +52,13 @@ into the repository. It does not announce a package or installer release.
 - The earlier 93-test Work/transaction/execution regression remains dated evidence
   in the acceptance notes. New source-sync spot checks: 32 passed, 1 platform skip.
 - A full local backend run showed failures and was interrupted after extended
-  lack of progress; it is **not** a passing full-suite result. A fail-fast rerun
-  and GitHub Actions are the next verification gates. No tests were disabled to
-  make this source snapshot appear green.
+  lack of progress; it is **not** a passing full-suite result. The fail-fast rerun
+  finished with **858 passed, 5 skipped, 1 failed** at
+  `tests/test_host_workspace_authority.py::test_distinct_agent_roots_fail_closed`:
+  expected `UNAVAILABLE`, observed `BOUND`. This authority-boundary discrepancy
+  remains unresolved; downstream tests were not reached in that rerun. GitHub
+  Actions is an additional verification gate. No tests were disabled to make this
+  source snapshot appear green.
 
 ## 2026-07-23
 

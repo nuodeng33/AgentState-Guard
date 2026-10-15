@@ -3,6 +3,10 @@
 Updated 2026-10-15. Use the branch containing the dated workspace update; an old
 default-branch checkout or published package may not contain these modules.
 
+The current source-sync PR is a development snapshot with a known failing
+workspace-authority test, not a verified release. See the source-sync verification
+entry in [CHANGELOG](CHANGELOG.md) before relying on a passing full-suite claim.
+
 ## Checkout and install
 
 ```bash
