@@ -18,4 +18,5 @@ reports/
 /desktop/src-tauri/target/
 .env
 .env.*
+!web/.env.demo
 .claude/retry-guard-state.json

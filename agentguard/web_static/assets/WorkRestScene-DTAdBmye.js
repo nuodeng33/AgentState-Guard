@@ -1,4 +1,4 @@
-import{u as ic,r as He,j as Mt}from"./index-vHDjIK8X.js";/**
+import{u as ic,r as He,j as Mt}from"./index-BXJxSuXD.js";/**
  * @license
  * Copyright 2010-2024 Three.js Authors
  * SPDX-License-Identifier: MIT

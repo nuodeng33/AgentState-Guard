@@ -36,3 +36,12 @@ npm run dev:demo      # 打开 http://localhost:5174/
 - 悬停任务时伸出子泡泡；目前只点亮关联的连线和 Agent。
 - 3D 场景、Agent 关联层和各管理页只换了配色，版式没有重做。
 - 管理页仍直接显示原始状态码和 ISO 时间。
+
+
+## 接续验证（2026-10-22）
+
+- 演示入口所需的 `web/.env.demo` 已随源码提交，仅包含 `VITE_ASG_DEMO=1`；其他 `.env.*` 仍保持忽略。
+- 本轮前端测试：199 项通过，0 失败、0 跳过；JUnit 由 `scripts/parse-test-results.py` 校验。
+- `npm run build` 和 `npm run build:demo` 均通过；正式静态资源已同步更新，演示产物仍留在忽略的 `artifacts/demo-dist`。
+- 检查正式 JavaScript 不含演示拦截器标记，演示构建包含该标记。未修改后端或调用真实模型。
+- Vite 仍提示 3D 场景 chunk 超过 500 kB；本轮未重新验收完整视觉交互，上述“尚未完成”项继续保留。
