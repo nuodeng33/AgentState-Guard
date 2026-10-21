@@ -172,7 +172,7 @@ describe('App smoke (product IA)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Environment' }));
     expect(await screen.findByText('No runtime records')).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
-    fireEvent.click(screen.getByRole('button', { name: 'Workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'My work' }));
     expect(await screen.findByText('Real requirement')).toBeTruthy();
     expect(container.querySelector('.app-sidebar')).toBeNull();
     expect((container.querySelector('.work-world') as HTMLElement).style.transform).toBe(layout);

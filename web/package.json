@@ -9,9 +9,13 @@
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev:demo": "vite --mode demo --port 5174",
+    "build:demo": "tsc && vite build --mode demo --outDir ../artifacts/demo-dist --emptyOutDir"
   },
   "dependencies": {
+    "@fontsource-variable/spline-sans": "^5.3.0",
+    "@fontsource-variable/spline-sans-mono": "^5.3.0",
     "qrcode-generator": "^1.4.4",
     "react": "^18.3",
     "react-dom": "^18.3"

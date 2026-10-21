@@ -16,7 +16,7 @@ export type PageKey =
   | 'settings';
 
 const NAV_ITEMS: Array<{ key: PageKey; labelKey: MessageKey; icon: IconName }> = [
-  { key: 'work', labelKey: 'nav.work', icon: 'environment' },
+  { key: 'work', labelKey: 'nav.work', icon: 'work' },
   { key: 'home', labelKey: 'nav.home', icon: 'home' },
   { key: 'environment', labelKey: 'nav.environment', icon: 'environment' },
   { key: 'changes', labelKey: 'nav.changes', icon: 'changes' },
@@ -26,10 +26,53 @@ const NAV_ITEMS: Array<{ key: PageKey; labelKey: MessageKey; icon: IconName }> =
   { key: 'settings', labelKey: 'nav.settings', icon: 'settings' },
 ];
 
+const NAV_GROUPS: PageKey[][] = [['work'], ['home', 'environment', 'changes', 'supervision', 'recovery', 'devices'], ['settings']];
+
 /**
- * Desktop product shell: sidebar navigation over the product IA, the bounded
- * readiness banner, and the content header. Navigation labels come from the
- * active locale; machine states inside pages stay verbatim.
+ * First-level navigation shared by the Guard pages and the work overview.
+ * It is hidden once a single work is open, so the work owns the screen.
+ */
+export function TopBar({ page, onNavigate, navigationLocked = false }: {
+  page: PageKey; onNavigate: (page: PageKey) => void; navigationLocked?: boolean;
+}) {
+  const t = useT();
+  return (
+    <header className="app-topbar">
+      <div className="app-brand">
+        <ShieldNodesMark />
+        <div className="app-brand-name">{t('app.brand.name')}</div>
+      </div>
+      <nav className="app-nav" aria-label={t('app.nav.primary')}>
+        {NAV_GROUPS.map((group, index) => (
+          <div className="app-nav-group" key={group.join()}>
+            {index > 0 && <span className="app-nav-rule" aria-hidden="true" />}
+            {group.map((key) => {
+              const item = NAV_ITEMS.find((entry) => entry.key === key)!;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-label={t(item.labelKey)}
+                  disabled={navigationLocked && key !== page}
+                  className={`app-nav-item${key === page ? ' is-active' : ''}`}
+                  aria-current={key === page ? 'page' : undefined}
+                  onClick={() => onNavigate(key)}
+                >
+                  <NavIcon name={item.icon} />
+                  <span>{t(item.labelKey)}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+    </header>
+  );
+}
+
+/**
+ * Product shell for Guard pages: top navigation, the bounded readiness
+ * banner, and the content header. Machine states inside pages stay verbatim.
  */
 export function AppShell({
   page,
@@ -46,35 +89,9 @@ export function AppShell({
   navigationLocked?: boolean;
   children: ReactNode;
 }) {
-  const t = useT();
   return (
     <div className="app-shell">
-      <aside className="app-sidebar">
-        <div className="app-brand">
-          <ShieldNodesMark />
-          <div>
-            <div className="app-brand-name">{t('app.brand.name')}</div>
-            <div className="app-brand-sub">{t('app.brand.sub')}</div>
-          </div>
-        </div>
-        <nav className="app-nav" aria-label={t('app.nav.primary')}>
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              title={t(item.labelKey)}
-              aria-label={t(item.labelKey)}
-              disabled={navigationLocked && item.key !== page}
-              className={`app-nav-item${item.key === page ? ' is-active' : ''}`}
-              aria-current={item.key === page ? 'page' : undefined}
-              onClick={() => onNavigate(item.key)}
-            >
-              <NavIcon name={item.icon} />
-              <span>{t(item.labelKey)}</span>
-            </button>
-          ))}
-        </nav>
-      </aside>
+      <TopBar page={page} onNavigate={onNavigate} navigationLocked={navigationLocked} />
       <div className="app-main">
         <StatusBanner client={client} />
         <header className="app-header">
@@ -93,7 +110,7 @@ export function AppShell({
  */
 function ShieldNodesMark() {
   return (
-    <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true" className="brand-mark">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" className="brand-mark">
       <path
         d="M12 2.5 4.5 5.5v5.2c0 4.6 3.2 8.9 7.5 10.3 4.3-1.4 7.5-5.7 7.5-10.3V5.5L12 2.5Z"
         fill="none"
@@ -117,6 +134,7 @@ function ShieldNodesMark() {
 }
 
 type IconName =
+  | 'work'
   | 'home'
   | 'environment'
   | 'changes'
@@ -140,6 +158,13 @@ function NavIcon({ name }: { name: IconName }) {
     strokeLinejoin: 'round',
   } as const;
   switch (name) {
+    case 'work':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="7.5" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
     case 'home':
       return (
         <svg {...common}>

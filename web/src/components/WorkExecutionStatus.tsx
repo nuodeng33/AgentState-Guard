@@ -51,7 +51,7 @@ export default function WorkExecutionStatus({ client, workId, visible, onOpen, o
     {expanded && <div className="work-execution-items">
       {summary?.items.map(item => <button type="button" key={item.id} onClick={() => { setExpanded(false); onOpen({ sessionId: item.session_id, runId: item.id }); }}>
         {item.provider} · {label(item.state)} · {item.id.slice(0, 8)}
-        <small>{zh ? '要求' : 'Requirement'} v{item.requirement_version} · {zh ? '最后活动' : 'Last activity'} {item.updated_at}</small>
+        <small>{zh ? '要求' : 'Requirement'} v{item.requirement_version} · {zh ? '最后活动' : 'Last activity'} {Number.isNaN(Date.parse(item.updated_at)) ? item.updated_at : new Date(item.updated_at).toLocaleString(zh ? 'zh-CN' : 'en-US', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
       </button>)}
       {summary?.has_more && <button type="button" onClick={() => { setExpanded(false); onOpen(); }}>{zh ? '更多执行（列表已截取）' : 'More executions (list limited)'}</button>}
     </div>}

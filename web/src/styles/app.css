@@ -2,67 +2,52 @@
    Shared visual language with the Android app (same token names and values).
    Color is a secondary channel; labels always carry the meaning. */
 
+@import './tokens.css';
+
+/* Legacy names used across Guard pages, mapped onto the shared tokens. */
 :root {
-  /* ---- surfaces ---- */
-  --background: #0f172a;
-  --surface: #1e293b;
-  --surface-elevated: #24324a;
-  --surface-muted: #16233c;
-
-  /* ---- text ---- */
-  --text-primary: #e7edf7;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-
-  /* ---- brand / accents ---- */
-  --primary: #6366f1;
-  --secondary: #8b5cf6;
-  --primary-quiet: rgba(99, 102, 241, 0.16);
-
-  /* ---- status tones (the label is authoritative; color only supports it) ---- */
-  --success: #34d399;
-  --success-bg: rgba(16, 185, 129, 0.13);
-  --success-border: rgba(16, 185, 129, 0.38);
-  --warning: #fbbf24;
-  --warning-bg: rgba(245, 158, 11, 0.13);
-  --warning-border: rgba(245, 158, 11, 0.38);
-  --danger: #f87171;
-  --danger-bg: rgba(239, 68, 68, 0.13);
-  --danger-border: rgba(239, 68, 68, 0.4);
-  --unknown: #94a3b8;
-  --unknown-bg: rgba(100, 116, 139, 0.16);
-  --unknown-border: rgba(100, 116, 139, 0.45);
-  --neutral: #94a3b8;
-  --neutral-bg: rgba(148, 163, 184, 0.1);
-  --neutral-border: rgba(148, 163, 184, 0.3);
-  --info: #818cf8;
-  --info-bg: rgba(99, 102, 241, 0.16);
-  --info-border: rgba(99, 102, 241, 0.42);
-
-  /* ---- lines / focus ---- */
-  --border: #263449;
-  --border-strong: #35486b;
-  --focus: #818cf8;
-
-  /* ---- spacing: 4 / 8 / 12 / 16 / 24 / 32 ---- */
+  --background: var(--bg-space);
+  --surface: var(--bg-surface-1);
+  --surface-elevated: var(--bg-surface-2);
+  --surface-muted: var(--bg-inset);
+  --text-primary: var(--text-1);
+  --text-secondary: var(--text-2);
+  --text-muted: var(--text-3);
+  --primary: var(--work);
+  --secondary: var(--agent);
+  --primary-quiet: var(--work-tint);
+  --success: var(--st-running);
+  --success-bg: rgba(141, 211, 160, 0.1);
+  --success-border: rgba(141, 211, 160, 0.34);
+  --warning: #e7c27a;
+  --warning-bg: rgba(231, 194, 122, 0.1);
+  --warning-border: rgba(231, 194, 122, 0.36);
+  --danger: var(--st-failed);
+  --danger-bg: rgba(240, 138, 126, 0.1);
+  --danger-border: rgba(240, 138, 126, 0.38);
+  --unknown: var(--st-unknown);
+  --unknown-bg: rgba(169, 180, 188, 0.1);
+  --unknown-border: rgba(169, 180, 188, 0.4);
+  --neutral: var(--text-2);
+  --neutral-bg: rgba(236, 231, 220, 0.05);
+  --neutral-border: var(--border-2);
+  --info: var(--agent);
+  --info-bg: rgba(124, 198, 188, 0.1);
+  --info-border: rgba(124, 198, 188, 0.38);
+  --border: var(--border-2);
+  --border-strong: var(--border-3);
+  --focus: var(--focus-color);
   --sp-4: 4px;
   --sp-8: 8px;
   --sp-12: 12px;
   --sp-16: 16px;
   --sp-24: 24px;
   --sp-32: 32px;
-
-  /* ---- radius ---- */
   --radius-s: 6px;
-  --radius-m: 10px;
-  --radius-l: 14px;
-
-  /* ---- elevation ---- */
-  --shadow-card: 0 1px 2px rgba(2, 6, 23, 0.55), 0 6px 20px rgba(2, 6, 23, 0.35);
-
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-
-  /* ---- compatibility aliases (existing class rules keep working) ---- */
+  --radius-m: var(--r-control);
+  --radius-l: var(--r-card);
+  --shadow-card: var(--e-1);
+  --mono: var(--font-code);
   --bg: var(--background);
   --text: var(--text-primary);
   --accent: var(--primary);
@@ -91,11 +76,13 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family:
-    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
+
+button, input, textarea, select { font: inherit; }
 
 code {
   font-family: var(--mono);
@@ -112,101 +99,121 @@ code {
   color: var(--text-secondary);
 }
 
-/* ---- Shell layout ---- */
+/* ---- Shell layout: one quiet top bar, content centered below ---- */
 
 .app-shell {
-  display: flex;
   min-height: 100vh;
-}
-
-.app-sidebar {
-  flex: 0 0 232px;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  padding: 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  background: radial-gradient(120% 80% at 50% 0%, #20252a 0%, var(--bg-space) 55%, var(--bg-space-edge) 100%);
+}
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 60px;
+  padding: 0 28px;
+  background: rgba(28, 32, 35, 0.86);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-1);
 }
 
 .app-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 6px;
-  color: var(--text);
-}
-
-.brand-mark {
-  color: var(--accent);
-  flex: 0 0 auto;
+  color: var(--work);
+  flex: none;
 }
 
 .app-brand-name {
-  font-weight: 650;
-  font-size: 14px;
-  letter-spacing: 0.01em;
-}
-
-.app-brand-sub {
-  font-size: 11px;
-  color: var(--text-secondary);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 15px;
+  font-weight: 620;
+  color: var(--text-1);
+  letter-spacing: -0.005em;
 }
 
 .app-nav {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.app-nav-group {
+  display: flex;
+  align-items: center;
   gap: 2px;
 }
 
-.app-nav-item {
-  appearance: none;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  font: inherit;
-  font-weight: 550;
-  padding: 8px 12px;
-  border-radius: 6px;
-  cursor: pointer;
+.app-nav-rule {
+  width: 1px;
+  height: 20px;
+  margin: 0 10px;
+  background: var(--border-2);
+  flex: none;
 }
 
-.app-nav-item:hover {
-  background: var(--neutral-bg);
+.app-nav-item {
+  height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 520;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out);
+}
+
+.app-nav-item:hover:not(:disabled) {
+  background: var(--bg-surface-2);
+  color: var(--text-1);
 }
 
 .app-nav-item.is-active {
-  background: var(--accent-quiet);
-  border-color: var(--info-border);
-  color: var(--accent);
+  color: var(--text-1);
+  background: var(--bg-surface-2);
+  box-shadow: inset 0 -2px 0 var(--work);
 }
 
+.app-nav-item:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .app-main {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .app-header {
-  padding: 20px 32px 4px;
-  max-width: 1180px;
   width: 100%;
+  max-width: 1180px;
   margin: 0 auto;
+  padding: 36px 32px 8px;
 }
 
 .app-title {
   margin: 0;
-  font-size: 20px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
 }
 
 .app-content {
-  padding: 12px 32px 40px;
+  padding: 12px 32px 56px;
   max-width: 1180px;
   width: 100%;
   margin: 0 auto;
@@ -725,22 +732,12 @@ code {
 /* ---- Narrow windows: keep usable, never broken ---- */
 
 @media (max-width: 900px) {
-  .app-shell {
-    flex-direction: column;
-  }
-
-  .app-sidebar {
-    flex: none;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding: 12px 16px;
-    gap: 10px;
-  }
-
-  .app-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
+  .app-topbar { padding: 0 12px; gap: 12px; }
+  .app-brand-name { display: none; }
+  .app-nav-item { padding: 0 10px; }
+  .app-nav-item .app-nav-icon { display: none; }
+  .app-nav-rule { margin: 0 4px; }
+  .app-title { font-size: 22px; line-height: 30px; }
 
   .app-header,
   .app-content {
@@ -806,15 +803,9 @@ code {
 
 /* ---- Product shell: nav icons, status cards, home, settings ---- */
 
-.app-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .app-nav-icon {
   flex: 0 0 auto;
-  opacity: 0.85;
+  opacity: 0.8;
 }
 
 .status-card-grid {

@@ -1,0 +1,69 @@
+/* ASG design tokens — graphite space, brass for Work, sea-glass for agents.
+   Status is always carried by text; color only supports it. */
+@import '@fontsource-variable/spline-sans';
+@import '@fontsource-variable/spline-sans-mono';
+
+:root {
+  color-scheme: dark;
+  --bg-space: #1c2023;
+  --bg-space-edge: #15181a;
+  --bg-surface-1: #23282b;
+  --bg-surface-2: #2a3034;
+  --bg-surface-3: #333a3f;
+  --bg-inset: #181b1e;
+
+  --text-1: #ece7dc;
+  --text-2: #bfc0b9;
+  --text-3: #929996;
+  --text-disabled: #646b6c;
+  --text-on-work: #221d12;
+
+  --work: #d3b97e;
+  --work-strong: #e6cf98;
+  --work-shell: rgba(211, 185, 126, 0.62);
+  --work-shell-inner: rgba(211, 185, 126, 0.22);
+  --work-tint: rgba(211, 185, 126, 0.1);
+  --work-line: rgba(211, 185, 126, 0.34);
+  --agent: #7cc6bc;
+  --agent-line: rgba(124, 198, 188, 0.42);
+
+  --st-running: #8dd3a0;
+  --st-waiting: #b9a6f4;
+  --st-failed: #f08a7e;
+  --st-done: #bfc0b9;
+  --st-idle: #929996;
+  --st-unknown: #a9b4bc;
+
+  --border-1: rgba(236, 231, 220, 0.07);
+  --border-2: rgba(236, 231, 220, 0.13);
+  --border-3: rgba(236, 231, 220, 0.24);
+  --focus-color: #f5e7b8;
+  --focus-ring: 0 0 0 2px var(--bg-space), 0 0 0 4px var(--focus-color);
+
+  --font-ui: "Spline Sans Variable", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-code: "Spline Sans Mono Variable", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --r-mark: 3px;
+  --r-control: 9px;
+  --r-card: 14px;
+  --r-panel: 20px;
+  --r-pill: 999px;
+
+  --e-1: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 28px -14px rgba(6, 8, 9, 0.7);
+  --e-2: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 22px 48px -18px rgba(6, 8, 9, 0.8);
+  --e-3: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 28px 64px -20px rgba(4, 5, 6, 0.85);
+
+  --hover-intent: 250ms;
+  --dur-quick: 140ms;
+  --dur-base: 220ms;
+  --dur-expand: 380ms;
+  --dur-retract: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-film: cubic-bezier(0.34, 1.32, 0.64, 1);
+  --ease-retract: cubic-bezier(0.6, 0, 0.8, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-quick: 1ms; --dur-base: 1ms; --dur-expand: 1ms; --dur-retract: 1ms; }
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}

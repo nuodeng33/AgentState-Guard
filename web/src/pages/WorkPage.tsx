@@ -1,12 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
-import type { PageKey } from '../components/AppShell';
+import { TopBar, type PageKey } from '../components/AppShell';
 import { useI18n } from '../i18n/I18nProvider';
 import { workspaceCopy } from './workspaceCopy';
-import WorkAgents, { useWorkAgents } from './WorkAgents';
+import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
 import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExecutionStatus';
+import { AgentFilm, AGENT_TINTS, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
 import './work.css';
 
 type Summary = { id: string; title: string; owner: string; revision: number; requirement_version: number; updated_at?: string };
@@ -26,10 +27,20 @@ type Session = { id: string; board: Board; revision: number; edits: number; save
 const WorkRestScene = lazy(() => import('./WorkRestScene'));
 const key = (card: Pick<Card, 'kind' | 'ref_id' | 'version'>) => `${card.kind}:${card.ref_id}:${card.version ?? ''}`;
 const bound = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+/** Soft S-curve between two space points; reads as a relation, not a wire. */
+const curve = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+  const mid = (a.x + b.x) / 2;
+  return `M${a.x} ${a.y}C${mid} ${a.y} ${mid} ${b.y} ${b.x} ${b.y}`;
+};
+/** Default seat on a shallow arc beside the core: tasks to the left, artifacts to the right. */
+function arc(index: number, count: number, side: -1 | 1) {
+  const step = count > 1 ? Math.min(0.42, 2.1 / (count - 1)) : 0, angle = (index - (count - 1) / 2) * step;
+  return { x: Math.round(side * (300 + 90 * Math.cos(angle))), y: Math.round(Math.sin(angle) * 430) };
+}
 function availableNodes(work: Work): SpaceNode[] {
   return [{ kind: 'requirement' as const, ref_id: work.id, version: work.requirement_version, x: 0, y: 0 },
-    ...work.tasks.map((task, index) => ({ kind: 'task' as const, ref_id: task.id, version: null, x: -310, y: (index - (work.tasks.length - 1) / 2) * 170 })),
-    ...work.artifacts.map((artifact, index) => ({ kind: 'artifact' as const, ref_id: artifact.id, version: artifact.version, x: 310, y: (index - (work.artifacts.length - 1) / 2) * 170 }))].slice(0, 1000);
+    ...work.tasks.map((task, index) => ({ kind: 'task' as const, ref_id: task.id, version: null, ...arc(index, work.tasks.length, -1) })),
+    ...work.artifacts.map((artifact, index) => ({ kind: 'artifact' as const, ref_id: artifact.id, version: artifact.version, ...arc(index, work.artifacts.length, 1) }))].slice(0, 1000);
 }
 function withSpace(state: Board, work: Work): Board {
   const available = availableNodes(work);
@@ -309,14 +320,22 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const visibleNodes = [...(space?.nodes.filter(node => node.kind === 'requirement' && node.version === work?.requirement_version) ?? []),
     ...(relationshipsOpen ? relatedNodes.slice(0, relationLimit) : [])];
   const coreNode = visibleNodes.find(node => node.kind === 'requirement');
-  const agentNodes = agents.items.slice(0, 4).map((agent, index) => ({ agent, x: index % 2 ? 160 : -160, y: index < 2 ? -270 : 270 }));
+  // Agents sit just outside the tasks they carry; unlinked agents wait above the core.
+  const agentNodes = agents.items.slice(0, 4).reduce<{ agent: WorkAgent; x: number; y: number }[]>((placed, agent, index) => {
+    const linked = visibleNodes.filter(node => node.kind === 'task' && agent.task_ids?.includes(node.ref_id));
+    let x = linked.length ? Math.min(...linked.map(node => node.x)) - 330 : (index % 2 ? 1 : -1) * 120;
+    let y = linked.length ? linked.reduce((sum, node) => sum + node.y, 0) / linked.length : -360;
+    while (placed.some(other => Math.abs(other.x - x) < 150 && Math.abs(other.y - y) < 150)) y += 160;
+    return [...placed, { agent, x: Math.round(x), y: Math.round(y) }];
+  }, []);
   const edges = visibleNodes.flatMap(node => {
     if (node.kind === 'requirement') return [];
     const artifact = node.kind === 'artifact' ? work?.artifacts.find(a => a.id === node.ref_id && a.version === node.version) : null;
     const origin = artifact ? visibleNodes.find(other => other.kind === 'requirement' && other.version === artifact.requirement_version) : visibleNodes.find(other => other.kind === 'requirement' && other.ref_id === work?.id);
     return origin ? [[key(origin), key(node)] as const] : [];
   }) ?? [];
-  const highlighted = hover ? new Set([hover, ...edges.flatMap(([a, b]) => a === hover ? [b] : b === hover ? [a] : [])]) : null;
+  const agentEdges = relationshipsOpen ? agentNodes.flatMap(node => (node.agent.task_ids ?? []).map(id => [`agent:${node.agent.agent_id}`, `task:${id}:`] as const)) : [];
+  const highlighted = hover ? new Set([hover, ...[...edges, ...agentEdges].flatMap(([a, b]) => a === hover ? [b] : b === hover ? [a] : [])]) : null;
   function showOnBoard(node: SpaceNode) { addCard(node.kind, node.ref_id, node.version); const current = boardRef.current; if (current) changeBoard({ ...current, surface: 'board' }); }
   async function refreshDeliveryWork(id: string) {
     const sequence = loadSequence.current;
@@ -341,12 +360,15 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   function compareRequirement(version: number) { compareOnBoard('requirement', work!.id, version); }
   function fitSpace() { const current = boardRef.current, el = spaceCanvas.current; if (!current?.space?.nodes.length || !el) return;
     const nodes = [...visibleNodes, ...agentNodes], left = Math.min(...nodes.map(n => n.x)) - 110, right = Math.max(...nodes.map(n => n.x)) + 110;
-    const top = Math.min(...nodes.map(n => n.y)) - 90, bottom = Math.max(...nodes.map(n => n.y)) + 90;
+    const top = Math.min(...nodes.map(n => n.y)) - 110, bottom = Math.max(...nodes.map(n => n.y)) + 190; // room for the dock
     const zoom = bound(Math.min(el.clientWidth / (right - left), el.clientHeight / (bottom - top), 1.4), .25, 2);
     changeBoard({ ...current, space: { ...current.space, viewport: { x: -(left + right) / 2 * zoom, y: -(top + bottom) / 2 * zoom, zoom } } });
   }
   function spaceZoom(factor: number) { const current = boardRef.current; if (!current?.space) return;
     changeBoard({ ...current, space: { ...current.space, viewport: { ...current.space.viewport, zoom: bound(current.space.viewport.zoom * factor, .25, 2) } } }); }
+  // First reveal of relations frames everything once; a viewport the user set is left alone.
+  const fitOnReveal = useRef(false);
+  useEffect(() => { if (relationshipsOpen && fitOnReveal.current) { fitOnReveal.current = false; fitSpace(); } }, [relationshipsOpen]);
   const spaceDrag = useRef<{ x: number; y: number; startX: number; startY: number; node?: SpaceNode; moved: boolean } | null>(null);
   const spaceCanvas = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -376,43 +398,53 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   return <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''}`} aria-hidden={!visible}>
     {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button></div>}
     {loading ? <p role="status">{t.load}</p> : !work ? <>
-      <header className="work-toolbar"><strong>{t.title}</strong><button className="work-primary" onClick={() => setForm('work')}>{t.create}</button></header>
-      {!items.length && <div className="work-empty">{t.empty}</div>}
-      <div className="work-list">{items.map(item => <button key={item.id} onClick={() => void openWork(item.id)}><strong>{item.title}</strong><span>{item.owner} · {t.requirement} v{item.requirement_version}</span><span>↗</span></button>)}</div>
-      {more && <button onClick={() => void list(true).catch(() => setError(t.failed))}>{t.more}</button>}
-      <nav className="work-dock" aria-label={t.workspaceControls}><button onClick={() => onNavigate?.('home')}>{t.guard}</button><button onClick={() => onNavigate?.('environment')}>{t.environment}</button><button onClick={() => onNavigate?.('settings')}>{t.settings}</button></nav>
+      <TopBar page="work" onNavigate={next => { if (next !== 'work') onNavigate?.(next); }} />
+      <div className="work-overview">
+        <header className="work-overview-head"><div><h1>{t.title}</h1><p>{items.length ? t.overviewCount(items.length) : t.intro}</p></div>
+          <button className="work-primary" onClick={() => setForm('work')}><Icon name="new" />{t.create}</button></header>
+        {!items.length && <div className="work-empty">{t.empty}</div>}
+        <div className="work-list">{items.map(item => <button key={item.id} className="work-tile" onClick={() => void openWork(item.id)}>
+          <span className="work-tile-mark"><WorkCore size={72} /></span>
+          <strong>{item.title}</strong>
+          <span className="work-tile-meta"><span>{item.owner}</span><span>{t.requirement} v{item.requirement_version}</span></span>
+          {item.updated_at && <time dateTime={item.updated_at}>{t.updated} {new Date(item.updated_at).toLocaleString(locale, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>}
+        </button>)}</div>
+        {more && <button className="work-quiet work-more" onClick={() => void list(true).catch(() => setError(t.failed))}>{t.more}</button>}
+      </div>
     </> : <>
-      <header className="work-toolbar"><button onClick={back}>← {t.back}</button><div className="work-heading"><strong>{work.title}</strong></div>
-        <button ref={menuButton} aria-label={t.actions} title={t.actions} aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}>⋯</button>
+      <header className="work-toolbar"><button className="work-back" onClick={back}><Icon name="back" />{t.back}</button><div className="work-heading"><strong>{work.title}</strong><span className="work-version">{t.requirement} v{work.requirement_version}</span></div>
+        <button ref={menuButton} className="work-icon-button" aria-label={t.actions} title={t.actions} aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><Icon name="more" /></button>
         {menuOpen && <div className="work-menu"><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={() => { setForm('task'); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setForm('artifact'); setMenuOpen(false); }}>{t.newArtifact}</button><button onClick={() => { onNavigate?.('home'); setMenuOpen(false); }}>{t.guard}</button></div>}</header>
       <WorkExecutionStatus key={work.id} client={client} workId={work.id} visible={visible} onOpen={openSessions}
         onRequirement={version => { if (workRef.current?.id === work.id && workRef.current.requirement_version < version) void refreshDeliveryWork(work.id); }} />
-      {!inSpace && <div className="work-tools"><button onClick={returnToSpace}>{t.returnSpace}</button><button onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}>{t.addRelated}</button><div className="work-zoom"><button aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}>−</button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button aria-label="Zoom in" onClick={() => zoom(1.2)}>+</button><button onClick={fit}>{t.fit}</button></div></div>}
+      {!inSpace && <div className="work-tools"><button className="work-quiet" onClick={returnToSpace}><Icon name="back" />{t.returnSpace}</button><button className="work-quiet" onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}><Icon name="library" />{t.addRelated}</button><div className="work-zoom"><button className="work-icon-button" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label="Zoom in" onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
       {inSpace && space && <div className="work-space" ref={spaceCanvas} onPointerDown={e => { if (e.target === e.currentTarget || (e.target as Element).closest('.work-space-world') && !(e.target as Element).closest('.work-space-node')) spaceStart(e); }} onPointerMove={spaceMove} onPointerUp={e => { if (spaceDrag.current && !spaceDrag.current.node) spaceEnd(e); }} onPointerCancel={() => { spaceDrag.current = null; }}>
         <div className="work-space-world" style={{ transform: relationshipsOpen ? `translate(calc(50% + ${space.viewport.x}px), calc(50% + ${space.viewport.y}px)) scale(${space.viewport.zoom})` : `translate(calc(50% - ${coreNode?.x ?? 0}px), calc(50% - ${coreNode?.y ?? 0}px)) scale(1)` }}>
           <svg className="work-space-links" aria-hidden="true">{edges.map(([a, b]) => { const origin = space.nodes.find(n => key(n) === a)!, node = space.nodes.find(n => key(n) === b)!;
-            return <line key={`${a}:${b}`} x1={origin.x} y1={origin.y} x2={node.x} y2={node.y} className={hover && hover !== a && hover !== b ? 'dim' : ''} />; })}
+            return <path key={`${a}:${b}`} d={curve(origin, node)} className={highlighted ? (highlighted.has(a) && highlighted.has(b) ? 'lit' : 'dim') : ''} />; })}
             {relationshipsOpen && agentNodes.flatMap(node => (node.agent.task_ids ?? []).flatMap(id => {
               const task = visibleNodes.find(item => item.kind === 'task' && item.ref_id === id);
-              return task ? <line key={`${node.agent.agent_id}:${id}`} data-agent-task={id} x1={node.x} y1={node.y} x2={task.x} y2={task.y} strokeDasharray="5 5"><title>{locale === 'zh-CN' ? '用户任务关联；执行活动未知' : 'User task link; execution activity unknown'}</title></line> : [];
+              return task ? <path key={`${node.agent.agent_id}:${id}`} data-agent-task={id} d={curve(node, task)} className={`agent-link ${highlighted ? (highlighted.has(`agent:${node.agent.agent_id}`) && highlighted.has(key(task)) ? 'lit' : 'dim') : ''}`}><title>{locale === 'zh-CN' ? '用户任务关联；执行活动未知' : 'User task link; execution activity unknown'}</title></path> : [];
             }))}</svg>
-          {relationshipsOpen && agentNodes.map(({ agent, x, y }) => <button key={agent.agent_id} className="work-agent-bubble" style={{ left: x, top: y }} onPointerDown={event => event.stopPropagation()} onClick={() => openAgents(agent.agent_id)}>
-            <span className="work-agent-dot" aria-hidden="true" /><strong>{agent.detected_identity} · {agent.agent_id.slice(-6)}</strong><small>{locale === 'zh-CN' ? `用户关联 · ${agent.task_ids?.length ?? 0} 项任务` : `User linked · ${agent.task_ids?.length ?? 0} tasks`}</small>
-          </button>)}
+          {relationshipsOpen && agentNodes.map(({ agent, x, y }, index) => <AgentBubble key={agent.agent_id} agent={agent} index={index} size={150} tasks={work.tasks} copy={t}
+            className={highlighted && !highlighted.has(`agent:${agent.agent_id}`) ? 'dim' : highlighted ? 'lit' : ''} style={{ left: x, top: y }}
+            onPointerDown={event => event.stopPropagation()} onPointerEnter={() => setHover(`agent:${agent.agent_id}`)} onPointerLeave={() => setHover(null)} onClick={() => openAgents(agent.agent_id)} />)}
           {visibleNodes.map(node => { const item = node.kind === 'task' ? work.tasks.find(x => x.id === node.ref_id) : node.kind === 'artifact' ? work.artifacts.find(x => x.id === node.ref_id && x.version === node.version) : null;
             if (node.kind !== 'requirement' && !item) return null;
-            return <button key={key(node)} className={`work-space-node ${node.kind} ${highlighted && !highlighted.has(key(node)) ? 'dim' : ''}`} style={{ left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={() => { if (!suppressSpaceClick.current) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? work.title}`}><span className="work-space-symbol">{node.kind === 'requirement' ? '◇' : node.kind === 'task' ? '▤' : '▣'}</span><strong>{item?.title ?? work.title}</strong><small>{t[node.kind]} {node.version ? `v${node.version}` : ''}</small></button>; })}
+            const state = highlighted ? (highlighted.has(key(node)) ? 'lit' : 'dim') : '';
+            return <button key={key(node)} className={`work-space-node ${node.kind} ${state}`} style={{ left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={() => { if (!suppressSpaceClick.current) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? work.title}`}>
+              {node.kind === 'requirement' ? <><WorkCore size={300} /><span className="work-core-text"><strong>{work.title}</strong>{goalOf(work.requirement) && <span className="work-core-goal">{goalOf(work.requirement)}</span>}<span className="work-core-counts"><span>{t.requirement} v{node.version}</span><span>{work.tasks.length} {t.task}</span><span>{work.artifacts.length} {t.artifact}</span></span></span></> :
+                <><span className="work-anchor-icon"><Icon name={node.kind} size={16} /></span><strong>{item?.title ?? work.title}</strong>{node.version ? <em className="work-version">v{node.version}</em> : <small>{t[node.kind]}</small>}</>}
+            </button>; })}
         </div>{!relationshipsOpen && <><div className="work-agent-bubbles">
           <svg width="100%" height="100%" aria-hidden="true">{agents.items.slice(0, 4).map((agent, index) => {
             const [x, y] = [[22, 30], [78, 67], [22, 67], [78, 30]][index];
-            return <line key={agent.agent_id} x1="50%" y1="50%" x2={`${x}%`} y2={`${y}%`} stroke="#718e803d" strokeDasharray="4 7" />;
+            return <line key={agent.agent_id} x1="50%" y1="50%" x2={`${x}%`} y2={`${y}%`} className="work-agent-tether" />;
           })}</svg>
           {agents.items.slice(0, 4).map((agent, index) => { const [x, y] = [[22, 30], [78, 67], [22, 67], [78, 30]][index];
-            return <button key={agent.agent_id} className="work-agent-bubble" style={{ left: `${x}%`, top: `${y}%` }} onClick={() => openAgents(agent.agent_id)}>
-              <span className="work-agent-dot" aria-hidden="true" /><strong>{agent.detected_identity} · {agent.agent_id.slice(-6)}</strong><small>{locale === 'zh-CN' ? '用户关联 · 活动未知' : 'User linked · activity unknown'}</small>
-            </button>;
-          })}</div><div className="work-core-meta"><span>{work.tasks.length} {t.task}</span><span>{work.artifacts.length} {t.artifact}</span></div></>}</div>}
-      {!inSpace && <div className="work-area">{libraryOpen && <aside className="work-library"><div className="work-library-head"><h2>{t.library}</h2><button onClick={() => setLibraryOpen(false)} aria-label={t.close}>×</button></div>
+            return <AgentBubble key={agent.agent_id} agent={agent} index={index} size={170} tasks={work.tasks} copy={t} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => openAgents(agent.agent_id)} />;
+          })}</div></>}</div>}
+      {!inSpace && <div className="work-area">{libraryOpen && <aside className="work-library"><div className="work-library-head"><h2>{t.library}</h2><button className="work-icon-button" onClick={() => setLibraryOpen(false)} aria-label={t.close}><Icon name="close" size={16} /></button></div>
         <label>{t.requirement}<input aria-label={t.showRequirement} type="number" min={1} max={work.requirement_version} value={requirementVersion} onChange={e => setRequirementVersion(bound(Number(e.target.value), 1, work.requirement_version))} /></label>
         <button onClick={() => addCard('requirement', work.id, requirementVersion)}>{t.open} · {t.requirement} v{requirementVersion}</button>
         <h3>{t.task} · {work.tasks.length}</h3>{work.tasks.map(task => <button key={task.id} onClick={() => addCard('task', task.id, null)}>{task.title}</button>)}
@@ -427,16 +459,24 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
             return from ? <path key={key(a)} d={`M${from.x + from.width},${from.y + 80} C${from.x + from.width + 50},${from.y + 80} ${a.x - 50},${a.y + 80} ${a.x},${a.y + 80}`} /> : null;
           })}</svg>
           {board?.cards.map(card => <article className="work-card" key={key(card)} data-card={key(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
-            <header onPointerDown={e => startDrag(e, card)}><span>{t[card.kind]} {card.version ? `· v${card.version}` : ''}</span><button title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}>↗</button><button title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`} onClick={() => changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) })}>×</button></header>
+            <header onPointerDown={e => startDrag(e, card)}><span className="work-card-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</span><button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}><Icon name="expand" size={16} /></button><button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`} onClick={() => changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) })}><Icon name="close" size={16} /></button></header>
             {renderContent(card)}<button className="work-resize" aria-label={`Resize ${t[card.kind]}`} onPointerDown={e => startDrag(e, card, true)} />
           </article>)}
         </div></div></div>}
       <nav className="work-dock" aria-label={t.workspaceControls}>
-        {inSpace && <><button className="work-primary" onClick={continueBoard}>{t.continueBoard}</button><button onClick={() => setRelationshipsOpen(open => !open)} aria-expanded={relationshipsOpen}>{relationshipsOpen ? t.hideRelations : t.showRelations}</button>{relationshipsOpen && relatedNodes.length > relationLimit && <button onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}{relationshipsOpen && <div className="work-zoom"><button aria-label="Zoom out" onClick={() => spaceZoom(1 / 1.2)}>−</button><span>{Math.round((space?.viewport.zoom ?? 1) * 100)}%</span><button aria-label="Zoom in" onClick={() => spaceZoom(1.2)}>+</button><button onClick={fitSpace}>{t.fit}</button></div>}</>}
-        <span role="status" title={status === 'conflict' ? t.viewConflict : undefined}>{status === 'saved' ? t.saved : status === 'saving' ? t.saving : status === 'failed' ? t.saveFailed : status === 'conflict' ? t.viewConflict : t.dirty}</span>
-        <button disabled={status === 'saving' || status === 'conflict'} onClick={() => void saveView()}>{t.saveView}</button>
-        {(status === 'failed' || status === 'conflict') && <button onClick={() => { sessions.current.delete(work.id); void openWork(work.id); }}>{t.discardView}</button>}
-        <button onClick={() => openAgents()}>{t.agents} · {agents.failed ? '!' : agents.items.length}</button><button onClick={() => setRestOpen(true)}>{t.restScene}</button><button onClick={() => onNavigate?.('environment')}>{t.environment}</button><button onClick={() => onNavigate?.('settings')}>{t.settings}</button></nav>
+        {inSpace && <div className="work-dock-group"><button className="work-primary" onClick={continueBoard}><Icon name="board" />{t.continueBoard}</button><button className={`work-toggle${relationshipsOpen ? ' is-on' : ''}`} onClick={() => { const v = boardRef.current?.space?.viewport; fitOnReveal.current = !relationshipsOpen && !!v && v.x === 0 && v.y === 0 && v.zoom === 1; setRelationshipsOpen(open => !open); }} aria-expanded={relationshipsOpen}><Icon name="link" />{relationshipsOpen ? t.hideRelations : t.showRelations}</button>{relationshipsOpen && relatedNodes.length > relationLimit && <button className="work-quiet" onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}</div>}
+        {inSpace && relationshipsOpen && <div className="work-zoom"><button className="work-icon-button" aria-label="Zoom out" onClick={() => spaceZoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((space?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label="Zoom in" onClick={() => spaceZoom(1.2)}><Icon name="plus" /></button><button className="work-icon-button" aria-label={t.fit} title={t.fit} onClick={fitSpace}><Icon name="fit" /></button></div>}
+        <div className="work-dock-group">
+          <span role="status" className={`work-save is-${status}`} title={status === 'conflict' ? t.viewConflict : undefined}>{status === 'saved' ? t.saved : status === 'saving' ? t.saving : status === 'failed' ? t.saveFailed : status === 'conflict' ? t.viewConflict : t.dirty}</span>
+          <button className="work-quiet" disabled={status === 'saving' || status === 'conflict'} onClick={() => void saveView()}><Icon name="save" />{t.saveView}</button>
+          {(status === 'failed' || status === 'conflict') && <button className="work-quiet" onClick={() => { sessions.current.delete(work.id); void openWork(work.id); }}>{t.discardView}</button>}
+        </div>
+        <div className="work-dock-group">
+          <button className="work-quiet" onClick={() => openAgents()}><Icon name="agents" />{t.agents}<span className="work-count">{agents.failed ? '!' : agents.items.length}</span></button>
+          <button className="work-quiet" onClick={() => setRestOpen(true)}><Icon name="orbit" />{t.restScene}</button>
+          <button className="work-icon-button" aria-label={t.environment} title={t.environment} onClick={() => onNavigate?.('environment')}><Icon name="environment" /></button>
+          <button className="work-icon-button" aria-label={t.settings} title={t.settings} onClick={() => onNavigate?.('settings')}><Icon name="settings" /></button>
+        </div></nav>
     </>}
     {work && <WorkSessions key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
@@ -451,7 +491,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     {agentPanel && work && <WorkAgents key={work.id} client={client} workId={work.id} revision={work.revision} linked={agents.items} tasks={work.tasks} initialAgentId={agentPanel.selected} visible={visible} onClose={closeAgents} onLinkedChanged={agents.replace} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
-    {active && work && <div className="work-overlay work-reading-overlay" role="dialog" aria-modal="true" aria-label={t.focus}><section className="work-reader"><header><button autoFocus onClick={() => setFocus(null)}>← {t.returnBoard}</button><span>{t[active.kind]} · v{active.version ?? ''}</span></header>{renderContent(active, true)}</section></div>}
+    {active && work && <div className="work-overlay work-reading-overlay" role="dialog" aria-modal="true" aria-label={t.focus}><section className="work-reader"><header><button className="work-quiet" autoFocus onClick={() => setFocus(null)}><Icon name="back" />{t.returnBoard}</button><span className="work-card-kind"><Icon name={active.kind} size={16} />{t[active.kind]}{active.version ? <em className="work-version">v{active.version}</em> : null}</span></header>{renderContent(active, true)}</section></div>}
     {form && <div className="work-overlay" role="dialog" aria-modal="true" aria-label={form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}><form className="work-form" onSubmit={submit}>
       <h2>{form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}</h2>
       {error && <p role="alert">{error}</p>}
@@ -484,9 +524,35 @@ function CardContent({ client, work, card, onScroll }: { client: ApiClient; work
   return <div className="work-card-body" ref={body} onScroll={e => { if (content && Math.abs(e.currentTarget.scrollTop - card.scroll) > 1) onScroll(e.currentTarget.scrollTop); }}>
     {error ? <p role="alert">{t[error]} <button onClick={() => setRetry(n => n + 1)}>{t.retry}</button></p> : content ? <>
       <h2>{content.title ?? `${work.title} · ${t.requirement}`}</h2>
-      {content.requirement_version && <small>{content.source === 'AGENT_RUN' ? t.runOutput : content.source === 'USER_EDITED_RUN_OUTPUT' ? t.editedRunOutput : t.manual} · {t.basedOn} v{content.requirement_version}</small>}
+      {content.requirement_version && <small className="work-provenance">{content.source === 'AGENT_RUN' ? t.runOutput : content.source === 'USER_EDITED_RUN_OUTPUT' ? t.editedRunOutput : t.manual} · {t.basedOn} v{content.requirement_version}</small>}
       {content.source_run_id && <code>{content.source_run_id}</code>}
-      <div className="work-prose">{content.body}</div>
+      <div className="work-prose"><Prose text={content.body} /></div>
     </> : <p>{t.load}</p>}
   </div>;
+}
+
+type Copy = (typeof workspaceCopy)['en-US'];
+/** Display names for known identities; anything else is shown verbatim. */
+const AGENT_NAMES: Record<string, string> = { CODEX: 'Codex', CLAUDE_CODE: 'Claude Code', KIMI: 'Kimi', GEMINI: 'Gemini', CURSOR: 'Cursor' };
+/**
+ * Agent as a replaceable tool: a tinted film with only facts the Core reports.
+ * Presence comes from discovery; execution activity stays explicitly unknown.
+ */
+function AgentBubble({ agent, index, size, tasks, copy, className = '', style, onClick, onPointerDown, onPointerEnter, onPointerLeave }: {
+  agent: WorkAgent; index: number; size: number; tasks: { id: string; title: string }[]; copy: Copy; className?: string;
+  style: CSSProperties; onClick: () => void; onPointerDown?: (event: PointerEvent) => void; onPointerEnter?: () => void; onPointerLeave?: () => void;
+}) {
+  const state = agent.presence === 'CURRENT' ? 'current' : agent.presence === 'NOT_CURRENT' ? 'absent' : 'unknown';
+  const linked = tasks.filter(task => agent.task_ids?.includes(task.id));
+  return <button className={`work-agent-bubble is-${state} ${className}`} style={{ ...style, width: size, height: size }} onClick={onClick}
+    onPointerDown={onPointerDown} onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>
+    <AgentFilm seed={agent.agent_id} size={size} tint={AGENT_TINTS[index % AGENT_TINTS.length]} state={state} />
+    <span className="work-agent-text">
+      <strong>{AGENT_NAMES[agent.detected_identity] ?? agent.detected_identity}</strong>
+      <span className="work-agent-state"><i aria-hidden="true" />{state === 'current' ? copy.presentNow : state === 'absent' ? copy.presentAbsent : copy.presentUnknown}</span>
+      <span className="work-agent-load">{copy.carries(linked.length)}</span>
+      {linked[0] && size > 140 && <span className="work-agent-task">{linked[0].title}</span>}
+      <small>{copy.activityUnknown}</small>
+    </span>
+  </button>;
 }
