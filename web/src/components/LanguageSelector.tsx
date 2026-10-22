@@ -14,8 +14,14 @@ const OPTIONS: Array<{ value: LanguagePreference; labelKey: 'language.system' | 
   { value: 'zh-CN', labelKey: 'language.zh-CN' },
 ];
 
-export function LanguageSelector() {
+export function LanguageSelector({ compact = false }: { compact?: boolean }) {
   const { preference, setPreference, t } = useI18n();
+  if (compact) return (
+    <select className="language-switch" aria-label={t('settings.language')} title={t('settings.language')}
+      value={preference} onChange={event => setPreference(event.target.value as LanguagePreference)}>
+      {OPTIONS.map(option => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
+    </select>
+  );
   return (
     <fieldset className="language-selector">
       <legend className="language-label">{t('settings.language')}</legend>

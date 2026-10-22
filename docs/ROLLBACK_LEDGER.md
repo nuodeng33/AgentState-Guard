@@ -1,5 +1,7 @@
 # Rollback Ledger
 
+2026-10-22 WS-007/008 bilingual UI: start `61b1bf1`, branch `feat/frontend-bilingual`; scope limited to frontend, its browser scripts, shipped static assets and verification docs. Fresh checks: 213 frontend tests plus production/demo builds and fixture browser flows passed. Rollback is a normal revert of the eventual isolated local feature commit, preserving unrelated work; no reset/clean or backend/schema changes are needed. No remote push or merge is part of this change.
+
 | Phase | Start Commit | Time | Test Status | Allowed Paths | Rollback Command | Untracked |
 |-------|-------------|------|-------------|---------------|------------------|-----------|
 | 00 | 9043c07 | 2026-07-23T16:09:15Z | 107 passed | agentguard/, config/, docs/, tests/, .github/ | git reset --hard pre-v1-gui | None |

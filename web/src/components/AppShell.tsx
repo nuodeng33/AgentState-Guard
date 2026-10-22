@@ -4,6 +4,7 @@ import type { ApiClient } from '../api/client';
 import { useT } from '../i18n/I18nProvider';
 import type { MessageKey } from '../i18n/messages';
 import { StatusBanner } from './StatusBanner';
+import { LanguageSelector } from './LanguageSelector';
 
 export type PageKey =
   | 'work'
@@ -66,6 +67,7 @@ export function TopBar({ page, onNavigate, navigationLocked = false }: {
           </div>
         ))}
       </nav>
+      <LanguageSelector compact />
     </header>
   );
 }

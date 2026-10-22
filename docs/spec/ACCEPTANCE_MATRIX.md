@@ -1,5 +1,7 @@
 # Acceptance Matrix — AgentState Guard v1.0
 
+2026-10-22 WS-007/008 与 ASG-TEST-002 前端后续：中英文 Work/顶栏偏好切换、数量/可访问名称/时间显示及 Markdown 分隔行安全回退已实现；213 前端测试、正式/demo 构建、10 项双语及 8 项反馈浏览器夹具通过。证据与限制见 [FRONTEND_REDESIGN.md](../FRONTEND_REDESIGN.md)；不是后端或真实执行域新增验收。
+
 The original rows below are historical evidence. Current local Work UI slice
 verification is recorded in [WORKSPACE_UI_VERIFICATION.md](../WORKSPACE_UI_VERIFICATION.md)
 (2026-09-29), with implementation, automated checks and the outstanding visual

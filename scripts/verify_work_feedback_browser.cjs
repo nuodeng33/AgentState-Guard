@@ -72,7 +72,7 @@ const execution = () => ({ id: runId, session_id: sessionId, requirement_version
       unexpected.push(endpoint); return route.fulfill({ status: 404, body: '{}' });
     });
     await page.goto(`${base}/?workspace=1&work=${workId}`); await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: '1 executions need attention' }).click();
+    await page.getByRole('button', { name: '1 execution needs attention' }).click();
     await page.getByRole('button', { name: /CODEX.*Needs input/ }).click();
     await page.getByLabel('Which target?', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(directory, 'desktop-question.png') });
@@ -80,8 +80,8 @@ const execution = () => ({ id: runId, session_id: sessionId, requirement_version
     const panel = await page.locator('.work-sessions').boundingBox();
     assert(panel.x >= 0 && panel.x + panel.width <= 391);
     await page.getByRole('button', { name: 'Close session management' }).click();
-    assert(await page.getByRole('button', { name: '1 executions need attention' }).isVisible());
-    await page.getByRole('button', { name: '1 executions need attention' }).click();
+    assert(await page.getByRole('button', { name: '1 execution needs attention' }).isVisible());
+    await page.getByRole('button', { name: '1 execution needs attention' }).click();
     await page.getByRole('button', { name: /CODEX.*Needs input/ }).click();
     await page.getByLabel('Which target?', { exact: true }).waitFor();
     await page.waitForFunction(() => {

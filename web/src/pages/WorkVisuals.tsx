@@ -130,12 +130,17 @@ export function Prose({ text }: { text: string }) {
     const heading = line.match(/^(#{1,3})\s+(.*)$/);
     if (heading) { const Tag = (['h3', 'h4', 'h5'] as const)[heading[1].length - 1]; out.push(<Tag key={out.length}>{inline(heading[2])}</Tag>); i++; continue; }
     if (/^\s*\|.*\|\s*$/.test(line)) {
+      const start = i;
       const rows: string[][] = [];
       while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
         if (!/^\s*\|[\s:|-]+\|\s*$/.test(lines[i])) rows.push(lines[i].trim().slice(1, -1).split('|').map(cell => cell.trim()));
         i++;
       }
       const [head, ...body] = rows;
+      if (!head) {
+        out.push(<p key={out.length}>{lines.slice(start, i).join('\n')}</p>);
+        continue;
+      }
       out.push(<div className="work-table" key={out.length}><table><thead><tr>{head.map((cell, j) => <th key={j}>{inline(cell)}</th>)}</tr></thead>
         <tbody>{body.map((row, r) => <tr key={r}>{row.map((cell, j) => <td key={j}>{inline(cell)}</td>)}</tr>)}</tbody></table></div>);
       continue;

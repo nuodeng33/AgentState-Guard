@@ -1,5 +1,12 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+## 2026-10-22 当前前端接续说明
+
+- 当前工作：`feat/frontend-bilingual`，从前端改版 `61b1bf1` 派生；准确 HEAD 用 `git rev-parse HEAD` 读取。
+- 已完成 Work/总览顶栏即时语言选择、数量表达、中文可访问名称和时间回退；用户正文/机器身份/草稿/布局不因翻译而改写。修复只有 Markdown 表格分隔行时的渲染白屏。
+- 验证：213 前端测试通过，正式/demo 构建通过，双语 10 项及既有反馈 8 项浏览器夹具检查通过；无模型调用。保留已有 3D chunk 大小提示。
+- 本轮不修改后端/权限/数据库，不推送或合并；真实提供方验收未扩展。详见 [FRONTEND_REDESIGN.md](FRONTEND_REDESIGN.md)。下方为历史 P7 交接，不能用于选择当前前端分支。
+
 ## Current Status
 
 - Branch: `feat/r4-p7-test-restore`

@@ -135,7 +135,7 @@ describe('App smoke (product IA)', () => {
     expect(screen.queryByRole('button', { name: 'AI Monitor' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(await screen.findByText('System Default')).toBeTruthy();
+    expect(await screen.findByRole('radio', { name: 'System Default' })).toBeTruthy();
 
     // Session bootstrap happened first; /api/status and /api/doctor are used
     // only by the Environment surface (fetched during that navigation above).

@@ -765,6 +765,27 @@ code {
 
 /* ---- Language selector ---- */
 
+.language-switch {
+  flex: 0 0 auto;
+  max-width: 132px;
+  min-width: 84px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  color: var(--text-primary);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+}
+.language-switch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 620px) {
+  .language-switch { max-width: 105px; }
+  .app-topbar { height: auto; min-height: 60px; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+  .app-topbar .app-nav { order: 3; flex-basis: 100%; }
+  .app-topbar > .language-switch { margin-left: auto; }
+}
+
 .language-selector {
   border: none;
   margin: 0;

@@ -1,5 +1,11 @@
 # Implementation Log
 
+## 2026-10-22 — WS-007/008 bilingual workspace follow-up
+
+- Reused the existing language provider for compact overview/Work selectors; localized counts, icon-button accessible names and display timestamps without rewriting original content, protocol facts, views or drafts.
+- Added regression coverage for language switching without business writes, plural counts and separator-only Markdown safety. Empty table data now falls back to literal React text.
+- Independent frontend verification: 213 passed / 0 failed / 0 skipped. Production/demo builds and bilingual/feedback browser fixtures passed; no model calls. Shipped static assets rebuilt from production mode. Backend unchanged; no remote push/merge or new CI claim.
+
 ## 2026-08-07 — R4-P7 recovery trust boundary
 
 - Added schema v7 bindings from R3 drills and trusted-baseline candidates to Supervision REVIEW sessions, and durable one-time recovery authorizations with bound subject, context, policy, fingerprint, expiry, nonce, and consumption fields.
