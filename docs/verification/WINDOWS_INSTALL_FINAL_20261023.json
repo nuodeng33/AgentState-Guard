@@ -1,0 +1,246 @@
+{
+  "date": "2026-10-23",
+  "tested_product_sha": "4378c6e6f945a58333017833d76dccfb7f2f7730",
+  "core_run": {
+    "id": 39924182956,
+    "conclusion": "success"
+  },
+  "windows_run": {
+    "id": 39924183141,
+    "conclusion": "success"
+  },
+  "old_product_code": "{E49C1554-7F15-4F6D-9CAE-37B9AAADD7B0}",
+  "intermediate_product_code": "{1556D551-AA93-4665-B861-B79CAFCED521}",
+  "final_msi": {
+    "ProductVersion": "0.9.0",
+    "ProductCode": "{CF172A70-18AA-451E-A6E7-CE42837CB191}",
+    "UpgradeCode": "{E3DC1189-5CBA-53BC-BD91-4A515B7531F2}"
+  },
+  "installation": "PASS",
+  "direct_major_upgrade": "PASS; previous ProductCode detected and removed; no manual uninstall between upgrades",
+  "installed_binary_payloads": [
+    {
+      "file": "agentstate-guard.exe",
+      "matches_msi_payload": true,
+      "sha256": "3BEDD56CE397A4F3547F3D7783DB7CA98B63F30144485DBD1729EFD7F183C345"
+    },
+    {
+      "file": "agentguard-sidecar.exe",
+      "matches_msi_payload": true,
+      "sha256": "4E4C884AF232F94326DCFA0EB7AC20D1E96771E540246FE45EFE837564E9F077"
+    }
+  ],
+  "archive_exe_difference": "standalone artifact EXE differs by3 bytes; actual installed EXE matches administratively extracted MSI payload exactly",
+  "all_pages": {
+    "result": "PASS",
+    "scope": "complete 4378c6e MSI installed; real packaged Core; external browser, not native WebView",
+    "pages": [
+      {
+        "locale": "en-US",
+        "index": 0,
+        "label": "My work",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "en-US",
+        "index": 1,
+        "label": "Guard",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "en-US",
+        "index": 2,
+        "label": "Environment",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "en-US",
+        "index": 3,
+        "label": "Changes",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "en-US",
+        "index": 4,
+        "label": "Supervision",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "en-US",
+        "index": 5,
+        "label": "Recovery",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "en-US",
+        "index": 6,
+        "label": "Devices",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "en-US",
+        "index": 7,
+        "label": "Settings",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 0,
+        "label": "我的工作",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 1,
+        "label": "守护总览",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 2,
+        "label": "环境",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 3,
+        "label": "变更",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 4,
+        "label": "监管",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 5,
+        "label": "恢复",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 6,
+        "label": "设备",
+        "selected": true,
+        "content_visible": true
+      },
+      {
+        "locale": "zh-CN",
+        "index": 7,
+        "label": "设置",
+        "selected": true,
+        "content_visible": true
+      }
+    ],
+    "errors": [],
+    "httpFailures": []
+  },
+  "native_environment_user_confirmation": "User explicitly confirmed no console window when clicking Environment in complete repaired MSI",
+  "native_ui_automation_limit": "WebView accessibility text read; capture timeout and click geometry unavailable. Full native mouse interaction not claimed. Other pages verified through real browser and packaged Core.",
+  "packaged_main_crash": {
+    "result": "PASS",
+    "binary_candidate": "179876b",
+    "scope": "Installed Tauri main and actual packaged process tree; no fault injection or production hooks",
+    "cases": [
+      {
+        "external_edit": false,
+        "interrupted_state": "RUNNING",
+        "applied_steps_at_observation": 1,
+        "recovered_state": "COMPENSATED",
+        "files_verified": true,
+        "idempotency_verified": true
+      },
+      {
+        "external_edit": true,
+        "interrupted_state": "RUNNING",
+        "applied_steps_at_observation": 49,
+        "recovered_state": "NEEDS_ATTENTION",
+        "files_verified": true,
+        "idempotency_verified": true
+      }
+    ]
+  },
+  "work_reopen": {
+    "result": "PASS",
+    "mode": "real Core / manual Work / no model calls",
+    "checks": {
+      "work_persisted": true,
+      "artifact_persisted": true,
+      "layout_persisted": true,
+      "acceptance_persisted": true,
+      "mobile_readable": true
+    },
+    "work_id": "516af432-8925-4046-a4da-b214897e136b",
+    "page_errors": [],
+    "actual_api_requests": 16
+  },
+  "recovery_exercise": {
+    "result": "PASS",
+    "mode": "actual recovery UI / disposable native files / no models",
+    "checks": {
+      "ui_keyboard_focus": true,
+      "ui_global_directory_and_version": true,
+      "ui_preview_read_only": true,
+      "ui_actual_diff": true,
+      "ui_mobile_confirm_accessible": true,
+      "ui_selective_restore": true,
+      "ui_undo_restore": true,
+      "ui_expired_preview_rejected": true
+    },
+    "expired_rejection": {
+      "status": 409,
+      "body": {
+        "status": "UNCHANGED",
+        "reason_code": "PROTECTION_PREVIEW_EXPIRED"
+      }
+    },
+    "page_errors": [],
+    "actual_api_requests": 33
+  },
+  "recovery_reopen": {
+    "result": "PASS",
+    "mode": "actual recovery UI / disposable native files / no models",
+    "checks": {
+      "ui_recovery_history_after_restart": true
+    },
+    "page_errors": [],
+    "actual_api_requests": 7
+  },
+  "restore": {
+    "all_original_hashes_match": true,
+    "result": "PASS",
+    "test_uninstalled": true,
+    "ports_closed": true,
+    "original_files": 6
+  },
+  "uninstall_exit_code": 0,
+  "cleanup": {
+    "status": "AWAITING_EXPLICIT_PERMANENT_DELETE_CONFIRMATION",
+    "removed_file_bytes": 0,
+    "eligible_file_bytes": 2027511328.0,
+    "reparse_points_in_temporary_root": 1977,
+    "review_rejection": "blocked by policy; no specific reason returned",
+    "original_restoration": "PASS; independent backup retained"
+  },
+  "notes": [
+    "Initial page driver failures were loading-state assertions; final driver awaits actual navigation/loading completion, preserves failures, and checks nonempty content rather than arbitrary text length.",
+    "Earlier composite shell actions rejected by automatic review; explicit individually scoped installation/restoration actions succeeded.",
+    "No merge or release; physical mobile interaction not verified."
+  ]
+}
