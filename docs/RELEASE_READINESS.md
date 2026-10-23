@@ -2,6 +2,8 @@
 
 当前结论：可验证的本地预览，尚未达到 Windows 成品发布标准。
 
+2026-10-23：用户已允许推送，`4011655` 已推送并启动实际 CI。首轮 Core run `39912640138` 在 job 调度前失败，actionlint 复现 job env 中 runner 上下文非法；本地已将变量移到验收步骤，等待复核后以新 SHA 重跑。Windows run `39912641361` 正在运行，不能提前记为通过。此前“未推送”记录为历史。
+
 基准：`fix/codex-empty-store` 从 `8e91251` 派生；当前提交用 `git rev-parse HEAD` 获取。文中只将实际执行过的检查标为通过。
 
 | 验收范围 | 证据与结论 | 边界 |
@@ -43,7 +45,7 @@
 | 桌面脚本假绿 | 本地修复及20项真实PowerShell回归完成 | Windows实际安装后二次验收仍由Windows工作流提供 |
 | 真实Codex闭环 | 已修安全空历史误识别；实际重跑在提供方Unix沙箱proof门槛UNAVAILABLE，未进入thread/model；原始报告保留FAIL | Windows具备sandbox readiness后运行连接/执行/取消/续接/交付/文件完整验收 |
 | Windows发布 | 尚无本轮Windows执行环境 | 安装、旧版升级、DACL、打包进程异常恢复的原生证据 |
-| 远程CI | 本地代码与门禁已准备，保留此前不推送约束 | 明确允许推送后，审计准确HEAD的实际CI |
+| 远程CI | 已获授权并推送；首轮 Core 配置校验失败已本地复现及修复 | 复核后推送新 SHA，审计实际 Core/Windows CI 与产物 |
 | 桌面/手机真机 | 仅浏览器视口证据 | 原生桌面和物理手机交互验收 |
 
 脚本假绿和空历史识别两项代码缺陷已修；仍有4组发布证据门槛。当前Codex阻塞来自本机Unix无独立provider sandbox proof，不绕过安全约束，也不将历史Windows通过结果当本轮。

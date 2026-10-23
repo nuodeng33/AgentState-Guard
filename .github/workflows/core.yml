@@ -39,8 +39,6 @@ jobs:
   local-workflow:
     runs-on: ubuntu-latest
     needs: [test, frontend]
-    env:
-      PLAYWRIGHT_MODULE: ${{ runner.temp }}/asg-playwright/node_modules/playwright
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
@@ -55,6 +53,8 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/asg-playwright" --no-save playwright@1.64.1
           node "$RUNNER_TEMP/asg-playwright/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Real Core manual work and native recovery acceptance
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/asg-playwright/node_modules/playwright
         run: python scripts/verify_local_workflow.py --temp-root "$RUNNER_TEMP"
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         if: always()
