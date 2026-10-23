@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -56,6 +57,7 @@ def test_allowlisted_list_command_uses_fixed_argv_without_shell_or_inherited_env
         "shell": False,
         "text": False,
         "timeout": 5.0,
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
     }
     assert result.command_id is CommandId.WSL_LIST_VERBOSE
     assert result.status is CapabilityStatus.AVAILABLE

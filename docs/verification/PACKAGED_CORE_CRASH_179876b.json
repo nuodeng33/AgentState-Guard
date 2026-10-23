@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "binary_candidate": "179876b",
+  "scope": "Actual PyInstaller packaged Core; no fault injection or production hooks",
+  "cases": [
+    {
+      "external_edit": false,
+      "interrupted_state": "RUNNING",
+      "applied_steps_at_observation": 1,
+      "recovered_state": "COMPENSATED",
+      "files_verified": true,
+      "idempotency_verified": true
+    },
+    {
+      "external_edit": true,
+      "interrupted_state": "RUNNING",
+      "applied_steps_at_observation": 1,
+      "recovered_state": "NEEDS_ATTENTION",
+      "files_verified": true,
+      "idempotency_verified": true
+    }
+  ]
+}

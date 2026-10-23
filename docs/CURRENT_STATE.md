@@ -1,5 +1,7 @@
 # Current State
 
+2026-10-23 本机安装连续验收：原数据已双份核验隔离，旧MSI新装exit0；179876b实际打包Core强杀恢复/外部编辑保护/重复请求不重放通过。修复后台探测Windows控制台闪现，完整1393通过/13跳过，46项专项通过。原生窗口截图/点击受工具geometry/capture限制，不冒充完整UI验收；直接升级、还原清理继续推进。见 [安装验收记录](WINDOWS_INSTALL_ACCEPTANCE_20261023.md)。
+
 2026-10-23 本机问题已定位修复：旧账本1648条错误来自校验器遗漏三种历史schema-v1事件类型，不是哈希损坏。补回PROCESS_STARTED/PROCESS_EXITED/HOST_OBSERVER_LIFECYCLE后，旧库备份及迁移副本原始哈希链均通过；副本schema10→19全部行保留、integrity=ok、ledger_errors=[]，未修改原库或重算历史哈希。新增回归确认未知类型、哈希篡改仍拒绝；本机完整1391通过/13跳过/0失败。已通过更窄的独立CLI启动验证下载的40693d7打包sidecar：独立数据目录、回环18787，健康/鉴权状态及版本/归属进程清理通过，无现有ASG数据访问。先前自动审批拒绝的是组合操作，本次独立启动实际获准；不再将sidecar记为不可运行。MSI本机升级、桌面主程序交互/异常业务恢复与真机仍待验收。详见 [问题闭环证据](verification/WINDOWS_LEGACY_LEDGER_20261023.json)。下方旧失败记录保留为历史。
 
 2026-10-23 本机接续：Windows完整回归1388通过/13跳过；真实Edge/Core22项与真实Codex执行/续接/取消/验收/恢复PASS，真实DACL拒绝及ACL还原PASS。修复当前session继承网络策略、验收SQLite连接释放、Windows venv worker PID与路径校验。旧库副本升级仍FAIL：迁移前后均1648条LEDGER_AUTHORITY_INVALID；原始行保留，未修改原库。打包程序启动遭自动审批拒绝，本机MSI/升级与打包异常业务恢复未验收。详见 [本机验证](WINDOWS_NATIVE_VERIFICATION_20261023.md)。

@@ -150,6 +150,7 @@ class WslCommandRunner:
                 shell=False,
                 text=False,
                 timeout=self._timeout_seconds,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
             )
         except FileNotFoundError:
             return self._failure(

@@ -4,7 +4,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 
 class CommandResult:
@@ -26,11 +25,11 @@ class CommandResult:
 
 
 def run_command(
-    cmd: List[str],
+    cmd: list[str],
     timeout: int = 15,
-    cwd: Optional[Path] = None,
+    cwd: Path | None = None,
     check: bool = False,
-    env: Optional[dict] = None,
+    env: dict | None = None,
 ) -> CommandResult:
     """Execute a command with timeout.
 
@@ -52,10 +51,12 @@ def run_command(
         proc = subprocess.run(
             cmd,
             capture_output=True,
+            check=False,
             text=True,
             timeout=timeout,
             cwd=str(cwd) if cwd else None,
             env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0,
         )
         result = CommandResult(proc.returncode, proc.stdout.strip(), proc.stderr.strip())
     except subprocess.TimeoutExpired as e:
@@ -73,6 +74,6 @@ def run_command(
     return result
 
 
-def which(binary: str) -> Optional[str]:
+def which(binary: str) -> str | None:
     """Return path to binary or None if not found."""
     return shutil.which(binary)

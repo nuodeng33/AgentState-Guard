@@ -86,3 +86,19 @@ class TestRunner:
         )
         assert result.success is True
         assert "entry.txt" in result.stdout.splitlines()
+
+
+@pytest.mark.parametrize("platform,expected", [("win32", 0x08000000), ("linux", 0)])
+def test_background_probes_never_create_windows_console(monkeypatch, platform, expected):
+    import subprocess
+
+    from agentguard.core import runner
+    calls = []
+    monkeypatch.setattr(runner.sys, "platform", platform)
+    monkeypatch.setattr(runner.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    def execute(cmd, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+    monkeypatch.setattr(runner.subprocess, "run", execute)
+    assert runner.run_command(["probe"]).success
+    assert calls[0]["creationflags"] == expected
