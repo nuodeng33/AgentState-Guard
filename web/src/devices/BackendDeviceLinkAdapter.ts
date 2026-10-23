@@ -2,8 +2,8 @@
  * Production Device Link adapter: maps the frozen Core endpoints
  * (/api/v1/devices, /api/v1/device-link/*) onto the pairing UI state model.
  *
- * Backend owns every pairing fact: session id, expiry, SAS code (which the
- * Core never exposes to the UI — only the pairing *state*), desktop identity
+ * Backend owns every pairing fact: session id, expiry, the exact SAS shown
+ * only while sas_pending, desktop identity
  * and the bound-device registry. This adapter translates; it never invents.
  */
 
@@ -46,8 +46,9 @@ function toPhase(state: string): PairingPhase {
     case 'sas_pending':
       return 'SAS_PENDING';
     case 'confirmed_both':
-    case 'consumed':
       return 'CONFIRMING';
+    case 'consumed':
+      return 'PAIRED';
     case 'expired':
       return 'EXPIRED';
     case 'rejected':
@@ -147,6 +148,7 @@ function viewFromState(pairingId: string, state: PairingStateResult): PairingVie
   const view: PairingViewState = { phase: toPhase(state.state), pairingId };
   // Backend terminal states surface through the poll; only reason codes from
   // typed failures are attested — never invented here.
+  if (state.state === 'sas_pending' && typeof state.sas === 'string' && /^\d{3} \d{3}$/.test(state.sas)) view.sasCode = state.sas;
   if (state.state === 'expired') view.reasonCode = 'PAIRING_EXPIRED';
   return view;
 }

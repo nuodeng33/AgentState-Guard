@@ -1,5 +1,7 @@
 package com.agentstate.guard.ui.screens
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -21,10 +24,11 @@ import com.agentstate.guard.ui.theme.TextSecondary
 
 /** Changes: adapter-supplied list plus an honest empty state. */
 @Composable
-fun ChangesScreen(state: ChangesUiState) {
+fun ChangesScreen(state: ChangesUiState, onEvidence: (String) -> Unit = {}) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(Spacing.l),
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
@@ -45,6 +49,9 @@ fun ChangesScreen(state: ChangesUiState) {
                             .padding(Spacing.l),
                     ) {
                         Text(change.file, style = MaterialTheme.typography.titleSmall)
+                        change.eventId?.let { id ->
+                            OutlinedButton(onClick = { onEvidence(id) }) { Text(stringResource(R.string.evidence_title)) }
+                        }
                         Text(
                             "${change.changeType} · ${change.whenText}",
                             style = MaterialTheme.typography.bodySmall,

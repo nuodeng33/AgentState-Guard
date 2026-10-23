@@ -126,4 +126,6 @@
     <string name="ai_advisory_note">仅供参考 — AI 分析仅为信息性建议，不会在此设备上执行任何操作。</string>
     <string name="ai_advisory_severity">严重度</string>
     <string name="ai_advisory_analyzed_at">分析于</string>
+    <string name="pairing_scan_note">扫描电脑端邀请二维码。扫码功能由 Google Play 服务提供；模块不可用时请在安装后重试。无需手动输入 IP 地址。</string>
+    <string name="supervision_checkpoint_required">电脑端策略要求检查点。</string>
 </resources>

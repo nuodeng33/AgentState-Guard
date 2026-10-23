@@ -1,6 +1,8 @@
 """ASDL/1 Pairing State Machine — injectable Clock + RandomSource."""
 
 from enum import Enum
+from functools import wraps
+from threading import RLock
 
 from .crypto import (
     Clock,
@@ -12,6 +14,14 @@ from .crypto import (
     format_sas,
     random_bytes,
 )
+
+
+def _serialized(method):
+    @wraps(method)
+    def invoke(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return invoke
 
 
 class PairState(str, Enum):
@@ -211,6 +221,16 @@ class PairingSession:
         self.state = PairState.CONSUMED
         self._clear_secret_if_terminal()
 
+    def _consume_with_binding(self, persist) -> None:
+        """Authorize inside binding transaction; finalize only after it commits."""
+        self._transition(PairState.CONSUMED)
+        persist(lambda: self._transition(PairState.CONSUMED))
+        # The binding commit is the authorization linearization point. Rechecking
+        # wall-clock expiry here could strand an already committed binding.
+        self._transition(PairState.CONSUMED, force_expiry_check=False)
+        self.state = PairState.CONSUMED
+        self._clear_secret_if_terminal()
+
     def reject(self) -> None:
         self._transition(PairState.REJECTED)
         self.state = PairState.REJECTED
@@ -236,10 +256,12 @@ class PairingSession:
 class PairingManager:
     """Minimal manager for active pairing sessions."""
 
-    def __init__(self, max_sessions: int = 5):
+    def __init__(self, max_sessions: int = 5, *, lock=None):
+        self._lock = lock or RLock()
         self._sessions: dict[str, PairingSession] = {}
         self._max = max_sessions
 
+    @_serialized
     def create_session(
         self,
         desktop_uuid: str,
@@ -271,12 +293,14 @@ class PairingManager:
         self._sessions[sid] = session
         return session
 
+    @_serialized
     def get(self, session_id: str) -> PairingSession | None:
         s = self._sessions.get(session_id)
         if s:
             s.expire_if_needed()
         return s
 
+    @_serialized
     def active_sessions(self) -> int:
         for session in self._sessions.values():
             session.expire_if_needed()
@@ -285,6 +309,7 @@ class PairingManager:
             del self._sessions[sid]
         return len(self._sessions)
 
+    @_serialized
     def cancel_all(self) -> None:
         """Cancel and forget every transient pairing session."""
         try:

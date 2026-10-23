@@ -1,7 +1,7 @@
 name: Android Emulator Runtime
 on:
   push:
-    branches: [main, feat/**]
+    branches: [main, feat/**, fix/**]
   pull_request:
 permissions:
   contents: read

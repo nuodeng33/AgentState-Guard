@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 
 from agentguard.storage.db import StateDB
@@ -27,41 +28,53 @@ class DeviceBindingStore:
         display_name: str,
         permissions: list[str],
         protocol_version: int,
+        *,
+        validate_binding=None,
     ) -> None:
-        if self.get(device_uuid) is not None:
-            raise ValueError("Device UUID already bound")
-        if self._single_device and self.count():
-            raise ValueError("Maximum devices already bound")
         now = datetime.now(UTC).isoformat()
-        with self._connect() as connection:
-            connection.execute(
-                """INSERT INTO device_link_bindings
-                   (device_uuid, public_key_der, fingerprint, display_name,
-                    permissions, protocol_version, created_at, last_seen_at, revoked_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-                   ON CONFLICT(device_uuid) DO UPDATE SET
-                     public_key_der=excluded.public_key_der,
-                     fingerprint=excluded.fingerprint,
-                     display_name=excluded.display_name,
-                     permissions=excluded.permissions,
-                     protocol_version=excluded.protocol_version,
-                     created_at=excluded.created_at,
-                     last_seen_at=NULL,
-                     revoked_at=NULL
-                   WHERE device_link_bindings.revoked_at IS NOT NULL""",
-                (
-                    device_uuid,
-                    pubkey_der,
-                    spki_fingerprint(pubkey_der),
-                    display_name,
-                    ",".join(sorted(set(permissions))),
-                    protocol_version,
-                    now,
-                ),
-            )
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if validate_binding is not None:
+                validate_binding()
+            if connection.execute("SELECT 1 FROM device_link_bindings WHERE device_uuid=? AND revoked_at IS NULL", (device_uuid,)).fetchone():
+                raise ValueError("Device UUID already bound")
+            if self._single_device and connection.execute("SELECT COUNT(*) FROM device_link_bindings WHERE revoked_at IS NULL").fetchone()[0]:
+                raise ValueError("Maximum devices already bound")
+            try:
+                cursor = connection.execute(
+                    """INSERT INTO device_link_bindings
+                       (device_uuid, public_key_der, fingerprint, display_name,
+                        permissions, protocol_version, created_at, last_seen_at, revoked_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+                       ON CONFLICT(device_uuid) DO UPDATE SET
+                         public_key_der=excluded.public_key_der,
+                         fingerprint=excluded.fingerprint,
+                         display_name=excluded.display_name,
+                         permissions=excluded.permissions,
+                         protocol_version=excluded.protocol_version,
+                         created_at=excluded.created_at,
+                         last_seen_at=NULL,
+                         revoked_at=NULL
+                       WHERE device_link_bindings.revoked_at IS NOT NULL""",
+                    (
+                        device_uuid,
+                        pubkey_der,
+                        spki_fingerprint(pubkey_der),
+                        display_name,
+                        ",".join(sorted(set(permissions))),
+                        protocol_version,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ValueError("Device binding conflicts with existing identity") from error
+            if cursor.rowcount != 1:
+                raise ValueError("Device binding was not inserted")
+            if validate_binding is not None:
+                validate_binding()
 
     def get(self, device_uuid: str) -> dict | None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """SELECT device_uuid, public_key_der, fingerprint, display_name,
                           permissions, protocol_version, created_at, last_seen_at
@@ -72,7 +85,7 @@ class DeviceBindingStore:
         return _row(row) if row else None
 
     def list(self) -> list[dict]:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """SELECT device_uuid, public_key_der, fingerprint, display_name,
                           permissions, protocol_version, created_at, last_seen_at
@@ -82,7 +95,7 @@ class DeviceBindingStore:
         return [_public_row(row) for row in rows]
 
     def count(self) -> int:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             return int(
                 connection.execute(
                     "SELECT COUNT(*) FROM device_link_bindings WHERE revoked_at IS NULL"
@@ -90,7 +103,7 @@ class DeviceBindingStore:
             )
 
     def update_last_seen(self, device_uuid: str) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """UPDATE device_link_bindings SET last_seen_at = ?
                    WHERE device_uuid = ? AND revoked_at IS NULL""",
@@ -101,7 +114,7 @@ class DeviceBindingStore:
         return self.revoke(device_uuid)
 
     def revoke(self, device_uuid: str) -> bool:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             cursor = connection.execute(
                 """UPDATE device_link_bindings SET revoked_at = ?
                    WHERE device_uuid = ? AND revoked_at IS NULL""",

@@ -8,12 +8,11 @@
  *   canonical QR (QrCodeCard) and tracks the pairing state machine through
  *   GET /pairings/{id}: created → first_connection → sas_pending →
  *   confirmed_both/consumed, with expired/rejected/failed shown verbatim.
- * - Desktop confirm sends {confirm:true|false}; the mobile shows the SAS
- *   (the Core never exposes it to the desktop side) — the page compares by
- *   state, presenting a confirm/reject UI only after the invitation moves on.
+ * - Both devices display the same server-owned SAS before explicit confirmation.
+ *   Consumed means the server completed the durable binding.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { apiClient, type ApiClient } from '../api/client';
 import { QrCodeCard } from '../components/devices/QrCodeCard';
@@ -48,70 +47,93 @@ export default function DevicesPage({
   const [pairing, setPairing] = useState<PairingViewState | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [unsupported, setUnsupported] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [devicesRevision, setDevicesRevision] = useState(0);
+  const attempt = useRef(0), busyRef = useRef(false);
+  useEffect(() => () => { attempt.current++; }, []);
+  const validSas = pairing?.phase === 'SAS_PENDING' && /^\d{3} \d{3}$/.test(pairing.sasCode ?? '');
+  function applyView(next: PairingViewState) {
+    setPairing(previous => {
+      const same = previous?.pairingId === next.pairingId;
+      const invitation = ['PAIRING_CREATED', 'WAITING_FOR_MOBILE'].includes(next.phase);
+      return { ...(same ? previous : {}), ...next,
+        qrPayload: invitation ? next.qrPayload ?? (same ? previous?.qrPayload : undefined) : undefined,
+        expiresAt: next.expiresAt ?? (same ? previous?.expiresAt : undefined),
+        desktopName: next.desktopName ?? (same ? previous?.desktopName : undefined),
+        sasCode: next.phase === 'SAS_PENDING' ? next.sasCode : undefined };
+    });
+    if (next.phase === 'PAIRED') setDevicesRevision(value => value + 1);
+  }
 
   // Countdown display ticker (presentation only).
   useEffect(() => {
-    if (!pairing?.expiresAt) return;
+    if (!pairing?.expiresAt || !IN_FLIGHT.has(pairing.phase)) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [pairing?.expiresAt]);
+  }, [pairing?.expiresAt, pairing?.phase]);
 
-  // Progress an in-flight pairing through the adapter; terminal phases stop.
+  // Late replies must never reopen a cancelled or replaced attempt.
   useEffect(() => {
-    if (!pairing?.pairingId || !IN_FLIGHT.has(pairing.phase)) return;
-    const id = pairing.pairingId;
+    if (busy || !pairing?.pairingId || !IN_FLIGHT.has(pairing.phase)) return;
+    const id = pairing.pairingId, epoch = attempt.current;
+    let active = true;
     const timer = setTimeout(async () => {
       try {
-        setPairing(await resolved.pollPairing(id));
+        const next = await resolved.pollPairing(id);
+        if (active && epoch === attempt.current) applyView(next);
       } catch (err) {
-        setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
+        if (active && epoch === attempt.current) setPairing({ phase: 'ERROR', pairingId: id, reasonCode: reasonCodeOf(err) });
       }
     }, pollIntervalMs);
-    return () => clearTimeout(timer);
-  }, [pairing, resolved, pollIntervalMs]);
+    return () => { active = false; clearTimeout(timer); };
+  }, [pairing, resolved, pollIntervalMs, busy]);
 
   async function startPairing() {
+    if (busyRef.current) return;
+    const epoch = ++attempt.current;
+    busyRef.current = true; setBusy(true); setUnsupported(false);
     try {
-      setPairing(await resolved.startPairing());
+      const next = await resolved.startPairing();
+      if (epoch === attempt.current) applyView(next);
     } catch (err) {
-      if (err instanceof DeviceLinkUnsupportedError) {
-        setUnsupported(true);
-      } else {
-        setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
-      }
+      if (epoch !== attempt.current) return;
+      if (err instanceof DeviceLinkUnsupportedError) setUnsupported(true);
+      else setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
+    } finally {
+      if (epoch === attempt.current) { busyRef.current = false; setBusy(false); }
     }
   }
-
   async function confirmSas() {
-    if (!pairing?.pairingId) return;
-    const id = pairing.pairingId;
-    setPairing({ ...pairing, phase: 'CONFIRMING' });
+    if (busyRef.current || !validSas || !pairing?.pairingId) return;
+    const id = pairing.pairingId, epoch = ++attempt.current;
+    busyRef.current = true; setBusy(true);
+    setPairing({ ...pairing, phase: 'CONFIRMING', sasCode: undefined });
     try {
-      setPairing(await resolved.confirmSas(id));
+      const next = await resolved.confirmSas(id);
+      if (epoch === attempt.current) applyView(next);
     } catch (err) {
-      setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
+      if (epoch === attempt.current) setPairing({ phase: 'ERROR', pairingId: id, reasonCode: reasonCodeOf(err) });
+    } finally {
+      if (epoch === attempt.current) { busyRef.current = false; setBusy(false); }
     }
   }
-
   async function rejectSas() {
-    if (!pairing?.pairingId) return;
-    const id = pairing.pairingId;
+    if (busyRef.current || !pairing?.pairingId) return;
+    const id = pairing.pairingId, epoch = ++attempt.current;
+    busyRef.current = true; setBusy(true);
     try {
-      setPairing(await resolved.rejectSas(id));
+      const next = await resolved.rejectSas(id);
+      if (epoch === attempt.current) applyView(next);
     } catch (err) {
-      setPairing({ phase: 'ERROR', reasonCode: reasonCodeOf(err) });
+      if (epoch === attempt.current) setPairing({ phase: 'ERROR', pairingId: id, reasonCode: reasonCodeOf(err) });
+    } finally {
+      if (epoch === attempt.current) { busyRef.current = false; setBusy(false); }
     }
   }
-
   async function cancelPairing() {
-    if (pairing?.pairingId) {
-      try {
-        await resolved.cancelPairing(pairing.pairingId);
-      } catch {
-        // Cancellation is best-effort; the shell returns directly.
-      }
-    }
-    setPairing(null);
+    const id = pairing?.pairingId;
+    attempt.current++; busyRef.current = false; setBusy(false); setPairing(null);
+    if (id) { try { await resolved.cancelPairing(id); } catch { /* The server expires abandoned invitations. */ } }
   }
 
   const secondsLeft = pairing?.expiresAt
@@ -120,13 +142,13 @@ export default function DevicesPage({
 
   return (
     <div>
-      {adapter === undefined && client && <DeviceLinkSection client={client} />}
+      {adapter === undefined && client && <DeviceLinkSection client={client} refreshKey={devicesRevision} />}
 
       <SectionHeader title={t('devices.section.mobile')} />
 
       {pairing === null && (
         <div className="action-row">
-          <button type="button" className="btn btn-primary" onClick={startPairing}>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={startPairing}>
             {t('devices.addDevice')}
           </button>
         </div>
@@ -175,15 +197,16 @@ export default function DevicesPage({
           {pairing.phase === 'SAS_PENDING' && (
             <div>
               <p className="sas-prompt">{t('devices.sas.prompt')}</p>
-              <p className="device-note">{t('devices.sasWaiting')}</p>
+              {validSas ? <p className="sas-code" aria-label="SAS">{pairing.sasCode}</p>
+                : <p className="device-note" role="status">{t('devices.sasWaiting')}</p>}
               {secondsLeft !== null && (
                 <p className="sas-meta">{t('devices.expires', { seconds: secondsLeft })}</p>
               )}
               <div className="action-row">
-                <button type="button" className="btn btn-primary" onClick={confirmSas}>
+                <button type="button" className="btn btn-primary" disabled={busy || !validSas} onClick={confirmSas}>
                   {t('devices.sas.confirm')}
                 </button>
-                <button type="button" className="btn btn-danger" onClick={rejectSas}>
+                <button type="button" className="btn btn-danger" disabled={busy} onClick={rejectSas}>
                   {t('devices.sas.reject')}
                 </button>
                 <button type="button" className="btn" onClick={cancelPairing}>
@@ -193,11 +216,10 @@ export default function DevicesPage({
             </div>
           )}
 
-          {pairing.phase === 'CONFIRMING' && (
-            <p className="device-note" role="status">
-              {t('devices.confirming')}
-            </p>
-          )}
+          {pairing.phase === 'CONFIRMING' && <div>
+            <p className="device-note" role="status">{t('devices.confirming')}</p>
+            <button type="button" className="btn" onClick={cancelPairing}>{t('devices.cancel')}</button>
+          </div>}
 
           {pairing.phase === 'PAIRED' && (
             <div>

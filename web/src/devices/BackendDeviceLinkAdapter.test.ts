@@ -1,3 +1,4 @@
+import type { ApiClient } from '../api/client';
 /**
  * Production pairing adapter tests: exact endpoint/body mapping for the
  * frozen device-link contract and verbatim state passthrough. No SAS or
@@ -151,4 +152,19 @@ describe('BackendDeviceLinkAdapter', () => {
     expect(state.phase).toBe('ERROR');
     expect(state.reasonCode).toBe('PAIR_STATE_CONFLICT');
   });
+  it('passes the exact SAS only during pending and recognizes consumed as paired', async () => {
+    const client = { get: vi.fn().mockResolvedValueOnce({ session_id: 'p', state: 'sas_pending', sas: '234 567' })
+      .mockResolvedValueOnce({ session_id: 'p', state: 'confirmed_both', sas: '234 567' })
+      .mockResolvedValueOnce({ session_id: 'p', state: 'consumed' }) } as unknown as ApiClient;
+    const adapter = new BackendDeviceLinkAdapter(client);
+    expect(await adapter.pollPairing('p')).toMatchObject({ phase: 'SAS_PENDING', sasCode: '234 567' });
+    expect(await adapter.pollPairing('p')).toEqual({ phase: 'CONFIRMING', pairingId: 'p' });
+    expect(await adapter.pollPairing('p')).toEqual({ phase: 'PAIRED', pairingId: 'p' });
+  });
+  it('does not expose malformed SAS as a confirmable code', async () => {
+    const client = { get: vi.fn().mockResolvedValue({ session_id: 'p', state: 'sas_pending', sas: 'not a code' }) } as unknown as ApiClient;
+    const adapter = new BackendDeviceLinkAdapter(client);
+    expect((await adapter.pollPairing('p')).sasCode).toBeUndefined();
+  });
+
 });

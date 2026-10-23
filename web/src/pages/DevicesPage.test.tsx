@@ -4,8 +4,8 @@
  * honesty path. All data comes from a scripted DeviceLinkAdapter — no network.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { DeviceLinkAdapter } from '../devices/DeviceLinkAdapter';
 import type { PairingViewState } from '../devices/types';
@@ -109,22 +109,20 @@ describe('DevicesPage pairing flow', () => {
   it('moves to SAS_PENDING via polling and shows confirm controls, never inventing a desktop-side code', async () => {
     const { adapter } = scriptedAdapter({
       start: BASE,
-      polls: [{ ...BASE, phase: 'SAS_PENDING', sasCode: '123456' }],
+      polls: [{ ...BASE, phase: 'SAS_PENDING', sasCode: '123 456' }],
     });
     render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add mobile device' }));
 
-    // The desktop side must NOT display any SAS code — only the pairing state
-    // and the confirm/reject affordances, since the Core never returns SAS here.
     expect(await screen.findByRole('button', { name: 'Codes match' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /cancel|Codes do not match/ })).toBeTruthy();
-    expect(screen.queryByText('123 456')).toBeNull();
-    expect(screen.getByText(/shown on the mobile/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Codes do not match/ })).toBeTruthy();
+    expect(screen.getByText('123 456')).toBeTruthy();
+    expect(screen.getByText(/Compare the security code on both devices/)).toBeTruthy();
   });
 
   it('confirm leads to PAIRED and refreshes the device list', async () => {
     const { adapter, calls } = scriptedAdapter({
-      start: { ...BASE, phase: 'SAS_PENDING', sasCode: '123456' },
+      start: { ...BASE, phase: 'SAS_PENDING', sasCode: '123 456' },
       confirm: { phase: 'PAIRED', pairingId: 'p-1' },
     });
     render(<DevicesPage adapter={adapter} pollIntervalMs={10_000} />);
@@ -139,7 +137,7 @@ describe('DevicesPage pairing flow', () => {
 
   it('reject leads to the REJECTED terminal state', async () => {
     const { adapter, calls } = scriptedAdapter({
-      start: { ...BASE, phase: 'SAS_PENDING', sasCode: '123456' },
+      start: { ...BASE, phase: 'SAS_PENDING', sasCode: '123 456' },
       reject: { phase: 'REJECTED', pairingId: 'p-1', reasonCode: 'SAS_MISMATCH' },
     });
     render(<DevicesPage adapter={adapter} pollIntervalMs={10_000} />);
@@ -185,4 +183,38 @@ describe('DevicesPage pairing flow', () => {
     expect(await screen.findByText('No mobile device connected')).toBeTruthy();
     expect(calls).toContain('cancel');
   });
+  it('retains QR, identity and expiry across sparse status polls', async () => {
+    const { adapter, calls } = scriptedAdapter({ start: BASE,
+      polls: [{ phase: 'WAITING_FOR_MOBILE', pairingId: 'p-1' }] });
+    render(<DevicesPage adapter={adapter} pollIntervalMs={5} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add mobile device' }));
+    await waitFor(() => expect(calls).toContain('poll'));
+    expect(document.querySelector('.qr-card svg')).not.toBeNull();
+    expect(screen.getByText('DESKTOP-K3')).toBeTruthy();
+    expect(screen.getByText(/expires in/)).toBeTruthy();
+  });
+  it('keeps confirmation disabled without a valid server SAS', async () => {
+    const { adapter, calls } = scriptedAdapter({ start: { ...BASE, phase: 'SAS_PENDING' } });
+    render(<DevicesPage adapter={adapter} pollIntervalMs={10_000} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add mobile device' }));
+    const confirm = await screen.findByRole('button', { name: 'Codes match' }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(confirm);
+    expect(calls).not.toContain('confirm');
+    expect(screen.queryByLabelText('SAS')).toBeNull();
+  });
+  it('ignores a late poll after cancellation', async () => {
+    let resolve!: (value: PairingViewState) => void;
+    const { adapter } = scriptedAdapter({ start: BASE });
+    adapter.pollPairing = vi.fn(() => new Promise<PairingViewState>(done => { resolve = done; }));
+    render(<DevicesPage adapter={adapter} pollIntervalMs={0} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add mobile device' }));
+    await waitFor(() => expect(adapter.pollPairing).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('button', { name: 'Add mobile device' });
+    await act(async () => { resolve({ ...BASE, phase: 'SAS_PENDING', sasCode: '123 456' }); });
+    expect(screen.queryByRole('button', { name: 'Codes match' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add mobile device' })).toBeTruthy();
+  });
+
 });

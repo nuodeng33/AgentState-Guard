@@ -1,5 +1,6 @@
 package com.agentstate.guard.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
@@ -28,7 +29,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -39,11 +39,13 @@ import com.agentstate.guard.ui.link.PairingPhase
 import com.agentstate.guard.ui.link.PairingUiState
 import com.agentstate.guard.ui.link.RepositoryDeviceLinkUiAdapter
 import com.agentstate.guard.ui.link.pairingFailureReasonCode
+import com.agentstate.guard.ui.link.supervisionFailureReasonCode
 import com.agentstate.guard.ui.screens.AiMonitorScreen
 import com.agentstate.guard.ui.screens.ChangesScreen
 import com.agentstate.guard.ui.screens.CheckpointsScreen
 import com.agentstate.guard.ui.screens.DevicesScreen
 import com.agentstate.guard.ui.screens.EnvironmentScreen
+import com.agentstate.guard.ui.screens.EvidenceScreen
 import com.agentstate.guard.ui.screens.HomeScreen
 import com.agentstate.guard.ui.screens.MoreDestination
 import com.agentstate.guard.ui.screens.MoreScreen
@@ -58,10 +60,13 @@ import com.agentstate.guard.ui.state.CheckpointsUiState
 import com.agentstate.guard.ui.state.ConnectionUiState
 import com.agentstate.guard.ui.state.DataPhase
 import com.agentstate.guard.ui.state.EnvironmentUiState
+import com.agentstate.guard.ui.state.EvidenceUiState
+import com.agentstate.guard.ui.state.SupervisionActionUiResult
 import com.agentstate.guard.ui.state.HomeUiState
 import com.agentstate.guard.ui.state.LinkedDesktop
 import com.agentstate.guard.ui.state.RecoveryUiState
 import com.agentstate.guard.ui.state.SupervisionUiState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -109,8 +114,11 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
         dataVersion++
     }
     val lifecycleOwner = LocalLifecycleOwner.current
+    var foreground by remember { mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     DisposableEffect(linkAdapter, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) foreground = true
+            if (event == Lifecycle.Event.ON_STOP) foreground = false
             if (event == Lifecycle.Event.ON_RESUME) {
                 scope.launch {
                     linkAdapter.refresh()
@@ -150,30 +158,92 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
         value = linkAdapter.connectionState()
     }
 
-    // ---- pairing shell state ----
+    // One visible pairing attempt; every asynchronous reply is epoch-bound.
     var pairing by remember { mutableStateOf<PairingUiState?>(null) }
+    var pairingBusy by remember { mutableStateOf(false) }
+    val pairingEpoch = remember { longArrayOf(0L) }
     var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var actionBusy by remember { mutableStateOf(false) }
+    var actionResult by remember { mutableStateOf<SupervisionActionUiResult?>(null) }
+    var localFailure by remember { mutableStateOf<String?>(null) }
+    var evidenceId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(pairing?.expiresAtEpochMs) {
-        if (pairing?.expiresAtEpochMs != null) {
-            while (true) {
-                delay(1000)
-                nowEpochMs = System.currentTimeMillis()
+    fun showPairing(next: PairingUiState) {
+        pairing = next
+        if (next.phase == PairingPhase.PAIRED) {
+            dataVersion++
+            navController.navigate(Tab.Home.route) {
+                popUpTo(Tab.Home.route)
+                launchSingleTop = true
             }
         }
     }
+    fun launchPairing(action: suspend () -> PairingUiState) {
+        if (pairingBusy) return
+        pairingBusy = true
+        val epoch = ++pairingEpoch[0]
+        scope.launch {
+            try {
+                val next = action()
+                if (epoch == pairingEpoch[0]) {
+                    showPairing(next)
+                    if (next.phase == PairingPhase.SAS_PENDING) navController.navigate("connect/sas") { launchSingleTop = true }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (epoch == pairingEpoch[0]) pairing = PairingUiState(PairingPhase.ERROR, reasonCode = pairingFailureReasonCode(error))
+            } finally {
+                if (epoch == pairingEpoch[0]) pairingBusy = false
+            }
+        }
+    }
+    fun abandonPairing() {
+        if (pairingBusy) return
+        val id = pairing?.pairingId
+        pairingEpoch[0]++
+        pairing = null
+        navController.navigate(Tab.Home.route) { popUpTo(Tab.Home.route); launchSingleTop = true }
+        if (id != null) scope.launch { linkAdapter.cancelPairing(id) }
+    }
+    fun refresh() {
+        if (actionBusy) return
+        actionBusy = true; localFailure = null
+        scope.launch {
+            try { linkAdapter.refresh(); dataVersion++ }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { localFailure = "DEVICE_LINK_OFFLINE" }
+            finally { actionBusy = false }
+        }
+    }
+    fun openEvidence(id: String) {
+        evidenceId = id
+        navController.navigate("evidence") { launchSingleTop = true }
+    }
+    BackHandler(enabled = currentRoute?.startsWith("connect/") == true) { abandonPairing() }
 
-    LaunchedEffect(pairing, linkAdapter) {
-        val current = pairing
-        if (current?.pairingId != null && current.phase in IN_FLIGHT_PHASES) {
+    LaunchedEffect(pairing?.expiresAtEpochMs, pairing?.phase) {
+        if (pairing?.phase in IN_FLIGHT_PHASES) while (true) {
+            delay(1000); nowEpochMs = System.currentTimeMillis()
+        }
+    }
+    // Repeated equal states still poll; pausing the app stops new network requests.
+    LaunchedEffect(pairing?.pairingId, pairing?.phase, linkAdapter) {
+        val id = pairing?.pairingId
+        if (id != null && pairing?.phase in IN_FLIGHT_PHASES) while (true) {
             delay(800)
-            pairing = try {
-                linkAdapter.pollPairing(current.pairingId)
-            } catch (unsupported: Exception) {
-                PairingUiState(
-                    PairingPhase.ERROR,
-                    reasonCode = pairingFailureReasonCode(unsupported),
-                )
+            if (!foreground || pairingBusy) continue
+            val epoch = pairingEpoch[0]
+            pairingBusy = true
+            try {
+                val next = linkAdapter.pollPairing(id)
+                if (epoch == pairingEpoch[0]) showPairing(next)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (epoch == pairingEpoch[0]) pairing = PairingUiState(PairingPhase.ERROR, reasonCode = pairingFailureReasonCode(error))
+            } finally {
+                if (epoch == pairingEpoch[0]) pairingBusy = false
             }
         }
     }
@@ -224,14 +294,47 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
                 )
             }
             composable(Tab.Environment.route) { EnvironmentScreen(environmentState) }
-            composable(Tab.Changes.route) { ChangesScreen(changesState) }
-            composable(Tab.Supervision.route) { SupervisionScreen(supervisionState) }
+            composable(Tab.Changes.route) { ChangesScreen(changesState, onEvidence = ::openEvidence) }
+            composable(Tab.Supervision.route) {
+                SupervisionScreen(supervisionState, busy = actionBusy, result = actionResult,
+                    onRefresh = ::refresh, onEvidence = ::openEvidence,
+                    onDecision = { id, actionRef, approve ->
+                        if (!actionBusy) {
+                            actionBusy = true; actionResult = null
+                            scope.launch {
+                                try {
+                                    actionResult = if (approve) linkAdapter.approveOnce(id, actionRef)
+                                        else linkAdapter.rejectSupervision(id, actionRef)
+                                    dataVersion++
+                                } catch (cancelled: CancellationException) { throw cancelled }
+                                catch (error: Exception) { actionResult = SupervisionActionUiResult(false, null, supervisionFailureReasonCode(error)) }
+                                finally { actionBusy = false }
+                            }
+                        }
+                    })
+            }
             composable(Tab.More.route) { MoreScreen(onOpen = { navController.navigate(it.route) }) }
 
             composable(MoreDestination.Checkpoints.route) { CheckpointsScreen(checkpointsState) }
             composable(MoreDestination.Recovery.route) { RecoveryScreen(recoveryState) }
             composable(MoreDestination.AiMonitor.route) { AiMonitorScreen(aiState) }
-            composable(MoreDestination.Devices.route) { DevicesScreen(linked.second) }
+            composable(MoreDestination.Devices.route) {
+                DevicesScreen(linked.second, connectionState ?: ConnectionUiState.EMPTY,
+                    busy = actionBusy || pairingBusy, failureCode = localFailure,
+                    onRefresh = ::refresh,
+                    onScanQr = { navController.navigate("connect/scan") },
+                    onUnpair = {
+                        if (!actionBusy && !pairingBusy) {
+                            actionBusy = true; localFailure = null
+                            scope.launch {
+                                try { linkAdapter.unpair(); pairingEpoch[0]++; pairing = null; dataVersion++ }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (_: Exception) { localFailure = "UNPAIR_FAILED" }
+                                finally { actionBusy = false }
+                            }
+                        }
+                    })
+            }
             composable(MoreDestination.Settings.route) {
                 SettingsScreen(
                     preference = languagePreference,
@@ -244,49 +347,42 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
             }
 
             composable("connect/scan") {
-                ScanConnectScreen(onBack = { navController.popBackStack() })
+                ScanConnectScreen(
+                    onBack = ::abandonPairing,
+                    busy = pairingBusy,
+                    failureCode = pairing?.reasonCode,
+                    onPayload = { payload ->
+                        if (linked.second == null) launchPairing { linkAdapter.beginScanPairing(payload) }
+                    },
+                )
             }
             composable("connect/sas") {
                 val current = pairing
-                if (current?.sasCode != null) {
+                if (current != null) {
                     SasScreen(
                         state = current,
-                        secondsLeft = current.expiresAtEpochMs?.let {
-                            maxOf(0L, (it - nowEpochMs) / 1000)
-                        },
+                        secondsLeft = current.expiresAtEpochMs?.let { maxOf(0L, (it - nowEpochMs) / 1000) },
+                        busy = pairingBusy,
                         onConfirm = {
-                            val id = current.pairingId ?: return@SasScreen
-                            pairing = current.copy(phase = PairingPhase.CONFIRMING)
-                            scope.launch {
-                                pairing = try {
-                                    linkAdapter.confirmSas(id)
-                                } catch (unsupported: Exception) {
-                                    PairingUiState(
-                                        PairingPhase.ERROR,
-                                        reasonCode = pairingFailureReasonCode(unsupported),
-                                    )
-                                }
-                            }
+                            val id = current.pairingId
+                            if (id != null && current.phase == PairingPhase.SAS_PENDING)
+                                launchPairing { linkAdapter.confirmSas(id) }
                         },
                         onReject = {
-                            val id = current.pairingId ?: return@SasScreen
-                            scope.launch {
-                                pairing = try {
-                                    linkAdapter.rejectSas(id)
-                                } catch (unsupported: Exception) {
-                                    PairingUiState(
-                                        PairingPhase.ERROR,
-                                        reasonCode = pairingFailureReasonCode(unsupported),
-                                    )
-                                }
-                                navController.popBackStack()
-                            }
+                            val id = current.pairingId
+                            if (id != null) launchPairing { linkAdapter.rejectSas(id) }
                         },
+                        onCancel = ::abandonPairing,
                     )
                 } else {
-                    // No adapter-supplied SAS: never fabricate one.
                     LaunchedEffect(Unit) { navController.popBackStack() }
                 }
+            }
+            composable("evidence") {
+                val detail by produceState(EvidenceUiState(DataPhase.LOADING), linkAdapter, evidenceId) {
+                    value = evidenceId?.let { linkAdapter.evidenceState(it) } ?: EvidenceUiState(DataPhase.EMPTY)
+                }
+                EvidenceScreen(detail) { navController.popBackStack() }
             }
         }
     }

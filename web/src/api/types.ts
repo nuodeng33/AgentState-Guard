@@ -452,6 +452,8 @@ export interface PairingStateResult {
   session_id: string;
   state: 'created' | 'first_connection' | 'sas_pending' | 'confirmed_both' | 'consumed' | 'expired' | 'rejected' | 'failed' | 'cancelled';
   confirmed_by?: string[];
+  /** Exact server-owned SAS, present only while sas_pending. */
+  sas?: string;
 }
 
 export interface DeviceLinkActionResult {

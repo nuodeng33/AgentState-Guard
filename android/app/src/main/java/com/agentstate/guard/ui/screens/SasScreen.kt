@@ -1,5 +1,7 @@
 package com.agentstate.guard.ui.screens
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import com.agentstate.guard.R
 import com.agentstate.guard.ui.link.PairingUiState
+import com.agentstate.guard.ui.link.PairingPhase
 import com.agentstate.guard.ui.theme.ConsoleMono
 import com.agentstate.guard.ui.theme.Spacing
 import com.agentstate.guard.ui.theme.SurfaceElevated
@@ -39,10 +42,13 @@ fun SasScreen(
     secondsLeft: Long?,
     onConfirm: () -> Unit,
     onReject: () -> Unit,
+    onCancel: () -> Unit = onReject,
+    busy: Boolean = false,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(Spacing.l),
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
@@ -63,7 +69,7 @@ fun SasScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = formatSasCode(state.sasCode ?: "------"),
+                    text = state.sasCode?.takeIf { it.matches(Regex("^[0-9]{3} [0-9]{3}$")) } ?: "",
                     style = ConsoleMono.copy(
                         fontSize = 30.sp,
                         fontWeight = FontWeight.Bold,
@@ -92,11 +98,17 @@ fun SasScreen(
                 color = TextSecondary,
             )
         }
-        Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) {
+        state.reasonCode?.let { Text(it) }
+        Button(onClick = onConfirm, enabled = !busy && state.phase == PairingPhase.SAS_PENDING &&
+            state.sasCode?.matches(Regex("^[0-9]{3} [0-9]{3}$")) == true && (secondsLeft ?: 0) > 0,
+            modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.sas_confirm))
         }
-        OutlinedButton(onClick = onReject, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onReject, enabled = !busy && state.phase == PairingPhase.SAS_PENDING, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.sas_reject))
+        }
+        OutlinedButton(onClick = onCancel, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.action_cancel))
         }
     }
 }

@@ -29,6 +29,7 @@ import com.agentstate.guard.ui.state.SupervisionAgentUi
 import com.agentstate.guard.ui.state.SupervisionSessionUi
 import com.agentstate.guard.ui.state.SupervisionUiState
 import com.agentstate.guard.ui.state.VerifiedActivityUi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -84,6 +85,8 @@ class RepositoryDeviceLinkUiAdapter(
             blocking { repository.refresh() }
         } catch (error: DeviceLinkHttpException) {
             offlineLastKnown(error.reasonCode)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
             // Transport/mutual-auth failures surface as the repository's own
             // client-side offline token; raw exception text never reaches the UI.
@@ -353,11 +356,29 @@ class RepositoryDeviceLinkUiAdapter(
         )
     }
 
-    override suspend fun evidenceState(eventId: String): EvidenceUiState {
-        // Evidence drill-down sits behind a dedicated, bounded read that the
-        // Changes/Evidence surface wires in a later stage; no data is ever
-        // fabricated here.
-        return EvidenceUiState(phase = DataPhase.EMPTY)
+    override suspend fun evidenceState(eventId: String): EvidenceUiState = try {
+        val result = blocking { repository.evidence(eventId) }
+        require(result.optStringOpt("event_id") == eventId)
+        val status = result.optStringOpt("status")
+        EvidenceUiState(
+            phase = if (status == "AVAILABLE") DataPhase.CONNECTED else DataPhase.DEGRADED,
+            status = status,
+            reasonCode = result.optStringOpt("reason_code"),
+            eventId = eventId,
+            eventType = if (status == "AVAILABLE") result.optStringOpt("event_type") else null,
+            observedAt = if (status == "AVAILABLE") result.optStringOpt("observed_at") else null,
+            result = if (status == "AVAILABLE") result.optStringOpt("result") else null,
+            checkpointId = if (status == "AVAILABLE") result.optStringOpt("checkpoint_id") else null,
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        val code = (error as? DeviceLinkHttpException)?.reasonCode
+        EvidenceUiState(
+            phase = DataPhase.ERROR,
+            reasonCode = code?.takeIf { it.matches(Regex("^[A-Z0-9_]{1,64}$")) } ?: "EVIDENCE_UNAVAILABLE",
+            eventId = eventId,
+        )
     }
 
     // ---- The only two Android mutations ---------------------------------------
@@ -365,29 +386,36 @@ class RepositoryDeviceLinkUiAdapter(
     override suspend fun approveOnce(
         sessionId: String,
         actionRef: String,
-    ): SupervisionActionUiResult = supervisionAction {
+    ): SupervisionActionUiResult = supervisionAction(sessionId, "APPROVE_ONCE") {
         repository.approveOnce(sessionId, actionRef)
     }
 
     override suspend fun rejectSupervision(
         sessionId: String,
         actionRef: String,
-    ): SupervisionActionUiResult = supervisionAction {
+    ): SupervisionActionUiResult = supervisionAction(sessionId, "REJECT") {
         repository.reject(sessionId, actionRef)
     }
 
     private suspend fun supervisionAction(
+        sessionId: String, action: String,
         block: () -> JSONObject,
     ): SupervisionActionUiResult = try {
         val result = blocking(block)
         // Never serve stale supervision data after a mutation.
         snapshot = null
         performRefresh()
+        require(result.optStringOpt("schema_version") == "r4-p8-action-1" &&
+            result.optStringOpt("supervision_session_id") == sessionId &&
+            result.optStringOpt("action") == action && result.optBoolean("consumed", false) &&
+            result.optStringOpt("status") == if (action == "APPROVE_ONCE") "APPROVED" else "REJECTED")
         SupervisionActionUiResult(
-            succeeded = result.optBoolean("consumed", true),
+            succeeded = true,
             status = result.optStringOpt("status"),
             reasonCode = result.optStringOpt("reason_code"),
         )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
         SupervisionActionUiResult(
             succeeded = false,
@@ -407,8 +435,8 @@ class RepositoryDeviceLinkUiAdapter(
 
     // ---- Pairing state machine --------------------------------------------------
 
-    override suspend fun beginScanPairing(payloadText: String): PairingUiState =
-        try {
+    override suspend fun beginScanPairing(payloadText: String): PairingUiState {
+        return try {
             val payload = QrPayload.parse(payloadText)
                 ?: return PairingUiState(PairingPhase.ERROR, reasonCode = "PAIR_QR_INVALID")
             val androidUuid = blocking { bindings.load()?.androidUuid }
@@ -416,6 +444,7 @@ class RepositoryDeviceLinkUiAdapter(
             val state = blocking {
                 repository.beginPairing(payload, androidUuid)
                 val sasCode = repository.startSas(payload)
+                require(sasCode.matches(Regex("^[0-9]{3} [0-9]{3}$")))
                 PairingUiState(
                     phase = PairingPhase.SAS_PENDING,
                     pairingId = payload.sessionId,
@@ -426,6 +455,8 @@ class RepositoryDeviceLinkUiAdapter(
             }
             pairing = PairingInFlight(payload, androidUuid, state)
             state
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
             pairing = null
             PairingUiState(
@@ -433,6 +464,8 @@ class RepositoryDeviceLinkUiAdapter(
                 reasonCode = pairingFailureReasonCode(error),
             )
         }
+
+    }
 
     override suspend fun pollPairing(pairingId: String): PairingUiState {
         val session = pairing?.takeIf { it.payload.sessionId == pairingId }
@@ -464,6 +497,8 @@ class RepositoryDeviceLinkUiAdapter(
                 // Still waiting for the desktop side to confirm the same SAS.
                 else -> stayConfirming(session)
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
             pairing = null
             PairingUiState(
@@ -507,6 +542,8 @@ class RepositoryDeviceLinkUiAdapter(
             blocking { repository.confirmSas(session.payload, false) }
             pairing = null
             PairingUiState(phase = PairingPhase.REJECTED, reasonCode = "REJECTED")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (@Suppress("TooGenericExceptionCaught") error: Exception) {
             pairing = null
             PairingUiState(

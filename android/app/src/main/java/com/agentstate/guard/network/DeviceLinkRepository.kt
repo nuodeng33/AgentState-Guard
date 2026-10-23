@@ -51,16 +51,26 @@ class DeviceLinkRepository(
         clientOrThrow().pairConfirm(payload.sessionId, confirm)
 
     fun completePairing(payload: QrPayload, androidUuid: String, displayName: String): String {
-        val status = clientOrThrow().pairComplete(
-            payload.sessionId, androidUuid, signer.publicKeyDer().hex(), displayName
-        )
         val binding = BoundDesktop(
             payload.endpoint, payload.desktopUuid, payload.desktopPublicKeyDerHex,
             payload.desktopSigningFingerprint, androidUuid,
         )
+        val active = clientOrThrow()
+        try {
+            require(active.pairComplete(
+                payload.sessionId, androidUuid, signer.publicKeyDer().hex(), displayName
+            ) == "bound") { "PAIR_COMPLETE_UNCONFIRMED" }
+        } catch (error: Exception) {
+            if (error !is IOException && error !is org.json.JSONException && error !is IllegalArgumentException) throw error
+            // Completion cannot be replayed. A lost reply may be recovered only
+            // by proving the actual durable binding through normal mutual auth.
+            active.clearSession()
+            active.authenticate(binding, signer)
+            active.clearPairing()
+        }
         bindings.save(binding)
         authenticated = true
-        return status
+        return "bound"
     }
 
     fun refresh(): DeviceLinkSnapshot {
@@ -85,6 +95,11 @@ class DeviceLinkRepository(
         } catch (_: IOException) {
             reconnect(binding, "DEVICE_LINK_OFFLINE")
         }
+    }
+
+    fun evidence(eventId: String): JSONObject {
+        require(eventId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")))
+        return withAuthenticated { it.getEvidence(eventId) }
     }
 
     fun approveOnce(sessionId: String, actionRef: String): JSONObject {

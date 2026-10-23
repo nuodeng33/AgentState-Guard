@@ -156,4 +156,6 @@
     <string name="ai_advisory_note">Advisory only — AI analysis is informational; it never performs actions on this device.</string>
     <string name="ai_advisory_severity">Severity</string>
     <string name="ai_advisory_analyzed_at">Analyzed at</string>
+    <string name="pairing_scan_note">Scan the desktop invitation QR. The scanner uses Google Play services; if its module is unavailable, retry when it is installed. No IP address is entered manually.</string>
+    <string name="supervision_checkpoint_required">A checkpoint is required by the desktop policy.</string>
 </resources>

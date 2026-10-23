@@ -6,8 +6,10 @@ Must NOT expose the full Core API. Separate security boundary.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import struct
 import time as _time
+from threading import RLock
 
 from .crypto import (
     generate_challenge,
@@ -19,7 +21,7 @@ from .crypto import (
     verify_signature,
 )
 from .errors import DeviceLinkError
-from .pairing import PairingManager, PairState
+from .pairing import PairingManager, PairState, _serialized
 
 
 def _length_prefix(value: bytes) -> bytes:
@@ -51,9 +53,11 @@ class DeviceRegistry:
     """Stores bound device metadata. Non-sensitive fields only."""
 
     def __init__(self, single_device: bool = False):
+        self._lock = RLock()
         self._devices: dict[str, dict] = {}
         self._single_device = single_device
 
+    @_serialized
     def add(
         self,
         device_uuid: str,
@@ -61,11 +65,15 @@ class DeviceRegistry:
         display_name: str,
         permissions: list,
         protocol_version: int,
+        *,
+        validate_binding=None,
     ) -> None:
         if device_uuid in self._devices:
             raise ValueError("Device UUID already bound")
         if self._single_device and self._devices:
             raise ValueError("Maximum devices already bound")
+        if validate_binding is not None:
+            validate_binding()
         fp = spki_fingerprint(pubkey_der)
         self._devices[device_uuid] = {
             "uuid": device_uuid,
@@ -78,12 +86,15 @@ class DeviceRegistry:
             "protocol_version": protocol_version,
         }
 
+    @_serialized
     def get(self, device_uuid: str) -> dict | None:
         return self._devices.get(device_uuid)
 
+    @_serialized
     def remove(self, device_uuid: str) -> bool:
         return self._devices.pop(device_uuid, None) is not None
 
+    @_serialized
     def list(self) -> list:
         return [
             {
@@ -95,10 +106,12 @@ class DeviceRegistry:
             for d in self._devices.values()
         ]
 
+    @_serialized
     def update_last_seen(self, device_uuid: str) -> None:
         if device_uuid in self._devices:
             self._devices[device_uuid]["last_seen"] = int(_time.time())
 
+    @_serialized
     def count(self) -> int:
         return len(self._devices)
 
@@ -132,7 +145,8 @@ class DeviceLinkGateway:
         self.desktop_privkey_pem = desktop_device_privkey_pem
         self.desktop_tls_spki_fp = desktop_tls_spki_fp
         self.config = config or GatewayConfig()
-        self.pairing_mgr = PairingManager(max_sessions=self.config.max_pair_sessions)
+        self._lock = RLock()
+        self.pairing_mgr = PairingManager(max_sessions=self.config.max_pair_sessions, lock=self._lock)
         enforce_single = (
             self.config.single_device if single_device is None else single_device
         )
@@ -144,9 +158,11 @@ class DeviceLinkGateway:
         self._product_tokens: dict[bytes, dict] = {}
         self._product_challenges: dict[str, dict] = {}
         self._pair_confirmations: dict[str, set[str]] = {}
+        self._completed_pairings: dict[str, dict] = {}
 
     # ---- Pairing ----
 
+    @_serialized
     def pair_start(self) -> dict:
         try:
             session = self.pairing_mgr.create_session(
@@ -166,6 +182,7 @@ class DeviceLinkGateway:
             "state": session.state.value,
         }
 
+    @_serialized
     def create_pairing_invitation(self, host: str, port: int = 8788) -> dict:
         """Create a QR-safe invitation with a one-time, memory-only ticket."""
         if not host or host in {"0.0.0.0", "127.0.0.1", "localhost"} or port != 8788:
@@ -202,6 +219,7 @@ class DeviceLinkGateway:
             "state": started["state"],
         }
 
+    @_serialized
     def accept_pairing_ticket(
         self,
         session_id: str,
@@ -251,6 +269,7 @@ class DeviceLinkGateway:
                 401, "PAIR_TOKEN_INVALID", "Pairing token is invalid or expired"
             )
 
+    @_serialized
     def pair_start_sas_scoped(
         self,
         session_id: str,
@@ -265,6 +284,7 @@ class DeviceLinkGateway:
             )
         return result
 
+    @_serialized
     def pair_android_confirm(
         self,
         session_id: str,
@@ -272,25 +292,24 @@ class DeviceLinkGateway:
         confirm: bool,
     ) -> dict:
         self._require_pair_token(session_id, pairing_token)
-        if not confirm:
-            return self._product_reject(session_id)
-        session = self.pairing_mgr.get(session_id)
-        if session is None or session.state is not PairState.SAS_PENDING:
-            raise DeviceLinkError(
-                409, "PAIR_STATE_CONFLICT", "SAS confirmation is not expected"
-            )
-        self._pair_confirmations.setdefault(session_id, set()).add("android")
-        return self._finish_dual_confirmation(session_id)
+        return self._confirm_side(session_id, "android", confirm)
 
+    @_serialized
     def pair_desktop_confirm(self, session_id: str, confirm: bool) -> dict:
+        return self._confirm_side(session_id, "desktop", confirm)
+
+    def _confirm_side(self, session_id: str, side: str, confirm: bool) -> dict:
         if not confirm:
             return self._product_reject(session_id)
         session = self.pairing_mgr.get(session_id)
+        confirmed = self._pair_confirmations.get(session_id, set())
+        if session is not None and session.state is PairState.CONFIRMED_BOTH and side in confirmed:
+            return {"state": session.state.value, "confirmed_by": sorted(confirmed)}
         if session is None or session.state is not PairState.SAS_PENDING:
             raise DeviceLinkError(
                 409, "PAIR_STATE_CONFLICT", "SAS confirmation is not expected"
             )
-        self._pair_confirmations.setdefault(session_id, set()).add("desktop")
+        self._pair_confirmations.setdefault(session_id, set()).add(side)
         return self._finish_dual_confirmation(session_id)
 
     def _finish_dual_confirmation(self, session_id: str) -> dict:
@@ -313,6 +332,7 @@ class DeviceLinkGateway:
             )
         return result
 
+    @_serialized
     def cancel_pairing(self, session_id: str) -> dict:
         session = self.pairing_mgr.get(session_id)
         if session is None:
@@ -333,9 +353,29 @@ class DeviceLinkGateway:
                     del records[digest]
         self._pair_confirmations.pop(session_id, None)
 
+    def _prune_completed_pairings(self) -> None:
+        now = _time.monotonic()
+        for sid, receipt in list(self._completed_pairings.items()):
+            if now >= receipt["expires"]:
+                del self._completed_pairings[sid]
+        limit = max(1, min(256, self.config.max_pair_sessions))
+        while len(self._completed_pairings) > limit:
+            del self._completed_pairings[next(iter(self._completed_pairings))]
+
+    @_serialized
     def pair_poll(self, session_id: str) -> dict:
+        self._prune_completed_pairings()
+        receipt = self._completed_pairings.get(session_id)
+        if receipt is not None:
+            try:
+                device = self.devices.get(receipt["device_uuid"])
+            except (OSError, sqlite3.DatabaseError):
+                return {"error": "Device binding is unavailable", "code": 503}
+            if device is not None and device.get("fingerprint") == receipt["fingerprint"]:
+                return {"session_id": session_id, "state": PairState.CONSUMED.value}
+            del self._completed_pairings[session_id]
         session = self.pairing_mgr.get(session_id)
-        if not session:
+        if not session or session.state is PairState.CONSUMED:
             return {"error": "Session not found", "code": 404}
         if session.is_expired and not session.is_terminal:
             session.expire_if_needed()
@@ -345,6 +385,7 @@ class DeviceLinkGateway:
             result["sas"] = sas
         return result
 
+    @_serialized
     def pair_first_connection(
         self, session_id: str, android_uuid: str, nonce_hex: str
     ) -> dict:
@@ -357,6 +398,7 @@ class DeviceLinkGateway:
         except ValueError as e:
             return {"error": str(e), "code": 409}
 
+    @_serialized
     def pair_start_sas(self, session_id: str, android_pubkey_der_hex: str) -> dict:
         session = self.pairing_mgr.get(session_id)
         if not session:
@@ -371,6 +413,7 @@ class DeviceLinkGateway:
         except ValueError as e:
             return {"error": str(e), "code": 400}
 
+    @_serialized
     def pair_confirm(self, session_id: str, confirm: bool) -> dict:
         session = self.pairing_mgr.get(session_id)
         if not session:
@@ -387,12 +430,15 @@ class DeviceLinkGateway:
             return {"error": str(e), "code": 409}
         return {"state": session.state.value}
 
+    @_serialized
     def pair_complete(
         self,
         session_id: str,
         android_uuid: str,
         android_pubkey_der_hex: str,
         display_name: str,
+        *,
+        _validate_pairing=None,
     ) -> dict:
         session = self.pairing_mgr.get(session_id)
         if not session:
@@ -415,26 +461,39 @@ class DeviceLinkGateway:
 
         bound_uuid = session.android_uuid
         bound_pubkey = session.android_pubkey_der
-        try:
-            session.consume()
-        except ValueError as exc:
-            return {"error": str(exc), "code": 409}
-        try:
+        def persist(validate_session):
+            def validate():
+                validate_session()
+                if _validate_pairing is not None:
+                    _validate_pairing()
             self.devices.add(
-                bound_uuid,
-                bound_pubkey,
-                display_name,
-                permissions=["read", "approve_once", "reject"],
-                protocol_version=1,
+                bound_uuid, bound_pubkey, display_name,
+                permissions=["read", "approve_once", "reject"], protocol_version=1,
+                validate_binding=validate,
             )
+        try:
+            session._consume_with_binding(persist)
+        except DeviceLinkError:
+            raise
         except ValueError as exc:
             return {"error": str(exc), "code": 409}
+        except (OSError, sqlite3.DatabaseError):
+            return {"error": "Device binding is unavailable", "code": 503}
+        self._completed_pairings[session_id] = {
+            "device_uuid": bound_uuid, "fingerprint": spki_fingerprint(bound_pubkey),
+            "expires": _time.monotonic() + self.config.pair_ttl,
+        }
+        self._prune_completed_pairings()
         token = random_token()
         self._sessions[token] = {
             "device_uuid": bound_uuid,
             "expires": _time.monotonic() + self.config.session_ttl,
         }
-        self.devices.update_last_seen(bound_uuid)
+        try:
+            self.devices.update_last_seen(bound_uuid)
+        except (OSError, sqlite3.DatabaseError):
+            # Binding and token are valid; observational metadata is best effort.
+            pass
         return {
             "status": "bound",
             "session_token": token,
@@ -442,6 +501,7 @@ class DeviceLinkGateway:
             "permissions": ["read"],
         }
 
+    @_serialized
     def pair_complete_scoped(
         self,
         session_id: str,
@@ -452,7 +512,8 @@ class DeviceLinkGateway:
     ) -> dict:
         self._require_pair_token(session_id, pairing_token)
         result = self.pair_complete(
-            session_id, android_uuid, android_pubkey_der_hex, display_name
+            session_id, android_uuid, android_pubkey_der_hex, display_name,
+            _validate_pairing=lambda: self._require_pair_token(session_id, pairing_token),
         )
         if "error" in result:
             raise DeviceLinkError(
@@ -469,6 +530,7 @@ class DeviceLinkGateway:
 
     # ---- Auth ----
 
+    @_serialized
     def auth_challenge(self, device_uuid: str) -> dict:
         dev = self.devices.get(device_uuid)
         if not dev:
@@ -484,6 +546,7 @@ class DeviceLinkGateway:
         }
         return {"desktop_challenge": challenge_hex, "desktop_uuid": self.desktop_uuid}
 
+    @_serialized
     def auth_challenge_scoped(
         self, device_uuid: str, protocol_version: int = 1
     ) -> dict:
@@ -511,6 +574,7 @@ class DeviceLinkGateway:
             "expires_in_s": min(self.config.challenge_ttl, 60),
         }
 
+    @_serialized
     def auth_response(
         self, device_uuid: str, challenge_resp_hex: str, nonce_hex: str
     ) -> dict:
@@ -553,6 +617,7 @@ class DeviceLinkGateway:
         self.devices.update_last_seen(device_uuid)
         return {"session_token": token}
 
+    @_serialized
     def auth_response_scoped(
         self,
         device_uuid: str,
@@ -624,6 +689,7 @@ class DeviceLinkGateway:
         }
         return token
 
+    @_serialized
     def validate_token(self, token: str) -> str | None:
         try:
             digest = hashlib.sha256(token.encode("ascii")).digest()
@@ -645,8 +711,12 @@ class DeviceLinkGateway:
 
     # ---- Device ----
 
+    @_serialized
     def revoke_device(self, device_uuid: str) -> dict:
         if self.devices.remove(device_uuid):
+            for sid, receipt in list(self._completed_pairings.items()):
+                if receipt["device_uuid"] == device_uuid:
+                    del self._completed_pairings[sid]
             to_del = [
                 t for t, s in self._sessions.items() if s["device_uuid"] == device_uuid
             ]
@@ -658,9 +728,11 @@ class DeviceLinkGateway:
             return {"status": "revoked", "device_uuid": device_uuid}
         return {"error": "Device not found", "code": 404}
 
+    @_serialized
     def list_bound_devices(self) -> list:
         return self.devices.list()
 
+    @_serialized
     def invalidate_transient_authorizations(self) -> None:
         """Drop live credentials and pairing state without deleting trust bindings."""
         self.pairing_mgr.cancel_all()
@@ -671,9 +743,11 @@ class DeviceLinkGateway:
         self._product_tokens.clear()
         self._product_challenges.clear()
         self._pair_confirmations.clear()
+        self._completed_pairings.clear()
 
     # ---- Status ----
 
+    @_serialized
     def get_status(self) -> dict:
         return {
             "status": "active",

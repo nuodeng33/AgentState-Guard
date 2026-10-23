@@ -145,6 +145,7 @@ class DeviceLinkClient(
     }
 
     fun clearSession() { sessionToken = null }
+    fun clearPairing() { pairingToken = null }
     fun getStatus(): JSONObject = get("/device/v1/status")
     fun getEnvironment(): JSONObject = get("/device/v1/environment")
     fun getAgents(): JSONObject = get("/device/v1/agents")

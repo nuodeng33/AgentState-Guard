@@ -1,0 +1,40 @@
+{
+  "requirement": "ASG-CLOSE-004",
+  "base_commit": "98c69e0",
+  "backend": {
+    "tests": 1423,
+    "passed": 1377,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 46,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "/tmp/asg-device-independent-final-backend.xml"
+    ]
+  },
+  "focused_pairing": {
+    "passed": 17
+  },
+  "desktop_focused": {
+    "passed": 25,
+    "typecheck": true
+  },
+  "android": {
+    "composition_tests_added": 6,
+    "compile": "Not yet verified; CI SDK/JDK17 required",
+    "scanner": "GMS delegated camera, no new CAMERA permission"
+  },
+  "changes": [
+    "same-side confirmation polling idempotent while eligible",
+    "durable binding transaction with TTL revalidation and shared locks",
+    "consumed projection bounded and validated against live binding",
+    "QR invitation retained, server SAS shown, terminal success refreshes devices",
+    "Android scan/SAS/connect/home/unpair/approval/evidence wiring"
+  ],
+  "limits": [
+    "Actual browser/protocol verifier in progress",
+    "Physical phone/GMS/camera/LAN/KeyStore acceptance separate",
+    "Final new-product remote CI pending"
+  ]
+}

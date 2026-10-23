@@ -41,9 +41,9 @@ function linkTone(status: DeviceLinkStatus['status']): BadgeTone {
   }
 }
 
-export function DeviceLinkSection({ client }: { client: ApiClient }) {
+export function DeviceLinkSection({ client, refreshKey = 0 }: { client: ApiClient; refreshKey?: number }) {
   const t = useT();
-  const link = useAsync(() => getDevices(client), [client]);
+  const link = useAsync(() => getDevices(client), [client, refreshKey]);
   return (
     <div>
       <SectionHeader title={t('devices.section.binding')} />

@@ -1,7 +1,7 @@
 name: Android Build
 on:
   push:
-    branches: [main, feat/**]
+    branches: [main, feat/**, fix/**]
   pull_request:
 permissions:
   contents: read
@@ -49,3 +49,11 @@ jobs:
           name: agentstate-guard-debug.apk
           path: agentstate-guard-debug.apk
         if: always()
+
+      - name: Preserve actual Android unit results
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: always()
+        with:
+          name: android-unit-test-results
+          path: android/app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: warn

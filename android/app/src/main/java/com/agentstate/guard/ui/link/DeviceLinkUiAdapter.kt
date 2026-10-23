@@ -25,7 +25,8 @@ class DeviceLinkUnsupportedException : Exception("DEVICE_LINK_UNSUPPORTED")
  */
 fun pairingFailureReasonCode(error: Throwable): String = when (error) {
     is DeviceLinkUnsupportedException -> "DEVICE_LINK_UNSUPPORTED"
-    else -> "PAIRING_FAILED"
+    else -> (error as? com.agentstate.guard.network.DeviceLinkHttpException)?.reasonCode
+        ?.takeIf { it.matches(Regex("^(PAIR|DEVICE)_[A-Z0-9_]{1,55}$")) } ?: "PAIRING_FAILED"
 }
 
 /**
@@ -37,7 +38,7 @@ fun supervisionFailureReasonCode(error: Throwable): String {
     val token = (error as? com.agentstate.guard.network.DeviceLinkHttpException)?.reasonCode
     return if (
         token != null &&
-        (token.startsWith("SUPERVISION_") || token.startsWith("DEVICE_"))
+        (token.startsWith("SUPERVISION_") || token.startsWith("DEVICE_")) && token.matches(Regex("^[A-Z0-9_]{1,64}$"))
     ) {
         token
     } else {
