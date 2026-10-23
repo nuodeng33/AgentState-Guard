@@ -1029,40 +1029,39 @@ def create_app(
 
     # ---- AI Provider (backend proxy, no CORS) ----
 
-    from ..ai.provider import (
-        OpenAICompatibleProvider,
-        ProviderConfig,
-    )
+    from ..ai.provider import AIProviderError, OpenAICompatibleProvider, ProviderConfig
 
-    _ai_config = None
+    def _candidate_ai_provider(body: dict) -> OpenAICompatibleProvider:
+        values = {name: body.get(name, "") for name in ("base_url", "api_key", "model")}
+        if not all(isinstance(value, str) for value in values.values()):
+            raise AIProviderError("AI_PROVIDER_CONFIG_INVALID")
+        values["base_url"] = values["base_url"].strip()
+        values["model"] = values["model"].strip()
+        return OpenAICompatibleProvider(ProviderConfig(**values), timeout=10)
 
     @app.post("/api/ai/test")
     async def _ai_test(body: dict):
-        """Test AI provider connection. API key stays in memory."""
+        """Validate connection and advertised model; no generation is performed."""
         nonlocal _ai_provider
-        api_key = body.get("api_key", "")
-        base_url = body.get("base_url", "")
-        model = body.get("model", "")
-        if not base_url:
-            return {"ok": False, "error": "Base URL required"}
-        cfg = ProviderConfig(base_url=base_url, api_key=api_key, model=model)
-        provider = OpenAICompatibleProvider(cfg, timeout=10)
-        result = provider.test_connection()
+        try:
+            provider = _candidate_ai_provider(body)
+            result = await run_in_threadpool(provider.test_connection)
+        except AIProviderError as error:
+            return {"ok": False, "error": error.code}
         if result.get("ok") is True:
             _ai_provider = provider
         return result
 
     @app.post("/api/ai/models")
     async def _ai_models(body: dict):
-        """List models from AI provider."""
-        api_key = body.get("api_key", "")
-        base_url = body.get("base_url", "")
-        if not base_url:
-            return {"models": [], "error": "Base URL required"}
-        cfg = ProviderConfig(base_url=base_url, api_key=api_key)
-        provider = OpenAICompatibleProvider(cfg, timeout=10)
-        models = provider.list_models()
-        return {"models": [m.to_dict() for m in models]}
+        """List models or report a bounded, explicit provider failure."""
+        try:
+            provider = _candidate_ai_provider(body)
+            models = await run_in_threadpool(provider.list_models)
+        except AIProviderError as error:
+            return {"models": [], "error": error.code}
+        return {"models": [model.to_dict() for model in models],
+                **({"error": "AI_MODELS_EMPTY"} if not models else {})}
 
     @app.post("/api/ai/analyze")
     async def _ai_analyze(_body: AnalyzeCurrentEnvironmentRequest):
@@ -1084,7 +1083,8 @@ def create_app(
             "model": None,
             "analyzed_at": None,
         }
-        if _ai_provider is None or not callable(getattr(_ai_provider, "analyze", None)):
+        provider = _ai_provider
+        if provider is None or not callable(getattr(provider, "analyze", None)):
             return JSONResponse(unavailable, status_code=503)
         current_db = None
         try:
@@ -1109,7 +1109,7 @@ def create_app(
             if current_db is not None:
                 current_db.close()
         try:
-            result = _ai_provider.analyze(context)
+            result = await run_in_threadpool(provider.analyze, context)
         except Exception:  # noqa: BLE001 - external provider boundary fails closed.
             return JSONResponse(unavailable, status_code=503)
         status = str(getattr(result, "status", "error")).casefold()
@@ -1139,13 +1139,8 @@ def create_app(
                 if isinstance(ref, str) and ref
             }
         )
-        provider_name = str(
-            getattr(result, "provider", "")
-            or getattr(_ai_provider, "provider_name", "unknown")
-        )[:128]
-        model = str(
-            getattr(result, "model", "") or getattr(_ai_provider, "model", "unknown")
-        )[:128]
+        provider_name = sanitize_text(str(getattr(provider, "provider_name", "unknown")))[:128]
+        model = sanitize_text(str(getattr(provider, "model", "unknown")))[:128]
         advisory = {
             "schema_version": "product-ai-advisory-1",
             "status": "AVAILABLE",

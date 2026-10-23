@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from http.client import HTTPException
+from urllib.parse import urlsplit
 
 # ── Data types ────────────────────────────────────────────────
 
@@ -28,7 +30,7 @@ class AIModel:
 @dataclass
 class ProviderConfig:
     base_url: str = ""
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     model: str = ""
     provider_name: str = "custom"
 
@@ -90,6 +92,17 @@ PROVIDER_PRESETS: dict[str, dict] = {
 # ── Provider ──────────────────────────────────────────────────
 
 
+MAX_RESPONSE_BYTES = 1_048_576
+
+
+class AIProviderError(RuntimeError):
+    """A fixed provider failure code; upstream bodies and credentials are excluded."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 class AIProvider(ABC):
     @abstractmethod
     def test_connection(self) -> dict: ...
@@ -109,8 +122,29 @@ class OpenAICompatibleProvider(AIProvider):
     """
 
     def __init__(self, config: ProviderConfig, timeout: int = 30):
+        self._validate_config(config)
         self._config = config
         self._timeout = timeout
+
+    @staticmethod
+    def _validate_config(config: ProviderConfig) -> None:
+        fields = ((config.base_url, 4096), (config.api_key, 8192),
+                  (config.model, 256), (config.provider_name, 128))
+        if any(not isinstance(value, str) or len(value) > limit or
+               any(ord(char) < 32 or ord(char) == 127 for char in value)
+               for value, limit in fields):
+            raise AIProviderError("AI_PROVIDER_CONFIG_INVALID")
+        try:
+            url = urlsplit(config.base_url)
+            valid = (url.scheme in {"http", "https"} and bool(url.hostname)
+                     and url.username is None and url.password is None
+                     and not url.query and not url.fragment
+                     and not any(char.isspace() for char in config.base_url))
+            _ = url.port
+        except ValueError:
+            valid = False
+        if not valid:
+            raise AIProviderError("AI_PROVIDER_CONFIG_INVALID")
 
     @property
     def model(self) -> str:
@@ -131,43 +165,63 @@ class OpenAICompatibleProvider(AIProvider):
             "Authorization": f"Bearer {self._config.api_key}",
         }
 
+    def _request_json(self, request: urllib.request.Request) -> dict:
+        try:
+            with urllib.request.urlopen(request, timeout=self._timeout) as response:
+                body = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise AIProviderError("AI_RESPONSE_TOO_LARGE")
+            data = json.loads(body)
+            if not isinstance(data, dict):
+                raise AIProviderError("AI_RESPONSE_INVALID")
+            return data
+        except AIProviderError:
+            raise
+        except urllib.error.HTTPError as error:
+            error.close()
+            raise AIProviderError(f"AI_HTTP_{error.code}") from None
+        except (urllib.error.URLError, HTTPException, OSError, TimeoutError):
+            raise AIProviderError("AI_CONNECTION_FAILED") from None
+        except (ValueError, TypeError, UnicodeError):
+            raise AIProviderError("AI_RESPONSE_INVALID") from None
+
     def test_connection(self) -> dict:
-        url = f"{self._base()}/models"
-        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        if not self._config.model.strip():
+            return {"ok": False, "error": "AI_MODEL_REQUIRED"}
         start = time.monotonic()
         try:
-            resp = urllib.request.urlopen(req, timeout=self._timeout)
+            models = self.list_models()
+            if not models:
+                raise AIProviderError("AI_MODELS_EMPTY")
+            if self._config.model not in {model.id for model in models}:
+                raise AIProviderError("AI_MODEL_UNAVAILABLE")
             elapsed_ms = int((time.monotonic() - start) * 1000)
-            data = json.loads(resp.read())
-            model_count = len(data.get("data", []))
             return {
                 "ok": True,
                 "latency_ms": elapsed_ms,
-                "models_available": model_count,
-                "message": f"Connected ({model_count} models, {elapsed_ms}ms)",
+                "models_available": len(models),
+                "message": "Connection and selected model validated; generation was not tested.",
             }
-        except urllib.error.HTTPError as e:
-            body = e.read().decode(errors="replace")
-            return {"ok": False, "error": f"HTTP {e.code}", "detail": body[:200]}
-        except urllib.error.URLError as e:
-            return {"ok": False, "error": "Connection failed", "detail": str(e.reason)}
-        except Exception as e:  # noqa: BLE001 - provider network boundary.
-            return {"ok": False, "error": str(type(e).__name__), "detail": str(e)[:200]}
+        except AIProviderError as error:
+            return {"ok": False, "error": error.code}
 
     def list_models(self) -> list[AIModel]:
-        url = f"{self._base()}/models"
-        req = urllib.request.Request(url, headers=self._headers(), method="GET")
-        try:
-            resp = urllib.request.urlopen(req, timeout=self._timeout)
-            data = json.loads(resp.read())
-            models = []
-            for m in data.get("data", []):
-                mid = m.get("id", "")
-                if mid:
-                    models.append(AIModel(id=mid, provider=self._config.provider_name))
-            return models
-        except Exception:  # noqa: BLE001 - provider network boundary.
-            return []
+        request = urllib.request.Request(
+            f"{self._base()}/models", headers=self._headers(), method="GET"
+        )
+        data = self._request_json(request).get("data")
+        if not isinstance(data, list) or len(data) > 1000:
+            raise AIProviderError("AI_MODELS_INVALID")
+        models: dict[str, AIModel] = {}
+        for item in data:
+            model_id = item.get("id") if isinstance(item, dict) else None
+            if (not isinstance(model_id, str) or not model_id.strip()
+                    or len(model_id) > 256
+                    or any(ord(char) < 32 or ord(char) == 127 for char in model_id)
+                    or self._config.api_key and self._config.api_key in model_id):
+                raise AIProviderError("AI_MODELS_INVALID")
+            models[model_id] = AIModel(id=model_id, provider=self._config.provider_name)
+        return list(models.values())
 
     def analyze(self, context: dict) -> AIResult:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -188,7 +242,19 @@ Rules:
 Return format:
 {"status":"...","severity":"...","summary":"...","possible_causes":["..."],"recommended_checks":["..."],"evidence":["..."]}
 """
-        user_content = json.dumps(context, default=str, ensure_ascii=False)
+        def failed(code: str) -> AIResult:
+            return AIResult(status="error", severity="low", summary=code,
+                            model=self.model, provider=self.provider_name,
+                            analyzed_at=now, raw_error=code)
+
+        if not self.model.strip():
+            return failed("AI_MODEL_REQUIRED")
+        try:
+            user_content = json.dumps(context, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError):
+            return failed("AI_CONTEXT_INVALID")
+        if len(user_content.encode("utf-8")) > 262_144:
+            return failed("AI_CONTEXT_TOO_LARGE")
 
         payload = {
             "model": self._config.model,
@@ -206,46 +272,39 @@ Return format:
             url, data=body, headers=self._headers(), method="POST"
         )
         try:
-            resp = urllib.request.urlopen(req, timeout=self._timeout)
-            data = json.loads(resp.read())
+            data = self._request_json(req)
             content = data["choices"][0]["message"]["content"]
+            if not isinstance(content, str) or len(content) > 65_536:
+                raise AIProviderError("AI_ANALYSIS_INVALID")
             result = json.loads(content)
+            if (not isinstance(result, dict)
+                    or result.get("status") not in {"ok", "warn", "attention", "error"}
+                    or result.get("severity") not in {"low", "medium", "high", "critical"}
+                    or not isinstance(result.get("summary"), str)
+                    or not result["summary"].strip() or len(result["summary"]) > 200):
+                raise AIProviderError("AI_ANALYSIS_INVALID")
+            lists = [result.get(name, []) for name in
+                     ("possible_causes", "recommended_checks", "evidence")]
+            if any(not isinstance(items, list) or len(items) > 5 or
+                   any(not isinstance(item, str) or len(item) > 500 for item in items)
+                   for items in lists):
+                raise AIProviderError("AI_ANALYSIS_INVALID")
+            # Even a hostile upstream cannot echo the submitted credential in advice.
+            def safe(text: str) -> str:
+                return text.replace(self._config.api_key, "[REDACTED]") if self._config.api_key else text
+
             return AIResult(
-                status=result.get("status", "error"),
-                severity=result.get("severity", "low"),
-                summary=result.get("summary", "Analysis produced no summary"),
-                possible_causes=result.get("possible_causes", []),
-                recommended_checks=result.get("recommended_checks", []),
-                evidence=result.get("evidence", []),
-                model=self._config.model,
-                provider=self._config.provider_name,
-                analyzed_at=now,
+                status=result["status"], severity=result["severity"],
+                summary=safe(result["summary"]),
+                possible_causes=[safe(item) for item in lists[0]],
+                recommended_checks=[safe(item) for item in lists[1]],
+                evidence=[safe(item) for item in lists[2]],
+                model=self.model, provider=self.provider_name, analyzed_at=now,
             )
-        except (json.JSONDecodeError, KeyError) as e:
-            return AIResult(
-                status="error",
-                severity="low",
-                summary=f"AI response could not be parsed: {e}",
-                analyzed_at=now,
-                raw_error=str(e),
-            )
-        except urllib.error.HTTPError as e:
-            body = e.read().decode(errors="replace")
-            return AIResult(
-                status="error",
-                severity="low",
-                summary=f"API error (HTTP {e.code})",
-                analyzed_at=now,
-                raw_error=body[:200],
-            )
-        except Exception as e:  # noqa: BLE001 - provider network boundary.
-            return AIResult(
-                status="error",
-                severity="low",
-                summary=f"AI request failed: {e}",
-                analyzed_at=now,
-                raw_error=str(e)[:200],
-            )
+        except AIProviderError as error:
+            return failed(error.code)
+        except (ValueError, KeyError, IndexError, TypeError):
+            return failed("AI_ANALYSIS_INVALID")
 
     def assess(self, authority_package: dict):
         """Conservatively adapt legacy analysis to the existing R4 P5 contract."""

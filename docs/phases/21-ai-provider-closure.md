@@ -1,0 +1,5 @@
+# Phase21 — Existing AI settings/advisory contract closure
+
+ASG-CLOSE-005: validatedboundedprovider/modelinputsandpayloads; networkerrorsmustnotlooklikeemptycatalogsuccess; requireusablemodelbeforeactivation; failedreplacementpreservespriorprovider; neverechokey/rawupstreambody; offloadnetworkI/Oandcaptureprovideridentity; clearstaleSettingsresultsandlockbusyfields. Existingstrictanalyze{}andserverauthoritykept; noexecutionactions/schema/migration/realcredentials/modelcall.
+
+Changed provider.py, AIregionserver.py, SettingsAiSection/messages/tests anddeterministicloopbackHTTPfixture. Focused39backend+5UI, full1407backend/46skip and289UI snapshot, typecheck/Ruff/isolatedbuildsgreen. Latercombinedenvironmenttestsreportedseparately; don'taddcountsacrossruns. Realupstream/modelqualityandactualnewinstalledWindowsUIstillnotclaimed. Rollback405bbd4 withonlythisfeaturepaths; failurepreservespreviousprovider, keysprocessmemoryonly. Sourcecommitdoesnotmeanallplannedgapscomplete.

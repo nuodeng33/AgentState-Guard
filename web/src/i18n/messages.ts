@@ -286,6 +286,14 @@ export type MessageKey =
   | 'settings.provider.failed'
   | 'settings.provider.modelCount'
   | 'settings.provider.note'
+  | 'settings.provider.validationScope'
+  | 'settings.provider.modelRequired'
+  | 'settings.provider.modelUnavailable'
+  | 'settings.provider.noModels'
+  | 'settings.provider.invalidConfig'
+  | 'settings.provider.httpRejected'
+  | 'settings.provider.responseInvalid'
+  | 'settings.provider.connectionFailed'
   | 'ai.advisory.none'
   /* ---- supervised analyze surface ---- */
   | 'supervision.section.analyze'
@@ -598,9 +606,17 @@ const enUS: Messages = {
   'settings.provider.fetching': 'Fetching…',
   'settings.provider.test': 'Test connection',
   'settings.provider.testing': 'Testing…',
-  'settings.provider.ok': 'Connected ({models} models, {latency}ms)',
+  'settings.provider.ok': 'Connection and model validated ({models} listed, {latency}ms); generation not tested.',
   'settings.provider.failed': 'Test failed: {error}',
   'settings.provider.modelCount': '{count} models found',
+  'settings.provider.validationScope': 'Select a listed model before validating. Validation checks connection and model availability; requesting an advisory tests generation.',
+  'settings.provider.modelRequired': 'Choose a model first.',
+  'settings.provider.modelUnavailable': 'The selected model is not in the provider model list.',
+  'settings.provider.noModels': 'The provider returned no usable models.',
+  'settings.provider.invalidConfig': 'Check the HTTP(S) endpoint and provider fields.',
+  'settings.provider.httpRejected': 'The provider returned HTTP {status}. Check access and configuration.',
+  'settings.provider.responseInvalid': 'The provider returned an invalid or oversized response.',
+  'settings.provider.connectionFailed': 'Connection failed. Check the endpoint and try again.',
   'settings.provider.note':
     'The API key is held in memory only. It is never written to disk, never echoed back, and never sent to the Android app.',
   'ai.advisory.none': 'No advisory yet.',
@@ -900,9 +916,17 @@ const zhCN: Messages = {
   'settings.provider.fetching': '获取中…',
   'settings.provider.test': '测试连接',
   'settings.provider.testing': '测试中…',
-  'settings.provider.ok': '已连接（{models} 个模型，{latency}ms）',
+  'settings.provider.ok': '连接及所选模型已验证（共 {models} 个模型，{latency}ms）；尚未测试生成。',
   'settings.provider.failed': '测试失败：{error}',
   'settings.provider.modelCount': '发现 {count} 个模型',
+  'settings.provider.validationScope': '请先选择模型再验证。验证仅检查连接与模型是否可用；请求分析意见时才会测试生成。',
+  'settings.provider.modelRequired': '请先选择模型。',
+  'settings.provider.modelUnavailable': '所选模型不在提供方返回的模型列表中。',
+  'settings.provider.noModels': '提供方未返回可用模型。',
+  'settings.provider.invalidConfig': '请检查 HTTP(S) 地址及提供方设置。',
+  'settings.provider.httpRejected': '提供方返回 HTTP {status}，请检查访问权限和设置。',
+  'settings.provider.responseInvalid': '提供方返回了无效或过大的响应。',
+  'settings.provider.connectionFailed': '连接失败，请检查地址后重试。',
   'settings.provider.note': 'API key 仅存内存，不落盘、不回显、不会发送到 Android 应用。',
   'ai.advisory.none': '暂无建议。',
   'supervision.section.analyze': 'AI 建议',
