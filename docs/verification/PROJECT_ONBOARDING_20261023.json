@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-23",
+  "base_commit": "0661c24b49c44585244cf7c527a9b91005e1707d",
+  "environment": "Linux container; actual Core/Chromium; disposable files and database",
+  "requirement": "ASG-ONBOARD-001",
+  "backend": {
+    "tests": 1406,
+    "passed": 1360,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 46,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "/tmp/asg-onboarding-backend.xml"
+    ]
+  },
+  "frontend": {
+    "tests": 270,
+    "passed": 270,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "/tmp/asg-onboarding-verify-final2-frontend.xml"
+    ]
+  },
+  "onboarding": {
+    "result": "PASS",
+    "scope": "actual Core/browser enrollment and policy persistence; no model execution",
+    "exercise": {
+      "result": "PASS",
+      "checks": {
+        "explicit_environment_scan": true,
+        "program_and_store_registered": true,
+        "opening_manager_does_not_register": true,
+        "registration_refresh_selects_scope": true,
+        "registration_does_not_grant_session_consent": true,
+        "policy_authoritatively_saved": true,
+        "consent_unlocks_create": true,
+        "real_session_creation_request": true,
+        "session_created": true,
+        "recovery_reuses_registered_policy": true,
+        "pause_protection_saved": true,
+        "chinese_controls": true,
+        "mobile_no_horizontal_overflow": true,
+        "no_execution_sent": true
+      },
+      "mode": "real Core / explicit UI onboarding / no model calls",
+      "work_id": "8366beff-bbe1-4b9f-aea7-c7577c509ba2",
+      "scope_id": "scope-d5814206-241b-4652-8ae7-d5f376aa7ae3",
+      "session_creation": {
+        "status": 201,
+        "reason_code": null,
+        "session_id": "540a4623-e11b-436f-a297-b5ad3dff690f"
+      },
+      "session_state": {
+        "state": "UNAVAILABLE",
+        "connection_state": null,
+        "reason_code": "EXECUTION_PROVIDER_SCOPE_UNVERIFIED"
+      },
+      "provider_limit": "EXECUTION_PROVIDER_SCOPE_UNVERIFIED",
+      "page_errors": []
+    },
+    "reopen": {
+      "result": "PASS",
+      "checks": {
+        "policy_persisted_after_restart": true,
+        "no_mutation_on_reopen": true
+      },
+      "mode": "real Core / explicit UI onboarding / no model calls",
+      "page_errors": []
+    },
+    "original_file_unchanged": true
+  },
+  "existing_workflow": {
+    "result": "PASS",
+    "scope": "manual Work + native file protection; no model calls",
+    "environment": "Linux",
+    "checked_at": 1792751076.1132503,
+    "run_id": "d3bb3890-c309-4009-b43d-7b7825dde3ae",
+    "checks": {
+      "browser_work_delivery": true,
+      "native_versions_and_attribution": true,
+      "preview_is_read_only": true,
+      "actual_diff": true,
+      "selective_restore": true,
+      "operation_idempotency": true,
+      "undo_restore": true,
+      "stale_preview_rejected": true,
+      "ui_global_directory_and_version": true,
+      "ui_preview_read_only": true,
+      "ui_actual_diff": true,
+      "ui_selective_restore": true,
+      "ui_undo_restore": true,
+      "ui_expired_preview_rejected": true,
+      "ui_mobile_confirm_accessible": true,
+      "ui_keyboard_focus": true,
+      "ui_final_bytes": true,
+      "operation_survives_restart": true,
+      "browser_reopens_after_core_restart": true,
+      "ui_recovery_history_after_restart": true,
+      "database_integrity": true,
+      "no_execution_created": true
+    }
+  },
+  "checks": {
+    "typecheck": true,
+    "production_build": true,
+    "demo_build": true,
+    "ruff_new_python": true,
+    "diff_check": true
+  },
+  "limits": [
+    "New UI native Tauri interaction and physical phone not verified in this run",
+    "New session creation HTTP201 is not successful provider execution: Linux provider scope refused EXECUTION_PROVIDER_SCOPE_UNVERIFIED",
+    "Existing Windows provider execution and installer recovery evidence remains attributed to 4378c6e and prior acceptance reports"
+  ],
+  "failures_preserved": [
+    "first-label-selector-failure",
+    "second-boolean-selector-failure",
+    "initial test exact option compiler error",
+    "Python import-order Ruff error"
+  ],
+  "source_sha256": {
+    "web/src/components/ProtectionScopeManager.test.tsx": "7952f8b2711618e466d710fbe62a8c1a160105133223095ec8583a2d32e776b2",
+    "web/src/components/ProtectionScopeManager.tsx": "6d863bb48a99a9714e8f9f5dac8190b6a2c809f11bc1fb3e75e22d7c309a5880",
+    "web/src/components/ProtectionScopeManager.css": "d1c3ba22160a68342f2340d392b547b03637b162c40928fb7bba742d0091534f",
+    "web/src/components/ProjectConnectionCatalog.tsx": "99fa4667578b43470a20bccd1e99fe3da431033ca3b01a738bc83637cfcf5519",
+    "web/src/components/WorkSessions.tsx": "220c73df870671a1c7397be693d6342423a3c67bc72d9a7f1e85b3eafa1c1bc3",
+    "web/src/components/WorkRecovery.tsx": "3dc9f6a87861abf5e8fdb450c51f24d4b834c625370eea4bb23023146b947acf",
+    "web/src/pages/WorkPage.tsx": "84bddb78fce7fc5f19b30fc6b8ca791781f81a1f081506e49d41ee408719bd21",
+    "scripts/verify_project_onboarding.py": "d556be6517e62e79082b579533bbbaad872782fb65d8db867aa271df8db52248",
+    "scripts/verify_project_onboarding_browser.cjs": "c5c6132db428a03245b25bb0b74d7ade9acf8ea6d9d87dd0e135a07bf55f3748"
+  }
+}

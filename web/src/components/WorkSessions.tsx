@@ -8,6 +8,9 @@ import {
 import type { DiscoveryApplication, DiscoveryPage, DiscoverySession, DiscoverySessionStore, DiscoverySessionsPage } from '../api/types';
 import { useI18n } from '../i18n/I18nProvider';
 import './WorkSessions.css';
+import ProtectionScopeManager from './ProtectionScopeManager';
+import ProjectConnectionCatalog from './ProjectConnectionCatalog';
+import type { ProtectionScopeCommand } from '../api/protection';
 import WorkRunContext, { type RunContextChoice } from './WorkRunContext';
 import type { ExecutionTarget } from './WorkExecutionStatus';
 
@@ -28,6 +31,8 @@ type Props = {
   onDelivery?: (output: WorkRunOutput) => void;
   target?: ExecutionTarget | null;
   artifacts?: { id: string; title: string; version: number }[];
+  protectionCommand?: ProtectionScopeCommand | null;
+  onProtectionCommandChange?: (command: ProtectionScopeCommand | null) => void;
 };
 
 export type WorkRunOutput = { sessionId: string; run: ExecutionRun; events: RunEvent[]; omitted: number };
@@ -52,7 +57,7 @@ function questionsFor(payload: Record<string, unknown>): Question[] {
 }
 
 export default function WorkSessions({ client, workId, revision, requirementVersion, tasks, visible = true,
-  memory, onClose, onRevision, onOpenRequirement, onDelivery, target, artifacts = [] }: Props) {
+  memory, onClose, onRevision, onOpenRequirement, onDelivery, target, artifacts = [], protectionCommand, onProtectionCommandChange }: Props) {
   const { locale } = useI18n(); const zh = locale === 'zh-CN';
   const label = (en: string, cn: string) => zh ? cn : en;
   const [items, setItems] = useState<WorkSession[]>([]);
@@ -72,6 +77,9 @@ export default function WorkSessions({ client, workId, revision, requirementVers
   const [applications, setApplications] = useState<DiscoveryApplication[]>([]);
   const [stores, setStores] = useState<DiscoverySessionStore[]>([]);
   const [scopes, setScopes] = useState<ProtectionScope[]>([]);
+  const [localProtectionCommand, setLocalProtectionCommand] = useState<ProtectionScopeCommand | null>(null);
+  const scopeCommand = protectionCommand === undefined ? localProtectionCommand : protectionCommand;
+  const changeScopeCommand = onProtectionCommandChange ?? setLocalProtectionCommand;
   const [bindings, setBindings] = useState<DiscoverySession[]>([]);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogError, setCatalogError] = useState('');
@@ -302,7 +310,7 @@ export default function WorkSessions({ client, workId, revision, requirementVers
     if (!visible || !createOpen || !application) return;
     let active = true; setCatalogBusy(true);
     void client.get<DiscoveryPage<DiscoverySessionStore>>(`/api/v1/discovery/sources/${encodeURIComponent(application.source_id)}/session-stores?limit=50&offset=0`)
-      .then(page => { if (active && live.current) { setStores(page.items.filter(item => item.provider === application.provider)); setStoreMore(page.has_more); catalogOffsets.current.stores = page.next_offset ?? page.items.length; } })
+      .then(page => { if (active && live.current) { setStores(page.items.filter(item => item.provider === application.provider && item.source_id === application.source_id)); setStoreMore(page.has_more); catalogOffsets.current.stores = page.next_offset ?? page.items.length; } })
       .catch(err => { if (active && live.current) setCatalogError(safeError(err)); })
       .finally(() => { if (active && live.current) setCatalogBusy(false); });
     return () => { active = false; };
@@ -366,7 +374,9 @@ export default function WorkSessions({ client, workId, revision, requirementVers
   }
   async function createSession(event: FormEvent) {
     event.preventDefault();
-    if (!application || !store || !scope || !creation.control_consent ||
+    if (scopeCommand || !application || !['AVAILABLE', 'RUNNING'].includes(application.status) ||
+      !store || !['AVAILABLE', 'EMPTY', 'DEGRADED'].includes(store.status) || store.source_id !== application.source_id ||
+      !scope || scope.source_id !== application.source_id || !scope.enabled || scope.status === 'RETIRED' || !creation.control_consent ||
       (creation.mode === 'CONTINUE' && !bindings.some(item => item.binding_id === creation.binding_id))) return;
     const fields = { expected_revision: currentRevision.current, application_id: application.id, store_id: store.id,
       scope_id: scope.id, task_id: creation.task_id || null, mode: creation.mode,
@@ -458,8 +468,8 @@ export default function WorkSessions({ client, workId, revision, requirementVers
 
   if (!visible) return null;
   const sourceScopes = scopes.filter(item => item.source_id === application?.source_id);
-  const createReady = application && ['AVAILABLE', 'RUNNING'].includes(application.status) && store?.status === 'AVAILABLE' &&
-    scope && Boolean(scope.enabled) && scope.status !== 'RETIRED' && creation.control_consent &&
+  const createReady = !scopeCommand && application && ['AVAILABLE', 'RUNNING'].includes(application.status) && store && ['AVAILABLE', 'EMPTY', 'DEGRADED'].includes(store.status) &&
+    scope && scope.source_id === application.source_id && store.source_id === application.source_id && Boolean(scope.enabled) && scope.status !== 'RETIRED' && creation.control_consent &&
     (creation.mode === 'NEW' || bindings.some(item => item.binding_id === creation.binding_id));
   const active = runs.some(item => runIsActive(item.status)) || Boolean(run && runIsActive(run.status));
   const pending = run?.pending_responses ?? [];
@@ -481,23 +491,30 @@ export default function WorkSessions({ client, workId, revision, requirementVers
         {createOpen && <form className="work-session-create" onSubmit={createSession}>
           <h3>{label('Create session', '创建会话')}</h3>
           {catalogError && <p role="alert">{catalogError}</p>}
-          <label>{label('Application', '应用')}<select required value={creation.application_id} onChange={event => setCreation(old => ({ ...old, application_id: event.target.value, store_id: '', scope_id: '', binding_id: '' }))}>
+          <label>{label('Application', '应用')}<select required disabled={busy || Boolean(scopeCommand)} value={creation.application_id} onChange={event => setCreation(old => ({ ...old, application_id: event.target.value, store_id: '', scope_id: '', binding_id: '' }))}>
             <option value="">{label('Select application', '选择应用')}</option>
             {applications.map(item => <option key={item.id} value={item.id}>{item.label || item.provider} · {item.source_id} · {item.path} · {item.status}</option>)}
           </select></label>
           {appMore && <button type="button" disabled={catalogBusy} onClick={() => void loadMoreCatalog('applications')}>{label('Load more applications', '加载更多应用')}</button>}
           {application && <small className="work-session-identity">{application.path}<br />{displayCode(application.reason_code)}</small>}
-          <label>{label('Session store', '会话库')}<select required value={creation.store_id} onChange={event => setCreation(old => ({ ...old, store_id: event.target.value, binding_id: '' }))}>
+          <label>{label('Session store', '会话库')}<select required disabled={busy || Boolean(scopeCommand)} value={creation.store_id} onChange={event => setCreation(old => ({ ...old, store_id: event.target.value, binding_id: '' }))}>
             <option value="">{label('Select session store', '选择会话库')}</option>
             {stores.map(item => <option key={item.id} value={item.id}>{item.path} · {item.status}</option>)}
           </select></label>
           {storeMore && <button type="button" disabled={catalogBusy} onClick={() => void loadMoreCatalog('stores')}>{label('Load more stores', '加载更多会话库')}</button>}
           {store && <small>{displayCode(store.reason_code)}</small>}
-          <label>{label('Protected directory', '保护目录')}<select required value={creation.scope_id} onChange={event => setCreation(old => ({ ...old, scope_id: event.target.value }))}>
+          <label>{label('Protected directory', '保护目录')}<select required disabled={busy || Boolean(scopeCommand)} value={creation.scope_id} onChange={event => setCreation(old => ({ ...old, scope_id: event.target.value }))}>
             <option value="">{label('Select protected directory', '选择保护目录')}</option>
             {sourceScopes.map(item => <option key={item.id} value={item.id}>{item.root} · {item.status}</option>)}
           </select></label>
           {scope && <small>{displayCode(scope.reason_code)}</small>}
+          {(application || scopeCommand) && <ProtectionScopeManager client={client} sourceId={application?.source_id}
+            scopes={scopes} selectedScopeId={creation.scope_id} pending={scopeCommand} onPendingChange={changeScopeCommand}
+            disabled={busy || catalogBusy} onScopesChanged={(items, selectedId) => {
+              setScopes(items);
+              if (selectedId) setCreation(old => ({ ...old, scope_id: selectedId }));
+            }} />}
+
           <label>{label('Task (optional)', '任务（可选）')}<select value={creation.task_id} onChange={event => setCreation(old => ({ ...old, task_id: event.target.value }))}>
             <option value="">{label('Whole work', '整个工作')}</option>{tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}
           </select></label>
@@ -514,6 +531,7 @@ export default function WorkSessions({ client, workId, revision, requirementVers
           <label className="work-session-check"><input type="checkbox" required checked={creation.control_consent} onChange={event => setCreation(old => ({ ...old, control_consent: event.target.checked }))} />{label('Allow ASG to manage this session', '允许 ASG 管理此会话')}</label>
           <footer><button type="button" onClick={() => setCreateOpen(false)}>{label('Close', '关闭')}</button><button disabled={busy || catalogBusy || !createReady}>{label('Create', '创建')}</button></footer>
         </form>}
+        {createOpen && <ProjectConnectionCatalog client={client} disabled={busy || Boolean(scopeCommand)} onRegistered={() => setRefresh(value => value + 1)} />}
         {!loading && !items.length && <p>{label('No managed sessions', '暂无受管会话')}</p>}
         <div className="work-session-list">{items.map(item => <button type="button" key={item.id} onClick={() => { setSelected(item.id); setCreateOpen(false); setRunId(null); }}>
           <strong>{item.provider} · {item.native_session_id || item.id}</strong><span>{statusLabel(item.status)}{item.read_only ? ` · ${label('Read only', '只读')}` : ''}</span>

@@ -5,13 +5,22 @@ import { RECOVERY_PAGE_SIZE, recoveryActive, recoveryApi, type DirectoryVersion,
   type RecoveryDiff, type RecoveryFile, type RecoveryOperation, type RecoveryPreview } from '../api/recovery';
 import { useI18n } from '../i18n/I18nProvider';
 import './WorkRecovery.css';
+import ProtectionScopeManager from './ProtectionScopeManager';
+import type { ProtectionScopeCommand } from '../api/protection';
 
-export default function WorkRecovery({ client, visible, onClose }: { client: ApiClient; visible: boolean; onClose: () => void }) {
+export default function WorkRecovery({ client, visible, onClose, protectionCommand, onProtectionCommandChange }: {
+  client: ApiClient; visible: boolean; onClose: () => void;
+  protectionCommand?: ProtectionScopeCommand | null;
+  onProtectionCommandChange?: (command: ProtectionScopeCommand | null) => void;
+}) {
   const { locale } = useI18n(); const zh = locale === 'zh-CN';
   const text = (en: string, cn: string) => zh ? cn : en;
   const api = useMemo(() => recoveryApi(client), [client]);
   const [scopes, setScopes] = useState<ProtectionScope[]>([]);
   const [scopeId, setScopeId] = useState('');
+  const [localProtectionCommand, setLocalProtectionCommand] = useState<ProtectionScopeCommand | null>(null);
+  const scopeCommand = protectionCommand === undefined ? localProtectionCommand : protectionCommand;
+  const changeScopeCommand = onProtectionCommandChange ?? setLocalProtectionCommand;
   const [versions, setVersions] = useState<DirectoryVersion[]>([]);
   const [versionId, setVersionId] = useState('');
   const [versionsMore, setVersionsMore] = useState(false);
@@ -164,7 +173,7 @@ export default function WorkRecovery({ client, visible, onClose }: { client: Api
     finally { if (current === epoch.current) setLoading(false); }
   }
   async function makePreview() {
-    if (locked || loading || !selected.length || !contentReady || !scopeId || busyRef.current) return;
+    if (scopeCommand || locked || loading || !selected.length || !contentReady || !scopeId || busyRef.current) return;
     invalidate(); const current = epoch.current; busyRef.current = true; setBusy(true);
     try {
       const result = await api.preview({ scope_id: scopeId, file_ids: selected,
@@ -184,7 +193,7 @@ export default function WorkRecovery({ client, visible, onClose }: { client: Api
     } catch { if (current === diffEpoch.current && mounted.current) setDiff({ file: file.relative_path, failed: true }); }
   }
   async function apply() {
-    if (busyRef.current || (!submission && !previewReady)) return;
+    if (scopeCommand || busyRef.current || (!submission && !previewReady)) return;
     const command = submission ?? { request_id: crypto.randomUUID(), preview_id: preview!.preview_id!, digest: preview!.digest! };
     setSubmission(command); busyRef.current = true; setBusy(true); setError(''); setOperation(null);
     try {
@@ -212,22 +221,28 @@ export default function WorkRecovery({ client, visible, onClose }: { client: Api
       {operation && <div role="status" data-testid="recovery-result"><strong>{stateLabel(operation.state)}</strong><code>{operation.id}</code>
         {operation.state === 'NEEDS_ATTENTION' && <p>{text('Resolve this operation before starting another recovery, then refresh records.', '请先处理此操作，再刷新记录后开始其他恢复。')}</p>}
         {operation.reason_code && !['SUCCEEDED', 'QUEUED', 'RUNNING', 'COMPENSATING'].includes(operation.state) && <p>{message(operation.reason_code)}</p>}</div>}
-      <label>{text('Protected directory', '已保护目录')}<select aria-label={text('Protected directory', '已保护目录')} value={scopeId} disabled={locked || loading} onChange={event => void chooseScope(event.target.value)}>
+      <label>{text('Protected directory', '已保护目录')}<select aria-label={text('Protected directory', '已保护目录')} value={scopeId} disabled={locked || loading || Boolean(scopeCommand)} onChange={event => void chooseScope(event.target.value)}>
         <option value="">{text('Select a directory', '选择目录')}</option>
         {scopes.map(item => <option key={item.id} value={item.id} disabled={item.status === 'RETIRED'}>{item.root} · {item.source_id} · {item.status}</option>)}
       </select></label>
+      <ProtectionScopeManager client={client} scopes={scopes} selectedScopeId={scopeId}
+        pending={scopeCommand} onPendingChange={changeScopeCommand} disabled={locked || loading}
+        onScopesChanged={(items, selectedId) => {
+          setScopes(items); invalidate();
+          void chooseScope(selectedId ?? scopeId);
+        }} />
       {!scopes.length && <p>{text('No protected directories available.', '暂无可用的已保护目录。')}</p>}
       {scope && <p className="work-recovery-path">{scope.root}</p>}
       {undo ? <p>{text('Undo operation', '撤销操作')} <code>{undo.id}</code><button type="button" disabled={locked} onClick={() => void chooseScope(scopeId)}>{text('Return to versions', '返回版本')}</button></p> : scopeId && <>
-        <label>{text('Directory version', '目录版本')}<select aria-label={text('Directory version', '目录版本')} value={versionId} disabled={locked || loading} onChange={event => { invalidate(); setVersionId(event.target.value); setSelected([]); setFilePage(0); }}>
+        <label>{text('Directory version', '目录版本')}<select aria-label={text('Directory version', '目录版本')} value={versionId} disabled={locked || loading || Boolean(scopeCommand)} onChange={event => { invalidate(); setVersionId(event.target.value); setSelected([]); setFilePage(0); }}>
           <option value="">{text('Select a version', '选择版本')}</option>
           {versions.map(item => <option key={item.id} value={item.id} disabled={!item.available || !item.metadata_available || !item.details_included}>{date(item.created_at)} · {item.id}{!item.available || !item.details_included ? text(' · Content unavailable', ' · 内容不可用') : ''}</option>)}
         </select></label>
         {!loading && !versions.length && <p>{text('No versions available.', '暂无版本。')}</p>}
-        {versionsMore && <button type="button" disabled={locked || loading} onClick={() => void moreVersions()}>{text('Load more versions', '加载更多版本')}</button>}
+        {versionsMore && <button type="button" disabled={locked || loading || Boolean(scopeCommand)} onClick={() => void moreVersions()}>{text('Load more versions', '加载更多版本')}</button>}
       </>}
       {loading && <p role="status">{text('Loading', '正在读取')}</p>}
-      {contentReady && <fieldset disabled={locked || loading}><legend>{text('Select files', '选择文件')} ({selected.length}/1000)</legend>
+      {contentReady && <fieldset disabled={locked || loading || Boolean(scopeCommand)}><legend>{text('Select files', '选择文件')} ({selected.length}/1000)</legend>
         {files.slice(filePage * 50, (filePage + 1) * 50).map(file => <label className="work-recovery-file" key={file.file_id}><input type="checkbox" aria-label={file.relative_path}
           checked={selected.includes(file.file_id)} disabled={file.category !== 'restorable' || (!selected.includes(file.file_id) && selected.length >= 1000)}
           onChange={event => { invalidate(); setSelected(ids => event.target.checked ? [...ids, file.file_id] : ids.filter(id => id !== file.file_id)); }} />
@@ -248,13 +263,13 @@ export default function WorkRecovery({ client, visible, onClose }: { client: Api
           {diff.result.binary ? <p>{text('Binary file; text diff unavailable.', '二进制文件，无法显示文本差异。')}</p> : diff.result.text_diff === null ? <p>{text('Diff unavailable', '差异不可用')}</p> : <pre>{diff.result.text_diff || text('No text changes', '没有文本变化')}</pre>}
           {diff.result.truncated && <p>{text('Diff truncated', '差异已截断')}</p>}</>}</div>}
         {!previewReady && !submission && <p role="alert">{text('Preview expired. Create a new preview.', '预览已过期，请重新预览。')}</p>}
-        <button type="button" disabled={!previewReady || locked} onClick={() => void apply()}>{undo ? text('Confirm undo', '确认撤销') : text('Confirm restore', '确认恢复')}</button>
+        <button type="button" disabled={!previewReady || locked || Boolean(scopeCommand)} onClick={() => void apply()}>{undo ? text('Confirm undo', '确认撤销') : text('Confirm restore', '确认恢复')}</button>
       </section>}
       <h3>{text('Global recovery history', '全局恢复记录')}</h3>
       {!operations.some(item => item.kind === 'RESTORE') && <p>{text('No recovery operations on this page.', '本页暂无恢复操作。')}</p>}
       {operations.filter(item => item.kind === 'RESTORE').map(item => <article key={item.id}><code>{item.id}</code><p>{scopes.find(candidate => candidate.id === item.scope_id)?.root ?? item.scope_id}</p>
         <p>{date(item.created_at)} · {stateLabel(item.state)}</p><button type="button" disabled={locked} onClick={() => { setOperation(item); setError(''); }}>{text('View result', '查看结果')}</button>
-        {item.state === 'SUCCEEDED' && <button type="button" disabled={locked || loading} aria-label={text('Undo ', '撤销 ') + item.id} onClick={() => void chooseUndo(item)}>{text('Undo', '撤销')}</button>}</article>)}
+        {item.state === 'SUCCEEDED' && <button type="button" disabled={locked || loading || Boolean(scopeCommand)} aria-label={text('Undo ', '撤销 ') + item.id} onClick={() => void chooseUndo(item)}>{text('Undo', '撤销')}</button>}</article>)}
       {operationsMore && <button type="button" disabled={busy} onClick={() => void moreOperations()}>{text('Load more records', '加载更多记录')}</button>}
     </div>
   </section>;

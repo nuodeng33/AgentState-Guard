@@ -9,6 +9,7 @@ import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
 import WorkRecovery from '../components/WorkRecovery';
+import type { ProtectionScopeCommand } from '../api/protection';
 import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExecutionStatus';
 import { AgentFilm, AGENT_TINTS, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
 import './work.css';
@@ -74,6 +75,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const [deliveryOutput, setDeliveryOutput] = useState<WorkRunOutput | null>(null);
   const deliveryOpener = useRef<HTMLElement | null>(null); const deliveryReturnsToSession = useRef(false);
   const sessionMemory = useRef(createWorkSessionMemory());
+  const [protectionCommand, setProtectionCommand] = useState<ProtectionScopeCommand | null>(null);
   const sessionOpener = useRef<HTMLElement | null>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   function openSessions(target?: ExecutionTarget) { sessionOpener.current = target ? document.activeElement as HTMLElement | null : menuButton.current; setExecutionTarget(target ?? null); setRecoveryPanel(false); setDeliveryPanel(false); setSessionPanel(true); setMenuOpen(false); }
@@ -492,8 +494,8 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
           <button className="work-icon-button" aria-label={t.settings} title={t.settings} onClick={() => onNavigate?.('settings')}><Icon name="settings" /></button>
         </div></nav>
     </>}
-    <WorkRecovery client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
-    {work && <WorkSessions key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
+    <WorkRecovery protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
+    {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
     {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowArtifact={(id, version) => {

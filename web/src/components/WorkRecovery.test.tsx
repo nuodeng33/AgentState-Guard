@@ -45,6 +45,16 @@ async function preview() {
 afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); Object.defineProperty(document, 'hidden', { configurable: true, value: false }); });
 
 describe('native file recovery', () => {
+  it('blocks recovery while a directory policy result is unconfirmed', async () => {
+    const { props, post } = fixture(); const command = { kind: 'configure' as const, sourceId: 'local', path: '/project/a', scopeId: 'scope-a',
+      payload: { request_id: 'same-policy-request', expected_revision: 1, enabled: true, retention_days: 30, quota_bytes: 2048 * 1048576 } };
+    render(<WorkRecovery {...props} protectionCommand={command} onProtectionCommandChange={vi.fn()} />);
+    await screen.findByRole('option', { name: /project\/a/ });
+    expect((screen.getByLabelText('Protected directory') as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Preview restore' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it('offers all directories without Work links and leaves files unselected', async () => {
     const { props, get } = fixture(); render(<WorkRecovery {...props} />);
     await selectFiles();

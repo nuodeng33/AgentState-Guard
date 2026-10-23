@@ -9,7 +9,7 @@ import type {
 const PAGE_SIZE = 50;
 const STORE_PROVIDERS = ['CODEX', 'KIMI_CODE', 'ZCODE', 'CLOUDCLI'] as const;
 
-export function DiscoveryCatalog({ client, source, coverage, visible, refreshKey, zh, locale }: {
+export function DiscoveryCatalog({ client, source, coverage, visible, refreshKey, zh, locale, onRegistered }: {
   client: ApiClient;
   source: DiscoverySource;
   coverage?: DiscoveryInventoryCoverage;
@@ -17,6 +17,7 @@ export function DiscoveryCatalog({ client, source, coverage, visible, refreshKey
   refreshKey: number;
   zh: boolean;
   locale: string;
+  onRegistered?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [showUnclassified, setShowUnclassified] = useState(false);
@@ -147,7 +148,7 @@ export function DiscoveryCatalog({ client, source, coverage, visible, refreshKey
   async function submit(path: string, body: object, after?: () => void) {
     setBusy(true); setMutationError('');
     try {
-      await client.post(path, body);
+      await client.post(path, body); onRegistered?.();
       after?.();
       setCatalogRevision(value => value + 1);
     } catch (error) {

@@ -46,6 +46,59 @@ async function openSession(id = 'a') { fireEvent.click(await screen.findByRole('
 afterEach(() => { cleanup(); history.replaceState(null, '', '/'); });
 
 describe('work session management', () => {
+  it.each(['scope-source', 'store-source', 'disabled', 'retired'])('blocks creating a session with an invalid directory/store association: %s', async kind => {
+    const { props, get, post } = fixture(); const original = get.getMockImplementation()!;
+    get.mockImplementation(async path => {
+      const result = await original(path) as { items?: Record<string, unknown>[] };
+      if (path === '/api/v1/protection/scopes') return { items: [{ id: 'scope', source_id: kind === 'scope-source' ? 'other' : 'local',
+        root: '/work/repo', status: kind === 'retired' ? 'RETIRED' : 'PROTECTED', enabled: kind !== 'disabled' }] };
+      if (kind === 'store-source' && path.includes('/session-stores')) return { ...result, items: result.items?.map(item => ({ ...item, source_id: 'other' })) };
+      return result;
+    });
+    render(<WorkSessions {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
+    await screen.findByRole('option', { name: /tools\/codex/ });
+    fireEvent.change(screen.getByLabelText('Application'), { target: { value: 'app' } });
+    await waitFor(() => expect(get.mock.calls.some(([path]) => path.includes('/session-stores'))).toBe(true));
+    fireEvent.change(screen.getByLabelText('Session store'), { target: { value: 'store' } });
+    fireEvent.change(screen.getByLabelText('Protected directory'), { target: { value: 'scope' } });
+    fireEvent.click(screen.getByLabelText('Allow ASG to manage this session'));
+    expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(screen.getByRole('button', { name: 'Create' }).closest('form')!);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it.each(['AVAILABLE', 'EMPTY', 'DEGRADED'])('allows an explicit NEW session using a backend-supported %s store', async status => {
+    const { props, get, post } = fixture(); const original = get.getMockImplementation()!;
+    get.mockImplementation(async path => {
+      const result = await original(path) as { items?: Record<string, unknown>[] };
+      return path.includes('/session-stores') ? { ...result, items: result.items?.map(item => ({ ...item, status })) } : result;
+    });
+    render(<WorkSessions {...props} />); fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
+    await screen.findByRole('option', { name: /tools\/codex/ });
+    fireEvent.change(screen.getByLabelText('Application'), { target: { value: 'app' } });
+    await screen.findByRole('option', { name: new RegExp('/stores/one.*' + status) });
+    fireEvent.change(screen.getByLabelText('Session store'), { target: { value: 'store' } });
+    fireEvent.change(screen.getByLabelText('Protected directory'), { target: { value: 'scope' } });
+    fireEvent.click(screen.getByLabelText('Allow ASG to manage this session'));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(post.mock.calls.some(([path]) => path.endsWith('/sessions'))).toBe(true));
+  });
+
+  it('preserves a shared uncertain directory command when the session surface closes', async () => {
+    const { props, post } = fixture(); const onChange = vi.fn();
+    const command = { kind: 'register' as const, sourceId: 'local', path: '/new-project',
+      payload: { source_id: 'local', path: '/new-project', request_id: 'same-request' } };
+    const view = render(<WorkSessions {...props} protectionCommand={command} onProtectionCommandChange={onChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
+    expect((screen.getByLabelText('Application') as HTMLSelectElement).disabled).toBe(true);
+    view.rerender(<WorkSessions {...props} visible={false} protectionCommand={command} onProtectionCommandChange={onChange} />);
+    view.rerender(<WorkSessions {...props} protectionCommand={command} onProtectionCommandChange={onChange} />);
+    expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(post).not.toHaveBeenCalled(); expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('sends selected versioned context and requires confirmation after requirements change', async () => {
     const { props, post } = fixture();
     const artifacts = [{ id: 'artifact-a', version: 2, title: 'Reviewed result' }];

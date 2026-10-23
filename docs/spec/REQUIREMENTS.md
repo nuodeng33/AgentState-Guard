@@ -88,3 +88,7 @@ acceptance matrix is not current verification evidence.
   another Work's layout. Browser close still warns about unsaved local drafts.
 - WS-013: relations use actual membership and exact requirement/artifact versions;
   manual responsibility labels do not establish Agent identity or execution.
+
+## ASG-ONBOARD-001 — Existing project connection (2026-10-23)
+
+Expose existing program/store registration and directory register/configure APIs in session creation and recovery. Directory candidates are metadata only. Explicit registration starts protection with existing defaults; configure enabled, retention and quota with revision checks. Do not auto-start environments or grant session consent. Retain uncertain exact request identity across panel closure and refresh confirmed receipts before selection. Enforce application/store/scope source identity and existing backend-supported store readiness. Actual session creation is separate from provider execution. Native/phone verification remains independently attributed.

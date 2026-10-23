@@ -1,5 +1,7 @@
 # Acceptance Matrix — AgentState Guard v1.0
 
+2026-10-23 ASG-ONBOARD-001：已接通创建会话内程序/会话库接入及目录登记，文件恢复中可登记和配置目录保护；共用现有Core，无API/schema变更。未知回执保留原UUID跨面板，收到回执后仅重读权威列表；源不匹配/禁用/退役阻止创建。修复EMPTY/DEGRADED会话库前端误禁用。前端270通过，后端1360通过/46跳过，正式/demo构建与真实Core UI登记/配置/重启证据通过；容器提供方连接明确拒绝EXECUTION_PROVIDER_SCOPE_UNVERIFIED，未发送模型运行。原有真实交付/恢复22项通过；此前Windows/原生记录独立保留。详见[接入验收](../PROJECT_ONBOARDING_ACCEPTANCE_20261023.md)。远端CI随后记录。
+
 2026-10-23 ASG-REL-001/002最终本机：4378c6e真实MSI新装/两次直接升级、按MSI载荷验证安装身份、实际Tauri进程树强杀补偿与外部修改保留、重启数据/恢复历史、双语8页面通过；用户确认环境页黑窗口已消失。测试卸载及原6文件哈希还原通过。用户选择手动清理；14项约1.89GiB测试产物已集中移动待用户删除，源码/报告/备份保留，不计已释放空间。原生自动鼠标输入和真机限制保留。见[完整安装记录](../WINDOWS_INSTALL_ACCEPTANCE_20261023.md)。
 
 2026-10-23 本机问题已定位修复：旧账本1648条错误来自校验器遗漏三种历史schema-v1事件类型，不是哈希损坏。补回PROCESS_STARTED/PROCESS_EXITED/HOST_OBSERVER_LIFECYCLE后，旧库备份及迁移副本原始哈希链均通过；副本schema10→19全部行保留、integrity=ok、ledger_errors=[]，未修改原库或重算历史哈希。新增回归确认未知类型、哈希篡改仍拒绝；本机完整1391通过/13跳过/0失败。已通过更窄的独立CLI启动验证下载的40693d7打包sidecar：独立数据目录、回环18787，健康/鉴权状态及版本/归属进程清理通过，无现有ASG数据访问。先前自动审批拒绝的是组合操作，本次独立启动实际获准；不再将sidecar记为不可运行。MSI本机升级、桌面主程序交互/异常业务恢复与真机仍待验收。详见 [问题闭环证据](../verification/WINDOWS_LEGACY_LEDGER_20261023.json)。下方旧失败记录保留为历史。

@@ -42,6 +42,7 @@ export interface ExecutionRun {
 export interface ProtectionScope {
   id: string; source_id: string; root: string; status: string;
   enabled: boolean | number; reason_code?: string; coverage?: unknown;
+  revision?: number; retention_days?: number; quota_bytes?: number;
 }
 
 export interface ExecutionPage<T> { items: T[]; has_more: boolean; }

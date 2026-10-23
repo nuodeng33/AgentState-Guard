@@ -1,0 +1,18 @@
+.protection-scope-manager { margin: .75rem 0; border: 1px solid var(--border-2); border-radius: .65rem; }
+.protection-scope-manager > summary { padding: .7rem; cursor: pointer; }
+.protection-scope-content { padding: 0 .75rem .75rem; display: grid; gap: .6rem; min-width: 0; }
+.protection-scope-content > label, .protection-scope-content fieldset > label { display: grid; gap: .3rem; min-width: 0; }
+.protection-scope-content input:not([type="checkbox"]), .protection-scope-content select { width: 100%; min-width: 0; box-sizing: border-box; }
+.protection-scope-content p { margin: .3rem 0; overflow-wrap: anywhere; }
+.protection-scope-content fieldset { display: grid; gap: .6rem; min-width: 0; margin: 0; padding: .6rem; }
+.protection-scope-content button { white-space: normal; overflow-wrap: anywhere; }
+.protection-scope-pending { padding: .6rem; border: 1px solid currentColor; border-radius: .4rem; }
+
+.protection-scope-content input:not([type="checkbox"]) { background: var(--bg-surface-1); color: var(--text-1); border: 1px solid var(--border-2); border-radius: 4px; padding: 8px; font: inherit; }
+.protection-scope-content fieldset { border: 1px solid var(--border-2); border-radius: 6px; }
+.protection-scope-content fieldset > .protection-scope-check { display: flex; align-items: center; gap: 7px; }
+.protection-scope-check input[type="checkbox"] { width: 16px; height: 16px; margin: 0; flex: 0 0 auto; }
+.work-project-connection { margin: 14px 0; padding: 10px; border: 1px solid var(--border-2); border-radius: 6px; }
+.work-project-connection > summary { cursor: pointer; }
+.work-project-connection fieldset { min-width: 0; padding: 0; margin: 10px 0 0; border: 0; }
+.work-project-connection input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px; background: var(--bg-surface-1); color: var(--text-1); border: 1px solid var(--border-2); border-radius: 4px; font: inherit; }
