@@ -1,5 +1,9 @@
 # 受管会话验收记录
 
+## 2026-10-23：历史 PASS 的判定边界修正
+
+旧 `verify_managed_session_live.py` 会记录若干布尔检查但未全部纳入 PASS 判定，包括同请求重试、序号、归属、精确对账及续接。现改为每项严格通过且连接 READY、取消 CANCELLED 后才可 PASS；默认需显式 `--run-live`，运行起始写 RUNNING，失败/中断覆盖旧报告。历史记录保留，但不能据旧 PASS 推断上述所有检查均已验收；本轮未重新调用真实提供方。新的无模型真实 Core 闭环范围见 [RELEASE_READINESS.md](RELEASE_READINESS.md)。
+
 ## 2026-10-15 任务卡片 503 修复
 
 用户实际 Work 的任务卡片显示通用错误。直接串行请求可成功，但真实 Chrome 四次加载复现任务接口 503，要求、工作与现场接口也偶发 503；证据 `artifacts/work-feedback/live-task-card.json`。原因是 Work 的纯查询也使用 `BEGIN IMMEDIATE`，与后台写入及其他读取争用写锁。

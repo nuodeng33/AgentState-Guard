@@ -1,5 +1,20 @@
 # Source and cloud development
 
+## 2026-10-23：真实本地闭环验收
+
+先安装项目开发依赖并执行 `npm --prefix web ci`、`npm --prefix web run build`。将 Playwright 1.64.1 安装到项目外的工具目录，并安装其 Chromium：
+
+```bash
+npm install --prefix /path/to/browser-tools --no-save playwright@1.64.1
+node /path/to/browser-tools/node_modules/playwright/cli.js install chromium
+PLAYWRIGHT_MODULE=/path/to/browser-tools/node_modules/playwright python scripts/verify_local_workflow.py --temp-root /path/to/disposable-parent
+```
+
+`--temp-root` 必须是已存在、位于 Git 工作区和受保护系统目录之外的可写目录；该目录只作为随机临时子目录的父目录。CI 使用 `$RUNNER_TEMP`。已有 Chromium 可用 `CHROME_PATH` 指定。脚本启动随机回环端口，只创建隔离测试数据，不读取私人会话，不调用模型。结果与截图在 `artifacts/local-workflow/`，只有本次 `PASS` 且退出码 0 才通过；RUNNING/FAIL 都不能作为验收。
+
+真实提供方脚本现在默认阻止执行；明确需要实际 Codex 调用时才使用 `python scripts/verify_managed_session_live.py --run-live --temp-root /path/to/disposable-parent --report artifacts/live-acceptance/native-live.json`。这会调用已配置的真实提供方并修改可丢弃的测试文件。当前 Linux 无模型验收不能代替 Windows 提供方验收。
+
+
 Updated 2026-10-15. Use the branch containing the dated workspace update; an old
 default-branch checkout or published package may not contain these modules.
 

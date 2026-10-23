@@ -30,9 +30,35 @@ jobs:
           npm test
           npx tsc --noEmit
           npx vite build
-  wheel:
+  local-workflow:
     runs-on: ubuntu-latest
     needs: [test, frontend]
+    env:
+      PLAYWRIGHT_MODULE: ${{ runner.temp }}/asg-playwright/node_modules/playwright
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a
+        with: { node-version: "22", cache: "npm", cache-dependency-path: "web/package-lock.json" }
+      - run: pip install -e ".[dev]"
+      - working-directory: web
+        run: npm ci && npm run build
+      - name: Install isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/asg-playwright" --no-save playwright@1.64.1
+          node "$RUNNER_TEMP/asg-playwright/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Real Core manual work and native recovery acceptance
+        run: python scripts/verify_local_workflow.py --temp-root "$RUNNER_TEMP"
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: always()
+        with:
+          name: local-workflow-evidence
+          path: artifacts/local-workflow/
+          if-no-files-found: warn
+  wheel:
+    runs-on: ubuntu-latest
+    needs: [test, frontend, local-workflow]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55

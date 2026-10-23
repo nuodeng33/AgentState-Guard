@@ -1,5 +1,7 @@
 # Implementation Log
 
+2026-10-23 本地发布闭环：`feat/release-closure` 基于 `03f4bbc`。真实浏览器连接实际 Core/SQLite，手工工作交付与文件恢复/撤销/过期预览拒绝、Core 重启后重新打开通过（12 项总检查；无模型调用）。修复真实提供方脚本忽略部分失败检查仍给 PASS 的问题；补齐严格判定与中断报告回归。最终完整后端 1341 passed、26 skipped（JUnit 核对）；定向 41 项通过。CI 新门禁已接线但未推送执行。Windows 提供方、安装与异常恢复仍待验收。最新边界以 [RELEASE_READINESS.md](RELEASE_READINESS.md) 为准；下方记录为历史。
+
 ## 2026-10-22 — WS-007/008 bilingual workspace follow-up
 
 - Reused the existing language provider for compact overview/Work selectors; localized counts, icon-button accessible names and display timestamps without rewriting original content, protocol facts, views or drafts.

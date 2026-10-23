@@ -1,5 +1,9 @@
 # Acceptance Matrix — AgentState Guard v1.0
 
+2026-10-23 本地发布闭环：`feat/release-closure` 基于 `03f4bbc`。真实浏览器连接实际 Core/SQLite，手工工作交付与文件恢复/撤销/过期预览拒绝、Core 重启后重新打开通过（12 项总检查；无模型调用）。修复真实提供方脚本忽略部分失败检查仍给 PASS 的问题；补齐严格判定与中断报告回归。最终完整后端 1341 passed、26 skipped（JUnit 核对）；定向 41 项通过。CI 新门禁已接线但未推送执行。Windows 提供方、安装与异常恢复仍待验收。最新边界以 [RELEASE_READINESS.md](../RELEASE_READINESS.md) 为准；下方记录为历史。
+
+ASG-TEST-003/004：新增真实 Core 浏览器与原生恢复验收脚本以及 CI local-workflow 门禁；本地已执行，远程 CI 尚未执行，不将全产品状态上调为 VERIFIED。WS-007/008 的真实手工工作路径已新增证据。
+
 2026-10-22 WS-007/008 与 ASG-TEST-002 前端后续：中英文 Work/顶栏偏好切换、数量/可访问名称/时间显示及 Markdown 分隔行安全回退已实现；213 前端测试、正式/demo 构建、10 项双语及 8 项反馈浏览器夹具通过。证据与限制见 [FRONTEND_REDESIGN.md](../FRONTEND_REDESIGN.md)；不是后端或真实执行域新增验收。
 
 The original rows below are historical evidence. Current local Work UI slice

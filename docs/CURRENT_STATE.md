@@ -1,5 +1,7 @@
 # Current State
 
+2026-10-23 本地发布闭环：`feat/release-closure` 基于 `03f4bbc`。真实浏览器连接实际 Core/SQLite，手工工作交付与文件恢复/撤销/过期预览拒绝、Core 重启后重新打开通过（12 项总检查；无模型调用）。修复真实提供方脚本忽略部分失败检查仍给 PASS 的问题；补齐严格判定与中断报告回归。最终完整后端 1341 passed、26 skipped（JUnit 核对）；定向 41 项通过。CI 新门禁已接线但未推送执行。Windows 提供方、安装与异常恢复仍待验收。最新边界以 [RELEASE_READINESS.md](RELEASE_READINESS.md) 为准；下方记录为历史。
+
 > 2026-10-22 双语前端后续：`feat/frontend-bilingual` 从 `61b1bf1` 开始，已优化即时语言选择、数量/可访问名称/时间显示，并修复 Markdown 分隔行白屏。完整前端 213 passed，正式/demo 构建与双语/反馈浏览器夹具通过。最新范围与运行方式见 [FRONTEND_REDESIGN.md](FRONTEND_REDESIGN.md)。本地提交不代表已推送或 CI 验收；以下旧阶段记录继续保留。
 
 > 当前工作空间与受管执行的能力边界见 [MANAGED_SESSION_BACKEND.md](MANAGED_SESSION_BACKEND.md)，最近的定向修复与历史证据见 [受管会话验收记录](MANAGED_SESSION_ACCEPTANCE_20260930.md)。2026-10-15 已修复断线输出保留，并接通工作级待办、执行上下文与要求变更确认；前端完整 196 项、后端相关 99 项测试通过。8787 已加载最终构建，原两项 Work 保留；浏览器交互检查使用夹具 API，跨环境执行和新的真实提供方运行未验收。下文保留早期 Guard 阶段记录，分支、测试数和 CI 状态均不是当前工作树的验收结论。

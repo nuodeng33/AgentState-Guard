@@ -1,7 +1,9 @@
 """Disposable real native Codex/API acceptance; never prints credentials or raw RPC."""
 
+import argparse
 import json
 import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -17,6 +19,25 @@ from fastapi.testclient import TestClient
 
 from agentguard.api.server import create_app
 
+REQUIRED_BOOLEAN_CHECKS = (
+    'actual_files', 'retry_same_run', 'durable_output', 'sequential_events',
+    'attribution_unclaimed', 'exact_native_reconciliation',
+    'fixed_delivery_acceptance', 'continue_exact_session', 'selective_restore',
+)
+
+
+def finalize_report(report):
+    """A missing, false or merely truthy check cannot certify live acceptance."""
+    report.pop('result', None)
+    checks = report.get('checks', {})
+    for name in REQUIRED_BOOLEAN_CHECKS:
+        if checks.get(name) is not True:
+            raise RuntimeError('LIVE_ACCEPTANCE_CHECK_FAILED: ' + name)
+    for name, state in (('connection', 'READY'), ('protocol_cancel', 'CANCELLED')):
+        if not isinstance(checks.get(name), dict) or checks[name].get('state') != state:
+            raise RuntimeError('LIVE_ACCEPTANCE_CHECK_FAILED: ' + name)
+    report['result'] = 'PASS'
+
 
 def wait(read, predicate, timeout=180):
     deadline = time.monotonic() + timeout
@@ -28,8 +49,8 @@ def wait(read, predicate, timeout=180):
     raise RuntimeError('LIVE_ACCEPTANCE_TIMEOUT: ' + str(result.get('state', result.get('reason_code'))))
 
 
-def main(report):
-    with tempfile.TemporaryDirectory(prefix='asg-managed-live-') as temporary:
+def main(report, *, temp_root=None):
+    with tempfile.TemporaryDirectory(prefix='asg-managed-live-', dir=temp_root) as temporary:
         root = Path(temporary)
         state, project = root / 'state', root / 'project'
         state.mkdir()
@@ -135,18 +156,38 @@ def main(report):
             report['checks']['selective_restore'] = operation['state'] == 'SUCCEEDED' and (project / 'A.txt').read_text(encoding='utf-8') == 'old-A\n' and (project / 'B.txt').read_text(encoding='utf-8') == 'old-B\n' and (project / 'C.txt').read_text(encoding='utf-8').strip() == 'asg-added-ok'
             if not report['checks']['selective_restore']:
                 raise RuntimeError('LIVE_RESTORE_FAILED')
-            report['result'] = 'PASS'
+            finalize_report(report)
     return report
 
 
-if __name__ == '__main__':
-    result = {'provider': 'CODEX', 'environment': 'Windows', 'checked_at': time.time(), 'checks': {}}
-    try:
-        main(result)
-    except (OSError, RuntimeError, ValueError, KeyError, httpx.HTTPError) as error:
-        result.update(result='FAIL', reason=str(error)[:500])
-    destination = Path(__file__).resolve().parents[1] / 'reports' / 'managed-session-20260930' / 'native-live.json'
+def run_cli(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--run-live', action='store_true', help='Explicitly allow real Codex requests and disposable file writes')
+    parser.add_argument('--temp-root', type=Path, help='Existing parent for disposable files, outside Git and system scopes')
+    parser.add_argument('--report', type=Path, default=Path(__file__).resolve().parents[1] / 'artifacts/live-acceptance/native-live.json')
+    args = parser.parse_args(argv)
+    result = {'provider': 'CODEX', 'environment': platform.system(), 'checked_at': time.time(), 'run_id': str(uuid4()), 'result': 'RUNNING', 'checks': {}}
+    destination = args.report
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(result, indent=2, ensure_ascii=True), encoding='utf-8')
+    try:
+        if not args.run_live:
+            result.update(result='BLOCKED', reason='LIVE_OPT_IN_REQUIRED')
+        else:
+            main(result, temp_root=args.temp_root)
+            finalize_report(result)
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError, httpx.HTTPError) as error:
+        result.update(result='FAIL', reason=str(error)[:500])
+    except BaseException:
+        result.update(result='FAIL', reason='RUN_INTERRUPTED')
+        raise
+    finally:
+        if result.get('result') in {None, 'RUNNING'}:
+            result.update(result='FAIL', reason='RUN_INTERRUPTED')
+        destination.write_text(json.dumps(result, indent=2, ensure_ascii=True), encoding='utf-8')
     print(json.dumps(result, ensure_ascii=True))
-    sys.exit(0 if result['result'] == 'PASS' else 1)
+    return 0 if result['result'] == 'PASS' else 2 if result['result'] == 'BLOCKED' else 1
+
+
+if __name__ == '__main__':
+    sys.exit(run_cli())
