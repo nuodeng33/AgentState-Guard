@@ -134,5 +134,222 @@
     "web/src/pages/WorkPage.tsx": "84bddb78fce7fc5f19b30fc6b8ca791781f81a1f081506e49d41ee408719bd21",
     "scripts/verify_project_onboarding.py": "d556be6517e62e79082b579533bbbaad872782fb65d8db867aa271df8db52248",
     "scripts/verify_project_onboarding_browser.cjs": "c5c6132db428a03245b25bb0b74d7ade9acf8ea6d9d87dd0e135a07bf55f3748"
+  },
+  "product_commit": "e3944903a53b192980584f2b62d3134e60f0b6f5",
+  "remote_ci": {
+    "runs": [
+      {
+        "id": 39939893437,
+        "name": "Core CI",
+        "head_sha": "e3944903a53b192980584f2b62d3134e60f0b6f5",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/39939893437"
+      },
+      {
+        "id": 39939893453,
+        "name": "Desktop Windows",
+        "head_sha": "e3944903a53b192980584f2b62d3134e60f0b6f5",
+        "status": "completed",
+        "conclusion": "success",
+        "html_url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/39939893453"
+      }
+    ],
+    "jobs": {
+      "Core CI": [
+        {
+          "name": "frontend",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "test (3.12)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "test (3.13)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "test (3.11)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "local-workflow",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "wheel",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "Desktop Windows": [
+        {
+          "name": "frontend-build",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "sidecar-build",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "recovery-process",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "tauri-build",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "sidecar-smoke",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "runtime-smoke",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "msi-smoke",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "core_junit": {
+      "12495846544-core-tests-3.12": {
+        "tests": 1406,
+        "passed": 1380,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 26,
+        "xfailed": 0,
+        "xpassed": 0,
+        "sources": [
+          "/tmp/asg-onboarding-ci/12495846544-core-tests-3.12/core-tests-3.12.xml"
+        ]
+      },
+      "12495297952-core-tests-3.11": {
+        "tests": 1406,
+        "passed": 1380,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 26,
+        "xfailed": 0,
+        "xpassed": 0,
+        "sources": [
+          "/tmp/asg-onboarding-ci/12495297952-core-tests-3.11/core-tests-3.11.xml"
+        ]
+      },
+      "12494569523-core-tests-3.13": {
+        "tests": 1406,
+        "passed": 1380,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 26,
+        "xfailed": 0,
+        "xpassed": 0,
+        "sources": [
+          "/tmp/asg-onboarding-ci/12494569523-core-tests-3.13/core-tests-3.13.xml"
+        ]
+      }
+    },
+    "core_artifact_hashes": [
+      {
+        "id": 12495846544,
+        "name": "core-tests-3.12",
+        "bytes": 28792,
+        "sha256": "a14f604b8713306c7794047c8a12d38629c11cdbb2063a28a13a895f748663c0",
+        "github_digest": "sha256:a14f604b8713306c7794047c8a12d38629c11cdbb2063a28a13a895f748663c0",
+        "verified": true,
+        "path": "/tmp/asg-onboarding-ci/12495846544-core-tests-3.12.zip"
+      },
+      {
+        "id": 12495297952,
+        "name": "core-tests-3.11",
+        "bytes": 28812,
+        "sha256": "b12b15be27b55af218b40655e07a05fb171baf49b781aa47d4d9b83d1327bb21",
+        "github_digest": "sha256:b12b15be27b55af218b40655e07a05fb171baf49b781aa47d4d9b83d1327bb21",
+        "verified": true,
+        "path": "/tmp/asg-onboarding-ci/12495297952-core-tests-3.11.zip"
+      },
+      {
+        "id": 12494569523,
+        "name": "core-tests-3.13",
+        "bytes": 28715,
+        "sha256": "d87de14029a21569562cb166b50d09397c8d3f2486b4fc9671e9e587e91aec74",
+        "github_digest": "sha256:d87de14029a21569562cb166b50d09397c8d3f2486b4fc9671e9e587e91aec74",
+        "verified": true,
+        "path": "/tmp/asg-onboarding-ci/12494569523-core-tests-3.13.zip"
+      }
+    ]
+  },
+  "native_cleanup": {
+    "additional_transfer_bytes_moved": 258749884,
+    "destination": "ASG-待手动清理-20261023/onboarding-transfer",
+    "permanently_deleted": false,
+    "source_and_destination_sha256_match": true,
+    "host_bytes_released_by_move": 0
+  },
+  "package": {
+    "archive": [
+      {
+        "id": 12496246850,
+        "name": "desktop-tauri-build",
+        "bytes": 68455961,
+        "sha256": "26286cc5ba84ed0e05ef10902fa12fcd7d70ae3aab1f0b66422a08fdc965d4d4",
+        "github_digest": "sha256:26286cc5ba84ed0e05ef10902fa12fcd7d70ae3aab1f0b66422a08fdc965d4d4",
+        "verified": true,
+        "path": "/tmp/asg-onboarding-ci/12496246850-desktop-tauri-build.zip"
+      }
+    ],
+    "files": [
+      {
+        "name": "agentguard-sidecar-x86_64-pc-windows-msvc.exe",
+        "bytes": 20389860,
+        "sha256": "6ae84bf8ca79e8f6d0e8af6409d57f249a23b78b34d047a16a6a707c9cad62d9",
+        "pe_verified": true
+      },
+      {
+        "name": "agentstate-guard.exe",
+        "bytes": 11665920,
+        "sha256": "680fe7f95a1eb650c4bc8fbded7b9abf0f76637337eff06476323a45b8873895",
+        "pe_verified": true
+      },
+      {
+        "name": "agentguard-sidecar.exe",
+        "bytes": 20389860,
+        "sha256": "6ae84bf8ca79e8f6d0e8af6409d57f249a23b78b34d047a16a6a707c9cad62d9",
+        "pe_verified": true
+      },
+      {
+        "name": "bundle/msi/AgentState Guard_0.9.0_x64_en-US.msi",
+        "bytes": 24334336,
+        "sha256": "d12bf8e856ace1c58fd56c38a0651a6343128201ce83afa4b21656f554298fb6",
+        "compound_header_verified": true
+      }
+    ],
+    "msi": {
+      "Path": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\onboarding-20261023\\package\\AgentState Guard_0.9.0_x64_en-US.msi",
+      "SHA256": "D12BF8E856ACE1C58FD56C38A0651A6343128201CE83AFA4B21656F554298FB6",
+      "ProductName": "AgentState Guard",
+      "ProductVersion": "0.9.0",
+      "ProductCode": "{74CA0EB7-36C4-4867-82F4-1584DE417D89}",
+      "UpgradeCode": "{E3DC1189-5CBA-53BC-BD91-4A515B7531F2}"
+    },
+    "upgrade_code_matches_previous_candidate": true,
+    "product_code_differs_from_previous_candidate": true,
+    "new_package_installed_on_user_machine_this_run": false,
+    "new_package_native_installation_verified_in_ci": true
   }
 }

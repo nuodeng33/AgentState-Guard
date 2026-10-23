@@ -1,5 +1,7 @@
 # Acceptance Matrix — AgentState Guard v1.0
 
+2026-10-23 ASG-ONBOARD-001最终产品固定为e3944903a53b192980584f2b62d3134e60f0b6f5；Core39939893437（6个job）及Windows39939893453（7个job）全部SUCCESS。远端三份JUnit逐份SHA-256与解析器核验均1380通过/26跳过；本地270前端、1360后端/46跳过及真实接入/重启和原有22项闭环证据独立保留。容器提供方执行拒绝EXECUTION_PROVIDER_SCOPE_UNVERIFIED、新入口原生操作/物理手机限制仍明确保留；不把会话201视为提供方执行。见[接入最终记录](../PROJECT_ONBOARDING_ACCEPTANCE_20261023.md)。
+
 2026-10-23 ASG-ONBOARD-001：已接通创建会话内程序/会话库接入及目录登记，文件恢复中可登记和配置目录保护；共用现有Core，无API/schema变更。未知回执保留原UUID跨面板，收到回执后仅重读权威列表；源不匹配/禁用/退役阻止创建。修复EMPTY/DEGRADED会话库前端误禁用。前端270通过，后端1360通过/46跳过，正式/demo构建与真实Core UI登记/配置/重启证据通过；容器提供方连接明确拒绝EXECUTION_PROVIDER_SCOPE_UNVERIFIED，未发送模型运行。原有真实交付/恢复22项通过；此前Windows/原生记录独立保留。详见[接入验收](../PROJECT_ONBOARDING_ACCEPTANCE_20261023.md)。远端CI随后记录。
 
 2026-10-23 ASG-REL-001/002最终本机：4378c6e真实MSI新装/两次直接升级、按MSI载荷验证安装身份、实际Tauri进程树强杀补偿与外部修改保留、重启数据/恢复历史、双语8页面通过；用户确认环境页黑窗口已消失。测试卸载及原6文件哈希还原通过。用户选择手动清理；14项约1.89GiB测试产物已集中移动待用户删除，源码/报告/备份保留，不计已释放空间。原生自动鼠标输入和真机限制保留。见[完整安装记录](../WINDOWS_INSTALL_ACCEPTANCE_20261023.md)。

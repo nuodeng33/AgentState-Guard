@@ -10,7 +10,7 @@ Affected paths: web/src/api/{execution,protection}.ts; components/{ProtectionSco
 
 Risks: unknown mutation outcome, stale revisions, mismatched application/store/scope source, stopped sources and stale metadata. Retain exact commands/UUID, freeze conflicting actions, validate receipt identity and re-read server state. GET candidates never register or start an environment. Program/store registration retains the existing discovery interface and contract.
 
-Tasks: [x] independent design and gate; [x] implementation; [x] regression and independent verification; [x] real Core/browser integration; [x] completion documentation; [ ] commit/push and exact-commit CI.
+Tasks: [x] independent design and gate; [x] implementation; [x] regression and independent verification; [x] real Core/browser integration; [x] completion documentation; [x] commit/push and exact-commit CI.
 
 Tests: focused enrollment failures/retry/configuration/source cases; session/recovery integration; full frontend/typecheck/production+demo build; backend full regression via deterministic JUnit parser; disposable real Core/browser first-use path and recovery configuration. Do not equate provider metadata with actual execution. Existing native provider/recovery evidence remains separately attributed.
 

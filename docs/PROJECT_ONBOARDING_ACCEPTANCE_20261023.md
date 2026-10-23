@@ -31,4 +31,14 @@ cd web && npm test && npm run typecheck && npm run build && npm run build:demo
 .venv/bin/python scripts/verify_local_workflow.py --report-dir /tmp/local-workflow-report
 ```
 
-Browser commands use PLAYWRIGHT_MODULE and CHROME_PATH supplied by the existing isolated test runtime. The onboarding harness uses temporary directories, stops only its owned Core/browser and never reads credentials. Consolidated results: [JSON](verification/PROJECT_ONBOARDING_20261023.json). Remote exact-commit results will be appended once available. Rollback: revert ASG-ONBOARD-001 UI/scripts/docs/static assets; no migration rollback required.
+Browser commands use PLAYWRIGHT_MODULE and CHROME_PATH supplied by the existing isolated test runtime. The onboarding harness uses temporary directories, stops only its owned Core/browser and never reads credentials. Consolidated results: [JSON](verification/PROJECT_ONBOARDING_20261023.json). Final tested product commit: `e3944903a53b192980584f2b62d3134e60f0b6f5`. Documentation-only follow-up commits do not change this tested product identity. Rollback: revert ASG-ONBOARD-001 UI/scripts/docs/static assets; no migration rollback required.
+
+## Final remote result
+
+Product `e3944903a53b192980584f2b62d3134e60f0b6f5`: [Core39939893437](https://github.com/nuodeng33/AgentState-Guard/actions/runs/39939893437) SUCCESS, all6 jobs; [Desktop Windows39939893453](https://github.com/nuodeng33/AgentState-Guard/actions/runs/39939893453) SUCCESS, all7 jobs including packaged runtime/MSI lifecycle. Downloaded Core JUnit ZIPs match GitHub SHA-256 digests; deterministic parser gives1380 passed/26 skipped independently for Python3.11,3.12,3.13. These are individual run results, not added together or substituted for the1360/46 local container result.
+
+中文入口：工作 → 更多操作 → 会话管理 → 创建会话。先展开“接入程序与会话库”主动扫描并登记；选择应用和会话库后，在“管理保护目录”登记项目，核对状态和策略，再单独勾选会话管理授权。工作 → 更多操作 → 文件恢复，也可管理目录保护及保留期/配额。
+
+本机保留源码已快进到产品提交；报告/截图/JUnit/关键失败材料保留在 `asg-native-20261023/onboarding-20261023`。本轮临时传输文件258749884字节已移入统一手动清理文件夹并逐文件核对SHA-256；未永久删除，移动释放主机空间为0。未改原业务数据库或凭据，未合并或发布。
+
+安装包已实际下载核验：GitHub产物ZIP SHA-256 `26286cc5ba84ed0e05ef10902fa12fcd7d70ae3aab1f0b66422a08fdc965d4d4`；MSI SHA-256 `d12bf8e856ace1c58fd56c38a0651a6343128201ce83afa4b21656f554298fb6`，24334336字节；EXE逐一验证MZ/PE及SHA-256。Windows Installer COM读取：ProductVersion0.9.0，ProductCode `{74CA0EB7-36C4-4867-82F4-1584DE417D89}`，UpgradeCode `{E3DC1189-5CBA-53BC-BD91-4A515B7531F2}`，与旧候选UpgradeCode一致、ProductCode不同。最新MSI保留于本机 `onboarding-20261023/package`。本轮新包在Windows CI实际安装/卸载成功，未再次安装到用户机器；此前4378c6e本机直接升级/恢复结果保持独立归属，不冒充新包本机验收。
