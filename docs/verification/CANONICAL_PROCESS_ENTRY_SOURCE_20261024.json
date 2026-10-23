@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "scope": "Actual existing container PID14 + temporary real SQLite catalog; source code, not rebuilt Windows package",
+  "checks": {
+    "process_uses_verified_canonical_entry": true,
+    "installed_and_running_share_one_program": true,
+    "actual_pid14_retained": true,
+    "package_and_version_retained": true,
+    "actual_interpreter_path_retained": true
+  },
+  "canonical_entry": "/usr/local/lib/node_modules/@cloudcli-ai/cloudcli/dist-server/server/modules/cli/cli.js",
+  "application_ids": [
+    "application-8b01ef38d7c22901c629dc44f646572a"
+  ]
+}

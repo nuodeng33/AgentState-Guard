@@ -94,7 +94,10 @@ for pid in pids[:MAX_PROCESSES]:
                 locator = _asg_applications.entry_from_argv(item["path"], values, cwd=item.get("cwd"))
                 if isinstance(locator, dict):
                     if locator.get("entry_path"):
-                        locator = {**_asg_applications.probe_entry(locator["entry_path"]), **locator}
+                        observed = _asg_applications.probe_entry(locator["entry_path"])
+                        canonical = observed.get("entry_path")
+                        if observed.get("status") == "AVAILABLE" and safe_text(canonical, 4096) and canonical.startswith("/"):
+                            locator = {**locator, **observed}
                     for key in ("entry_path", "package_name", "version"):
                         if isinstance(locator.get(key), str) and safe_text(locator[key], 4096):
                             item[key] = locator[key]

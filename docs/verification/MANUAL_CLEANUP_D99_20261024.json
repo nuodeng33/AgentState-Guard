@@ -1,0 +1,27 @@
+{
+  "bytes_moved": 218304864.0,
+  "result": "MOVED_FOR_USER_MANUAL_DELETION",
+  "permanently_deleted": false,
+  "disk_space_released_bytes": 0,
+  "retained": "latestsource4f4, verifieda096MSI/APK, first405failureartifact,4f4sidecarfailureevidence,logs,originaldataandbackup",
+  "items": [
+    {
+      "bytes": 40616285,
+      "artifact_zip_sha256": "386BCDCE834A6911C2350DE20A82703541DE4D0264CED21CE401DB4004AECC56",
+      "source": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12511171014",
+      "destination": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\ASG-\u5f85\u624b\u52a8\u6e05\u7406-20261023\\mumu-superseded-d99-20261024\\artifact-12511171014"
+    },
+    {
+      "bytes": 145486215,
+      "artifact_zip_sha256": "182480D8389BC005B86AED7ADD684335E86099A1C9CD520FFD9C34ED59D4FF70",
+      "source": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12512325104",
+      "destination": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\ASG-\u5f85\u624b\u52a8\u6e05\u7406-20261023\\mumu-superseded-d99-20261024\\artifact-12512325104"
+    },
+    {
+      "bytes": 32202364,
+      "artifact_zip_sha256": "E5BFFF756E1FF79F4E25DDF078162A53ADCEE5486AF703454F5C8CF37026A78D",
+      "source": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12510213554",
+      "destination": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\ASG-\u5f85\u624b\u52a8\u6e05\u7406-20261023\\mumu-superseded-d99-20261024\\artifact-12510213554"
+    }
+  ]
+}

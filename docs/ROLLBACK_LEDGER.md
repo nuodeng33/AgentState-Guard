@@ -43,3 +43,5 @@ Base405bbd4. Revert phase22 files/generated assets as one validated set; no sche
 2026-10-23 discovery CI/local-build follow-up: base d99bb660844960eeebd064a3acb479607509e95a. Revert only follow-up doctor wording, deterministic diagnostic/build gate tests and absolute local add-data path construction. No public API/schema/permission change. Preserve original failed CI/JUnit and native test failures. Independent sidecar test process tree stopped only after PID/path/birth-time checks; test installation/user-data restore remains outstanding.
 
 2026-10-24 agentcountfix basea096579: revertentrymetadata/projection/source-reason/countcopy/regressions only. Do notrecomputeoldledger, resetsources, restartproviders, deletefailurelogs ormodifyoriginaluserdata. NoDBmigration/APIshapeextension.
+
+2026-10-24 canonicalentryfix base4f4a7ef: revertonlysuccessfulcontainerlocatorcanonicalizationanditsregressions/evidence. NoDBmigration,aliasrowdeletion,ledgerrewrite,sourceenablingorprocessstartup. Preserve4f4freshWindowscatalog2-rowfailureforcomparison.

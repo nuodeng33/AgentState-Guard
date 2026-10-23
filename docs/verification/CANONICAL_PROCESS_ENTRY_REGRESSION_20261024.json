@@ -1,0 +1,48 @@
+{
+  "base_commit": "4f4a7ef149a4d33cae9e5fba6d5345f38409111a",
+  "review_findings": [],
+  "reviewed_paths": [
+    "agentguard/discovery/probes/container_processes.py",
+    "tests/test_discovery_docker_host.py"
+  ],
+  "file_sha256": {
+    "agentguard/discovery/probes/container_processes.py": "81abf3035348c9f272aee4b4c08f40c62b4a7cca8a6d74077d398229a8d3b324",
+    "tests/test_discovery_docker_host.py": "a1e0af3d55f60cbad1d2193135e609faedeec4fdc025e55c992a5d70ca52862a"
+  },
+  "scope_boundary": [
+    "Canonical replacement requires AVAILABLE + safe_text length/control filtering + absolute POSIX path",
+    "Only entry_path/package_name/version copied to process DTO; path remains actual /proc/exe interpreter",
+    "Unavailable or unsafe canonical preserves original script locator",
+    "Application identity remains source_id plus existing entry_path key; no cross-source merging",
+    "Existing read-only probe, symlink-depth/package-size/process/output bounds unchanged",
+    "No authority, permission, root boundary, process execution or provider-start expansion"
+  ],
+  "test_scope": "Docker local full backend regression; no frontend rerun or Windows/package verification; parent live PID14/catalog report reviewed as separate evidence only",
+  "scoped_ruff": "PASS",
+  "diff_check": "PASS",
+  "node_modules_symlink": "untouched",
+  "first_failure": null,
+  "status": "PASS",
+  "backend": {
+    "tests": 1497,
+    "passed": 1448,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 49,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "artifacts/canonical-independent/backend.xml"
+    ]
+  },
+  "backend_elapsed_seconds": 129.68,
+  "evidence_sha256": {
+    "backend.xml": "66d24a0e30bc398fde71003e596cfc521d8dfc6a787080dd1b5874eff751ae36",
+    "backend.log": "a952369a0d0fe3e26d8d45d0097f0431e8e2d0b542b519afac49dd5f06b596fb",
+    "backend-counts.json": "98e8d22cce52a9af3a9134af7c401e04cdd1fedc552878c8bcbeac855555e5ea"
+  },
+  "warnings": [
+    "49 backend skips retained, not asserted covered",
+    "Existing FastAPI on_event deprecation warnings"
+  ]
+}

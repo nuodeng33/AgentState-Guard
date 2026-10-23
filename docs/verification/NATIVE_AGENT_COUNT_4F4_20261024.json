@@ -1,0 +1,58 @@
+{
+  "artifact_id": 12514268793,
+  "result": "PASS",
+  "checks": {
+    "core_python_detected": true,
+    "doctor_no_phantom_agent_dev": true,
+    "both_real_containers_listed": true,
+    "both_real_container_process_probes_succeeded": true,
+    "running_cloudcli_wrapper_instance_identified": true,
+    "custom_launcher_not_invented_as_claude": true,
+    "two_container_runtime_observations": true,
+    "container_observation_grants_no_execution": true,
+    "expected_container_program_versions": true,
+    "inventory_not_paginated": true,
+    "permission_limited_scan_keeps_partial_reason": true
+  },
+  "exe_sha256": "BE3509E232CF6E0398F36D15D0D33EBDE174B594A638D87ED5207D6AD22C5AAB",
+  "observed_container_programs": [
+    {
+      "provider": "CCR",
+      "version": "3.0.7",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    },
+    {
+      "provider": "CODEX",
+      "version": "0.147.0",
+      "source_id": "docker-2f028af5dcca251fd2739b2e",
+      "running": false
+    },
+    {
+      "provider": "KIMI_CODE",
+      "version": "0.29.2",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    },
+    {
+      "provider": "CLOUDCLI",
+      "version": "1.37.5",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    },
+    {
+      "provider": "CLOUDCLI",
+      "version": "1.37.5",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": true
+    },
+    {
+      "provider": "CLAUDE",
+      "version": "2.1.306",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    }
+  ],
+  "scope": "Actual packaged standalone Windows Core; independent data/port18787; no desktop UI or MSI lifecycle claim",
+  "product_sha": "4f4a7ef149a4d33cae9e5fba6d5345f38409111a"
+}

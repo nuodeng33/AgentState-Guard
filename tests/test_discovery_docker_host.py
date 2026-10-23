@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -255,3 +256,45 @@ def test_probe_source_excludes_command_line_environment_and_writes():
     assert "item[\"argv\"]" not in CONTAINER_PROCESS_SOURCE
     assert "environ" not in CONTAINER_PROCESS_SOURCE
     assert "write(" not in CONTAINER_PROCESS_SOURCE.replace("sys.stdout.write(", "")
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='POSIX container proc and symlink entry contract')
+@pytest.mark.parametrize('entry_available', [True, False])
+def test_container_wrapper_uses_verified_canonical_entry_and_preserves_failed_locator(tmp_path, monkeypatch, entry_available):
+    import builtins
+    import io
+
+    from agentguard.discovery import application_probe
+    from agentguard.discovery.probes.container_processes import collect_processes
+
+    package = tmp_path / 'node_modules' / '@cloudcli-ai' / 'cloudcli'
+    package.mkdir(parents=True)
+    target = package / 'cli.js'
+    if entry_available:
+        target.write_text('throw new Error("must not execute")', encoding='utf-8')
+    (package / 'package.json').write_text('{"name":"@cloudcli-ai/cloudcli","version":"1.37.5"}', encoding='utf-8')
+    alias = tmp_path / 'cloudcli'
+    alias.symlink_to(target)
+    original_open, original_listdir, original_readlink = builtins.open, os.listdir, os.readlink
+    stat = '14 (node) ' + ' '.join(['S', '1'] + ['0'] * 17 + ['558'])
+    def opened(name, *args, **kwargs):
+        value = os.fspath(name)
+        if value == '/proc/sys/kernel/random/boot_id':
+            return io.StringIO('12345678-1234-1234-1234-123456789abc')
+        if value == '/proc/14/stat': return io.StringIO(stat)
+        if value == '/proc/14/comm': return io.StringIO('node')
+        if value == '/proc/14/cmdline':
+            return io.BytesIO(b'node\0' + os.fsencode(alias) + b'\0--token\0private-token')
+        return original_open(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, 'open', opened)
+    monkeypatch.setattr(os, 'listdir', lambda path: ['14'] if path == '/proc' else original_listdir(path))
+    monkeypatch.setattr(os, 'readlink', lambda path: '/usr/bin/node' if path == '/proc/14/exe' else '/work' if path == '/proc/14/cwd' else original_readlink(path))
+    result = collect_processes(application_probe)
+    assert len(result['processes']) == 1
+    process = result['processes'][0]
+    assert process['entry_path'] == str(target if entry_available else alias)
+    assert process['path'] == '/usr/bin/node'
+    if entry_available:
+        assert process['package_name'] == '@cloudcli-ai/cloudcli'
+        assert process['version'] == '1.37.5'
+    assert 'private-token' not in str(result)
