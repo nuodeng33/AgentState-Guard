@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-23",
+  "base_sha": "c03cfd78a1ca94ec2ad6ed5d744b3311b5ec4a4e",
+  "root_cause": "Historical schema-v1 observer EventType values missing in current verifier; no chain or payload hashes damaged",
+  "historical_types": {
+    "PROCESS_STARTED": 818,
+    "PROCESS_EXITED": 824,
+    "HOST_OBSERVER_LIFECYCLE": 6
+  },
+  "repair": "Restore exactly three known EventType members; keep existing privacy/canonicalization/hash/chain validation",
+  "database_rewrite": false,
+  "old_data_copy_migration": {
+    "result": "PASS",
+    "schema_before": 10,
+    "schema_after": 19,
+    "all_existing_rows_preserved": true,
+    "integrity": "ok",
+    "ledger_errors": []
+  },
+  "full_windows_tests": {
+    "tests": 1404,
+    "passed": 1391,
+    "skipped": 13,
+    "failures": 0,
+    "errors": 0
+  },
+  "negative_regressions": "Each historical type verifies unchanged rows; hash tampering and unknown type still rejected;9 ledger/adapter tests passed",
+  "packaged_sidecar": {
+    "result": "PASS",
+    "binary_candidate": "40693d7",
+    "isolated_state": true,
+    "loopback_port": 18787,
+    "health": true,
+    "authenticated_status": true,
+    "authenticated_versions": true,
+    "owned_process_cleanup": true,
+    "default_ASG_data_accessed": false
+  },
+  "not_covered": [
+    "local MSI install/upgrade",
+    "packaged desktop main interactive behavior",
+    "packaged crash business recovery",
+    "physical mobile touch acceptance"
+  ],
+  "reports_sha256": {
+    "windows-ledger-fixed.xml": "0d2fc2227a54963333c3be52c41e420ffe58189827d9f32b56e8662a1348810a",
+    "packaged-sidecar-real.json": "a5ea2baf1b884eef01f2bba93840357c2b87a1b921a6d94039c4f1b4e6c3f68f"
+  }
+}

@@ -95,3 +95,32 @@ def test_database_rejects_update_and_delete(tmp_path):
             )
     finally:
         connection.close()
+
+
+@pytest.mark.parametrize("event_type", ["PROCESS_STARTED", "PROCESS_EXITED", "HOST_OBSERVER_LIFECYCLE"])
+def test_historical_observer_events_keep_original_hashes_and_reject_tampering(tmp_path, event_type):
+    from dataclasses import replace
+    from enum import Enum
+
+    # Serialize a legacy writer value independently of the current reader enum.
+    legacy_type = Enum("LegacyType", {event_type: event_type}, type=str)
+    event = replace(_event(), event_family=EventFamily.SUPERVISION,
+                    event_type=legacy_type(event_type))
+    connection = _connection(tmp_path)
+    damaged = sqlite3.connect(":memory:")
+    try:
+        EvidenceLedger().append(connection, event)
+        connection.commit()
+        assert verify_ledger(connection) == []
+        cursor = connection.execute("SELECT * FROM evidence_ledger_events")
+        columns = [item[0] for item in cursor.description]
+        row = list(cursor.fetchone())
+        damaged.execute("CREATE TABLE evidence_ledger_events (" + ",".join(columns) + ")")
+        damaged.execute("INSERT INTO evidence_ledger_events VALUES (" + ",".join("?" for _ in columns) + ")", row)
+        damaged.execute("UPDATE evidence_ledger_events SET curr_hash = ?", ("f" * 64,))
+        assert "LEDGER_CURR_HASH_INVALID" in verify_ledger(damaged)
+        damaged.execute("UPDATE evidence_ledger_events SET event_type = 'UNKNOWN_LEGACY_EVENT'")
+        assert "LEDGER_AUTHORITY_INVALID" in verify_ledger(damaged)
+    finally:
+        damaged.close()
+        connection.close()

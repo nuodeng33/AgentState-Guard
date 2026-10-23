@@ -1,5 +1,7 @@
 # Current State
 
+2026-10-23 本机问题已定位修复：旧账本1648条错误来自校验器遗漏三种历史schema-v1事件类型，不是哈希损坏。补回PROCESS_STARTED/PROCESS_EXITED/HOST_OBSERVER_LIFECYCLE后，旧库备份及迁移副本原始哈希链均通过；副本schema10→19全部行保留、integrity=ok、ledger_errors=[]，未修改原库或重算历史哈希。新增回归确认未知类型、哈希篡改仍拒绝；本机完整1391通过/13跳过/0失败。已通过更窄的独立CLI启动验证下载的40693d7打包sidecar：独立数据目录、回环18787，健康/鉴权状态及版本/归属进程清理通过，无现有ASG数据访问。先前自动审批拒绝的是组合操作，本次独立启动实际获准；不再将sidecar记为不可运行。MSI本机升级、桌面主程序交互/异常业务恢复与真机仍待验收。详见 [问题闭环证据](verification/WINDOWS_LEGACY_LEDGER_20261023.json)。下方旧失败记录保留为历史。
+
 2026-10-23 本机接续：Windows完整回归1388通过/13跳过；真实Edge/Core22项与真实Codex执行/续接/取消/验收/恢复PASS，真实DACL拒绝及ACL还原PASS。修复当前session继承网络策略、验收SQLite连接释放、Windows venv worker PID与路径校验。旧库副本升级仍FAIL：迁移前后均1648条LEDGER_AUTHORITY_INVALID；原始行保留，未修改原库。打包程序启动遭自动审批拒绝，本机MSI/升级与打包异常业务恢复未验收。详见 [本机验证](WINDOWS_NATIVE_VERIFICATION_20261023.md)。
 
 2026-10-23 接续最终核验：验收产品代码固定为 `40693d78d5e5f7bd9ff046bee72da1e5c1ddea3f`，分支 `fix/codex-empty-store`。实际 Core run `39913027492` 与 Desktop Windows run `39913027509` 均已终态 SUCCESS；Windows 包含 recovery-process、frontend/sidecar/Tauri 构建、独立与打包 sidecar、MSI 新装→打包主程序到 Core→严格桌面检查→清理→卸载及残留检查。实际下载的三份远端 JUnit 经项目解析器分别核对为 1375 passed / 26 skipped（各1401项，不跨运行累加）；真实 Linux UI 报告22项均严格为true。产物ZIP按GitHub digest核验，EXE/安装包格式与逐文件哈希另行核对。详见 [最终CI核验](verification/CI_40693d7_20261023.json)；未改产品代码、未调用模型、未合并或发布。旧版升级、真实DACL拒绝、打包程序异常后的业务恢复、Windows真实Codex闭环、桌面/手机真机仍未验收。以下记录为历史。
