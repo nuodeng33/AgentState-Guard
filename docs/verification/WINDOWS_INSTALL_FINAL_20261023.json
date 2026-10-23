@@ -231,16 +231,19 @@
   },
   "uninstall_exit_code": 0,
   "cleanup": {
-    "status": "AWAITING_EXPLICIT_PERMANENT_DELETE_CONFIRMATION",
-    "removed_file_bytes": 0,
-    "eligible_file_bytes": 2027511328.0,
-    "reparse_points_in_temporary_root": 1977,
-    "review_rejection": "blocked by policy; no specific reason returned",
-    "original_restoration": "PASS; independent backup retained"
+    "status": "MOVED_FOR_MANUAL_REMOVAL",
+    "moved_entries": 14,
+    "moved_file_bytes": 2027520428.0,
+    "destination_folder": "ASG-待手动清理-20261023",
+    "permanently_deleted": false,
+    "space_reclaimed_by_move": 0,
+    "original_data_and_backup_hashes_verified": true,
+    "link_handling": "same-volume moves;1977 symbolic links not followed; user performs final removal"
   },
   "notes": [
     "Initial page driver failures were loading-state assertions; final driver awaits actual navigation/loading completion, preserves failures, and checks nonempty content rather than arbitrary text length.",
     "Earlier composite shell actions rejected by automatic review; explicit individually scoped installation/restoration actions succeeded.",
-    "No merge or release; physical mobile interaction not verified."
+    "No merge or release; physical mobile interaction not verified.",
+    "User chose a unified manual-removal checkpoint instead of permanent deletion. All14 scoped items moved; source, reports and verified original backup retained."
   ]
 }
