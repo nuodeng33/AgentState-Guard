@@ -38,7 +38,7 @@ jobs:
         shell: pwsh
         run: |
           $crashTemp = Join-Path $env:RUNNER_TEMP "asg-recovery-process"
-          python -m pytest tests/test_protection_process_crash.py -v --tb=short --basetemp $crashTemp --junitxml artifacts/recovery-process-windows.xml
+          python -m pytest tests/test_protection_process_crash.py tests/test_desktop_local_smoke.py tests/test_desktop_smoke_exit.py -v --tb=short --basetemp $crashTemp --junitxml artifacts/recovery-process-windows.xml
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         if: always()
         with:
@@ -548,6 +548,10 @@ jobs:
           }
           # Keep this outside finally so startup/API/cleanup failures cannot pass.
           exit 0
+
+      - name: Strict installed desktop smoke
+        shell: pwsh
+        run: ./scripts/test-desktop.ps1 -BinaryPath $env:INSTALLED_EXE
 
       - name: Upload packaged main smoke logs
         if: always()
