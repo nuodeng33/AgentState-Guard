@@ -101,7 +101,7 @@ def test_partial_container_scan_keeps_positive_facts_but_marks_projection_degrad
     agents, _ = projection(tmp_path, managed.discover_with_authority())
     assert agents["status"] == "DEGRADED"
     assert len(agents["items"]) == 2
-    assert agents["reason_code"] == "R4_AGENT_DISCOVERY_UNREACHABLE"
+    assert agents["reason_code"] == "R4_AGENT_DISCOVERY_PARTIAL"
 
 
 def test_stale_observation_does_not_imply_current_process_or_control(tmp_path):
@@ -300,3 +300,21 @@ def test_running_container_runtime_remains_visible_when_process_probe_fails(tmp_
     assert all(item['availability'] == 'AVAILABLE' for item in containers)
     assert all(item['capabilities'] == ['container_observation'] for item in containers)
     assert all(item['state'] == 'UNREACHABLE' for item in managed.sources()['items'] if item['kind'] == 'CONTAINER')
+
+
+def test_truly_unreachable_container_retains_unreachable_projection_reason(tmp_path):
+    managed = service()
+    managed.docker.status = CapabilityStatus.UNREACHABLE
+    agents, _ = projection(tmp_path, managed.discover_with_authority())
+    assert agents['status'] == 'DEGRADED'
+    assert len(agents['items']) == 1
+    assert agents['reason_code'] == 'R4_AGENT_DISCOVERY_UNREACHABLE'
+
+
+def test_permission_denied_is_partial_coverage_not_total_discovery_unreachability(tmp_path):
+    managed = service()
+    managed.docker.status = CapabilityStatus.PERMISSION_DENIED
+    agents, _ = projection(tmp_path, managed.discover_with_authority())
+    assert agents['status'] == 'DEGRADED'
+    assert len(agents['items']) == 1
+    assert agents['reason_code'] == 'R4_AGENT_DISCOVERY_PARTIAL'

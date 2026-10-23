@@ -1,0 +1,175 @@
+{
+  "product_sha": "a09657997ae2a746dda82c233ba29133c65aed92",
+  "scope": "Earlier exact product native acceptance; independent of subsequent agent-count repair",
+  "ci": {
+    "Core CI": {
+      "id": 39978372993,
+      "conclusion": "success"
+    },
+    "Desktop Windows": {
+      "id": 39978372876,
+      "conclusion": "success"
+    },
+    "Android Build": {
+      "id": 39978372729,
+      "conclusion": "success"
+    },
+    "Android Emulator Runtime": {
+      "id": 39978372972,
+      "conclusion": "success"
+    }
+  },
+  "native_standalone_discovery": {
+    "result": "PASS",
+    "scope": "Actual packaged standalone Windows Core; independent data/port18787; no desktop UI or MSI lifecycle claim",
+    "checks": {
+      "both_real_containers_listed": true,
+      "doctor_no_phantom_agent_dev": true,
+      "container_observation_grants_no_execution": true,
+      "core_python_detected": true,
+      "expected_container_program_versions": true,
+      "two_container_runtime_observations": true,
+      "both_real_container_process_probes_succeeded": true,
+      "inventory_not_paginated": true
+    },
+    "exe_sha256": "256FFB7096D5862B15864EC68746F6870CE58530CE06B960520ADE1509B2584B",
+    "artifact_id": 12512601027,
+    "product_sha": "a09657997ae2a746dda82c233ba29133c65aed92",
+    "observed_container_programs": [
+      {
+        "provider": "CCR",
+        "version": "3.0.7",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": false
+      },
+      {
+        "provider": "CODEX",
+        "version": "0.147.0",
+        "source_id": "docker-2f028af5dcca251fd2739b2e",
+        "running": false
+      },
+      {
+        "provider": "KIMI_CODE",
+        "version": "0.29.2",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": false
+      },
+      {
+        "provider": "CLOUDCLI",
+        "version": "1.37.5",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": false
+      },
+      {
+        "provider": "CLAUDE",
+        "version": "2.1.306",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": false
+      }
+    ]
+  },
+  "direct_msi_upgrade": {
+    "direct_upgrade": true,
+    "exit_code": 0,
+    "msi_sha256": "0E89C45595C054EFCE951F1903F4077D5B43936FD48ACCE0C27508E7C213E476",
+    "old_product_code": "{09901FC6-1766-4F5A-A3BA-9FA1216F969F}",
+    "windows_restart_requested": false,
+    "manual_uninstall_before_upgrade": false,
+    "new_product_code": "{E11C3714-D731-4326-9D98-655E651AC615}"
+  },
+  "post_upgrade_data_checks": {
+    "result": "PASS",
+    "checks": {
+      "work_exactly_preserved": true,
+      "baseline_preserved": true,
+      "successful_operation_preserved": true,
+      "same_request_not_replayed": true,
+      "actual_file_preserved": true
+    },
+    "scope": "Old installed Core seed, direct MSI upgrade, new installed Core reread; no desktop UI claim"
+  },
+  "installed_msi_payload_hashes": [
+    {
+      "matches": true,
+      "msi_payload_sha256": "E9067F49FB433A7D12E0AD0B9F38DB85FEA806E231ECD4E2515E90637C89717A",
+      "name": "agentstate-guard.exe",
+      "installed_sha256": "E9067F49FB433A7D12E0AD0B9F38DB85FEA806E231ECD4E2515E90637C89717A"
+    },
+    {
+      "matches": true,
+      "msi_payload_sha256": "256FFB7096D5862B15864EC68746F6870CE58530CE06B960520ADE1509B2584B",
+      "name": "agentguard-sidecar.exe",
+      "installed_sha256": "256FFB7096D5862B15864EC68746F6870CE58530CE06B960520ADE1509B2584B"
+    }
+  ],
+  "ai_native": {
+    "status": "PASS",
+    "target_commit": "a09657997ae2a746dda82c233ba29133c65aed92",
+    "scope": "Actual Windows packaged Core + loopback deterministic HTTP fixture; transport/config integration only; not model quality or desktop UI",
+    "checks_in_final_run": 31,
+    "failed_checks_in_final_run": [],
+    "final_report": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\ai-native-a096\\run-20261023T155033-677605Z\\report.json",
+    "final_report_sha256": "ced9d7f8f8dbdaf1b3035250f526199ba809d377c48ffec49d314b3112bd0d2a",
+    "verifier_sha256": "cdd22218b53a7f46388ffa898a230b1eca65eb09a08d7c44529a6da6a7880b5e",
+    "binary": {
+      "path": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12512601027\\agentguard-sidecar.exe",
+      "bytes": 20431662,
+      "sha256": "256ffb7096d5862b15864ec68746f6870ce58530ce06b960520ade1509b2584b"
+    },
+    "owned_processes": [
+      {
+        "pid": 26244,
+        "image_path": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12512601027\\agentguard-sidecar.exe",
+        "creation_filetime": 134372442337159540,
+        "creation_utc": "2026-10-23T15:50:33.715954+00:00",
+        "parent_pid": 33400
+      },
+      {
+        "pid": 8660,
+        "image_path": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12512601027\\agentguard-sidecar.exe",
+        "creation_filetime": 134372442339188634,
+        "creation_utc": "2026-10-23T15:50:33.918863+00:00",
+        "parent_pid": 26244
+      }
+    ],
+    "owned_processes_still_alive": [],
+    "os_core_listeners": [],
+    "cleanup": [
+      {
+        "pid": 8660,
+        "verified_identity": {
+          "pid": 8660,
+          "image_path": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12512601027\\agentguard-sidecar.exe",
+          "creation_filetime": 134372442339188634,
+          "creation_utc": "2026-10-23T15:50:33.918863+00:00"
+        },
+        "terminated": true
+      },
+      {
+        "pid": 26244,
+        "verified_identity": {
+          "pid": 26244,
+          "image_path": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12512601027\\agentguard-sidecar.exe",
+          "creation_filetime": 134372442337159540,
+          "creation_utc": "2026-10-23T15:50:33.715954+00:00"
+        },
+        "terminated": true
+      }
+    ],
+    "final_http_transactions": 23,
+    "local_upstream_requests": 13,
+    "earlier_failed_run_preserved": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\ai-native-a096\\run-20261023T154630-483430Z\\report.json",
+    "earlier_failed_run_sha256": "0f72ce47ef6466ad18d562da21c50a48ad2660714dcbb13789a4cf478207ad23",
+    "earlier_failure": "Verifier connect_ex timeout result10035 was inconclusive. Original FAIL preserved; independent OS LISTEN absence, owned-PID absence and exclusive bind confirmed cleanup. Verifier measurement corrected, entire suite rerun.",
+    "diagnosis": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\ai-native-a096\\diagnosis.md"
+  },
+  "limits": [
+    "Actual Windows packaged Core transport tests used a local fixture, not real model quality",
+    "Native desktop accessibility text works, but click failed coordinate input geometry unavailable and screenshots timed out",
+    "Physical Escape stopped Computer Use again after renewed authorization; no further Windows inputs",
+    "Fresh MuMu1 testAPK updated only after debug signing mismatch; actual pairing not completed",
+    "Original six business files remain in original-isolated and original-backup, hash rechecked; uninstall/test-data archival/restore still required",
+    "Agent-count omission discovered after this acceptance and fixed in a subsequent source change; not falsely closed by these results"
+  ],
+  "artifact_main_exe_variation": "Standalone artifact vs installed MSI main differs at3bytes UNK to MSI bundle marker; installed main/sidecar match actual administratively extracted MSI payload exactly"
+}

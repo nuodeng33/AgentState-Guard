@@ -10,9 +10,10 @@
 
 import { apiClient, type ApiClient } from '../api/client';
 import { getDevices } from '../api/product';
-import type { DeviceLinkStatus, R4ViewDto, ViewName } from '../api/types';
+import type { AgentItem, DeviceLinkStatus, R4ViewDto, ViewName } from '../api/types';
 import { useAsync } from '../api/useAsync';
 import { useR4View } from '../api/useR4View';
+import { AgentObservationSummary } from '../components/AgentObservationSummary';
 import { AiAdvisoryPanel } from '../components/AiAdvisoryPanel';
 import { SectionHeader } from '../components/SectionHeader';
 import { StateBadge, viewStatusTone, type BadgeTone } from '../components/StateBadge';
@@ -77,7 +78,8 @@ function ViewSummaryCard({
       <p className="status-card-meta">
         <code>{data.reason_code}</code>
       </p>
-      <p className="status-card-meta muted">{t('common.items', { count: data.items.length })}</p>
+      {view === 'agents' ? <AgentObservationSummary items={data.items as AgentItem[]} status={data.status} reasonCode={data.reason_code} />
+        : <p className="status-card-meta muted">{t('common.items', { count: data.items.length })}</p>}
       {data.observed_at && (
         <p className="status-card-meta muted">{t('env.observedAt', { time: data.observed_at })}</p>
       )}

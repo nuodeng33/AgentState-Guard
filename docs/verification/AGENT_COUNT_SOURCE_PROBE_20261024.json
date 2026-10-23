@@ -1,0 +1,37 @@
+{
+  "result": "PASS",
+  "scope": "Actual existing container process metadata; source probe, not a new Windows installed package",
+  "checks": {
+    "running_cloudcli_identified_from_package": true,
+    "launcher_not_invented_as_claude": true,
+    "no_prompt_or_full_argv_in_output": true
+  },
+  "observations": [
+    {
+      "pid": 1,
+      "ppid": 0,
+      "name": "node",
+      "start_ticks": 522,
+      "path": "/usr/local/bin/node",
+      "executable_basename": "node",
+      "cwd": "/workspace/projects",
+      "entry_path": "/usr/local/libexec/claude-web-launcher.mjs",
+      "provider": null,
+      "role": null
+    },
+    {
+      "pid": 14,
+      "ppid": 1,
+      "name": "node",
+      "start_ticks": 558,
+      "path": "/usr/local/bin/node",
+      "executable_basename": "node",
+      "cwd": "/workspace/projects",
+      "entry_path": "/usr/local/bin/cloudcli",
+      "package_name": "@cloudcli-ai/cloudcli",
+      "version": "1.37.5",
+      "provider": "CLOUDCLI",
+      "role": "AGENT_HOST"
+    }
+  ]
+}

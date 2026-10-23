@@ -45,6 +45,9 @@ export type MessageKey =
   | 'common.yes'
   | 'common.no'
   | 'common.items'
+  | 'agents.observedRunning'
+  | 'agents.observationScope'
+  | 'agents.partialCoverage'
   | 'common.close'
   | 'state.degraded.title'
   | 'state.degraded.body'
@@ -358,6 +361,9 @@ const enUS: Messages = {
   'common.yes': 'Yes',
   'common.no': 'No',
   'common.items': '{count} items',
+  'agents.observedRunning': 'Confirmed running: {count} instances',
+  'agents.observationScope': '{count} observation records. Installed programs are listed in Environment; running does not imply task execution.',
+  'agents.partialCoverage': 'Some process observations are unavailable or incomplete. This count is not a complete total.',
   'common.close': 'Close',
   'state.degraded.title': '{label} view degraded',
   'state.degraded.body':
@@ -679,6 +685,9 @@ const zhCN: Messages = {
   'common.yes': '是',
   'common.no': '否',
   'common.items': '{count} 条记录',
+  'agents.observedRunning': '已确认运行：{count} 个实例',
+  'agents.observationScope': '共 {count} 条观测记录。已安装程序见环境页；运行不代表正在执行任务。',
+  'agents.partialCoverage': '部分进程观测不可用或不完整，此数量不代表完整总数。',
   'common.close': '关闭',
   'state.degraded.title': '{label}视图已降级',
   'state.degraded.body':

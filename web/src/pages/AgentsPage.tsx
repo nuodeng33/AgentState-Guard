@@ -1,4 +1,5 @@
 import type { AgentItem, AgentsView } from '../api/types';
+import { AgentObservationSummary } from '../components/AgentObservationSummary';
 import { AgentIdentityDetails, AgentIdentityLabel } from '../components/AgentIdentity';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceRefs } from '../components/EvidenceRefs';
@@ -34,6 +35,8 @@ export function AgentsViewBody({ data }: { data: AgentsView }) {
           reason_code: <code>{data.reason_code}</code>
         </span>
       </div>
+
+      <AgentObservationSummary items={data.items} status={data.status} reasonCode={data.reason_code} />
 
       {data.status === 'EMPTY' && (
         <EmptyState

@@ -676,3 +676,23 @@ def test_production_backend_has_no_offline_boundary_imports(forbidden_import):
             imported.add(node.module.split(".", 1)[0])
 
     assert forbidden_import not in imported
+
+
+def test_extensionless_interpreter_entry_uses_package_metadata_without_executing(tmp_path):
+    from agentguard.discovery.agents.models import AgentRole
+    from agentguard.discovery.agents.psutil_backend import PsutilProcessHandle
+    from agentguard.discovery.signatures import classify_metadata
+
+    package = tmp_path / 'node_modules' / '@cloudcli-ai' / 'cloudcli'
+    package.mkdir(parents=True)
+    entry = package / 'cloudcli'
+    entry.write_text('raise RuntimeError("must never run")', encoding='utf-8')
+    (package / 'package.json').write_text('{"name":"@cloudcli-ai/cloudcli","version":"1.37.5"}', encoding='utf-8')
+    process = FakeProcess(411)
+    process.exe = lambda: '/usr/bin/node'
+    process.cmdline = lambda: ['node', str(entry), '--token', 'private-token']
+    metadata = PsutilProcessHandle(411, psutil_module=FakePsutil((process,))).application_metadata()
+    assert metadata['package_name'] == '@cloudcli-ai/cloudcli'
+    assert metadata['version'] == '1.37.5'
+    assert classify_metadata({**metadata, 'executable_basename': 'node'}, 'local') == ('CLOUDCLI', AgentRole.AGENT_HOST)
+    assert 'private-token' not in json.dumps(metadata)

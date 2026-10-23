@@ -27,8 +27,11 @@ def entry_from_argv(executable: str, argv: tuple[str, ...] | list[str], *, cwd: 
                 break
     elif basename in {"node", "node.exe", "python", "python.exe", "python3", "python3.exe"} and len(arguments) > 1:
         candidate = arguments[1]
-        if candidate and not candidate.startswith("-") and candidate.casefold().endswith(
-            (".js", ".mjs", ".cjs", ".py")
+        # Interpreter entry files need not have an extension (npm bin links
+        # commonly do not). This is only a locator, never an agent signature;
+        # downstream file/package observation still determines identity.
+        if candidate and not candidate.startswith("-") and all(
+            ord(char) >= 32 and ord(char) != 127 for char in candidate
         ):
             import ntpath
             import posixpath

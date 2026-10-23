@@ -359,6 +359,7 @@ class R4ReadProjectionService:
         latest_snapshot_id = _latest_discovery_snapshot_id(connection)
         latest_rows: dict[str, tuple[Any, ...]] = {}
         failure_refs: list[str] = []
+        unreachable_failure = False
         for row in rows:
             payload = _json_object(row[6])
             if latest_snapshot_id is not None and (
@@ -373,6 +374,10 @@ class R4ReadProjectionService:
                 and value.get("scope") == "agents"
             ):
                 failure_refs.append(row[1])
+                # A bounded/permission-limited scan still produced observations.
+                # Do not label it unreachable merely because both use the same
+                # evidence event type. Retain actual transport failures.
+                unreachable_failure = unreachable_failure or row[2].casefold() in {"unreachable", "error"}
                 continue
             agent_id = _atom(payload.get("agent_id")) if payload else None
             latest_rows[agent_id or row[1]] = row
@@ -487,6 +492,8 @@ class R4ReadProjectionService:
             "R4_AGENTS_AVAILABLE"
             if complete
             else "R4_AGENT_DISCOVERY_UNREACHABLE"
+            if unreachable_failure
+            else "R4_AGENT_DISCOVERY_PARTIAL"
             if failure_refs
             else "R4_WORKSPACE_BINDING_INCOMPLETE"
             if items

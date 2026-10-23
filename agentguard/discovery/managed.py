@@ -193,9 +193,15 @@ class ManagedDiscoveryService:
                 reliability=EvidenceReliability.HIGH, status=capability, sanitized=True,
             ))
 
+        local_reason = next((
+            item.value.get("reason_code") for item in local.evidence
+            if item.fact_type == "probe.unreachable" and isinstance(item.value, dict)
+            and item.value.get("scope") == "agents"
+            and isinstance(item.value.get("reason_code"), str)
+        ), "LOCAL_PROCESS_OBSERVATION")
         source("local", "NATIVE", "Local processes",
                "OBSERVED" if local.status is CapabilityStatus.AVAILABLE else "PARTIAL",
-               "LOCAL_PROCESS_OBSERVATION", len(local.agents))
+               local_reason, len(local.agents))
         if not enabled("docker"):
             source("docker", "DOCKER", "Local Docker", "DISABLED", "SOURCE_DISABLED")
             # Emit a coverage record, so a disabled source is not mistaken for scanned empty.

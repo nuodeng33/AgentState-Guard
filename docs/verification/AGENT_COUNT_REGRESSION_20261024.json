@@ -1,0 +1,47 @@
+{
+  "base_commit": "a09657997ae2a746dda82c233ba29133c65aed92",
+  "scope": "Independent review and local Docker tests/build only; uncommitted agent discovery/count patch; no Windows/UI/provider/auth/model operations",
+  "backend": {
+    "tests": 1495,
+    "passed": 1446,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 49,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "artifacts/agent-count-independent/backend.xml"
+    ]
+  },
+  "frontend_final": {
+    "tests": 294,
+    "passed": 294,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "artifacts/agent-count-independent/frontend-final.xml"
+    ]
+  },
+  "typecheck": "PASS",
+  "production_build": "PASS (normal generated web_static assets updated by npm run build)",
+  "scoped_ruff": "PASS",
+  "diff_check": "PASS",
+  "review_findings_remaining": [],
+  "resolved_review_finding": "Summary formerly described all DEGRADED as incomplete process coverage; parent constrained reasonCode and added workspace-binding negative test, independently reviewed and verified",
+  "warnings": [
+    "Existing lazy WorkRestScene chunk507.34kB warning",
+    "Existing FastAPI on_event deprecations",
+    "49 skipped backend tests remain skipped"
+  ],
+  "node_modules_symlink": "Unchanged; /workspace/projects/AgentState-Guard/web/node_modules",
+  "first_failure": null,
+  "evidence_hashes": {
+    "backend.xml": "ac43535ce30713c72f7a071b73c42b5a808c7ca5fbd863eed877fabbf6179028",
+    "frontend-final.xml": "8f97d50c17329514f68a8aeb60ef8b5d67acd62d8fd7b6963705531391c7793c",
+    "backend.log": "c59f46613803275838964aeb2c309878bf8b4d0c3d4a52967773995612afa7df",
+    "frontend-final.log": "88bde2b6fe91d53d06275b39052465440f6836dbbb0c21277be67c4dfe422110"
+  }
+}

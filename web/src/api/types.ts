@@ -65,6 +65,8 @@ export interface AgentItem {
   role: string;
   /** Backend-owned lifecycle (e.g. DETECTED | UNKNOWN). Rendered verbatim. */
   lifecycle: string;
+  presence?: string;
+  freshness?: string;
   confidence: number;
   execution_domain_id: string | null;
   workspace: AgentWorkspace;

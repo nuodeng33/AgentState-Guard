@@ -234,3 +234,32 @@ def test_unknown_non_executable_path_file_is_not_a_program(tmp_path, monkeypatch
     monkeypatch.setenv("PATH", str(tmp_path))
     found = inventory(())
     assert all(item["path"] != str(document) for item in found["items"])
+
+
+@pytest.mark.parametrize("relative", [False, True])
+def test_extensionless_node_entry_recognizes_real_package_without_prompt_arguments(tmp_path, relative):
+    package = tmp_path / 'node_modules' / '@cloudcli-ai' / 'cloudcli'
+    package.mkdir(parents=True)
+    script = package / 'cloudcli'
+    script.write_text('# fixture; must never execute', encoding='utf-8')
+    (package / 'package.json').write_text('{"name":"@cloudcli-ai/cloudcli","version":"1.37.5"}', encoding='utf-8')
+    entry = str(script.relative_to(tmp_path)) if relative else str(script)
+    parsed = entry_from_argv('/usr/bin/node', ['node', entry, '--token=private-never-return'], cwd=str(tmp_path))
+    assert parsed['entry_path'] == str(script)
+    metadata = {**probe_entry(parsed['entry_path']), 'executable_basename': 'node'}
+    assert classify_metadata(metadata, 'container') == ('CLOUDCLI', AgentRole.AGENT_HOST)
+    assert 'private-never-return' not in str(parsed) + str(metadata)
+
+
+@pytest.mark.parametrize('entry', ['-e', '-c', '-m', '--eval', '-', 'private\nentry'])
+def test_interpreter_control_arguments_are_not_script_locators(entry):
+    assert entry_from_argv('node', ['node', entry, 'private'], cwd='/work')['entry_path'] is None
+
+
+def test_extensionless_unknown_entry_does_not_invent_agent_identity(tmp_path):
+    script = tmp_path / 'claude-launcher'
+    script.write_text('# private fixture', encoding='utf-8')
+    parsed = entry_from_argv('node', ['node', str(script)])
+    assert parsed['entry_path'] == str(script)
+    metadata = {**probe_entry(parsed['entry_path']), 'executable_basename': 'node'}
+    assert classify_metadata(metadata, 'container') is None

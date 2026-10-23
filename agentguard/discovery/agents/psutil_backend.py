@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, TypeVar
 
-from ..application_probe import entry_from_argv
+from ..application_probe import entry_from_argv, probe_entry
 
 try:
     import psutil as _psutil
@@ -121,7 +121,16 @@ class PsutilProcessHandle(ProcessHandle):
                 except (ProcessLookupError, ProcessAccessDeniedError, ProcessZombieError,
                         ProcessCollectorFailure, NotImplementedError):
                     pass
-        return {"path": path, **parsed}
+        metadata = {"path": path, **parsed}
+        if parsed["entry_path"]:
+            observed = probe_entry(parsed["entry_path"])
+            if observed["status"] == "AVAILABLE":
+                # Resolve wrappers through the same bounded file/package reader
+                # as container probes. A script locator alone grants no identity.
+                metadata.update({key: observed[key] for key in (
+                    "entry_path", "package_name", "version", "identity"
+                )})
+        return metadata
 
     def _new_process(self) -> Any:
         try:
