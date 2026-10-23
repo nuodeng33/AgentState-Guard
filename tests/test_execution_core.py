@@ -262,3 +262,32 @@ def test_restart_keeps_unknown_execution_and_does_not_send(setup):
     with runtime.journal() as service:
         assert service.one('work_runs', run_id)['state'] == 'UNCERTAIN'
     assert setup['owner']['sends'] == 0
+
+
+def test_new_session_can_bootstrap_verified_store_without_history(setup):
+    store = setup['workspace'].parent / 'provider'
+    (store / 'sessions').rmdir()
+    setup['runtime'].start()
+    wait_for(lambda: setup['runtime'].accepting, bool)
+    result = create_session(setup)
+    assert result['state'] == 'READY'
+    assert setup['owner']['creates'] == 1
+    assert not (store / 'sessions').exists()  # Core metadata probes do not create provider files.
+
+
+@pytest.mark.parametrize('change', ['missing', 'replacement', 'invalid-history'])
+def test_fresh_store_support_does_not_bypass_changed_or_unsafe_identity(setup, change):
+    store = setup['workspace'].parent / 'provider'
+    if change == 'missing':
+        (store / 'sessions').rmdir()
+        store.rmdir()
+    elif change == 'replacement':
+        store.rename(store.with_name('old-provider'))
+        (store / 'sessions').mkdir(parents=True)
+    else:
+        (store / 'sessions').rmdir()
+        (store / 'sessions').write_text('not a directory')
+    from agentguard.work.service import WorkError
+    with pytest.raises(WorkError, match='EXECUTION_STORE_IDENTITY_CHANGED'):
+        create_session(setup)
+    assert setup['owner']['creates'] == 0

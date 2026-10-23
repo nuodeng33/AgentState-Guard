@@ -258,7 +258,8 @@ def inspect_store(provider: str, path: str | os.PathLike[str]) -> dict[str, obje
                     if failure.reason_code != "SESSION_STORE_NOT_PRESENT":
                         raise
             if not found:
-                raise _StoreFailure("SESSION_STORE_NOT_PRESENT")
+                result.update(status="EMPTY", reason_code="SESSION_STORE_EMPTY")
+                return result
             result.update(status="AVAILABLE", reason_code="SESSION_STORE_AVAILABLE")
             return result
         locations = _locations(provider, root, database)
@@ -391,7 +392,7 @@ def _codex_inventory(root: Path, identity: str, limit: int, offset: int,
         add(base, info)
         pending.append((base, 0))
     if not pending:
-        raise _StoreFailure("SESSION_STORE_NOT_PRESENT")
+        return digest.hexdigest(), []
     candidates: list[tuple[int, Path]] = []
     seen = 0
     while pending:

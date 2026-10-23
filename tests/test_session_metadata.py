@@ -592,3 +592,44 @@ def test_codex_ten_thousand_rollouts_revision_skips_metadata_reads(
     hot_seconds = time.perf_counter() - started
     assert hot["not_modified"] is True and opens == 0
     print(f"codex 10000 cold={cold_seconds:.3f}s hot={hot_seconds:.3f}s metadata_opens=20/0")
+
+
+def test_fresh_codex_root_without_history_is_empty_and_read_only(tmp_path, monkeypatch):
+    root = tmp_path / '.codex'
+    root.mkdir()
+    auth = root / 'auth.json'
+    auth.write_text('test-only auth fixture; must not be read')
+    original_open = Path.open
+
+    def no_auth_read(path, *args, **kwargs):
+        if path == auth:
+            raise AssertionError('Credential file must never be inspected')
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'open', no_auth_read)
+    inspected = inspect_store('CODEX', root)
+    assert inspected['status'] == 'EMPTY'
+    assert inspected['reason_code'] == 'SESSION_STORE_EMPTY'
+    assert inspected['identity']
+    first = read_store('CODEX', root)
+    assert first['status'] == 'EMPTY' and first['sessions'] == []
+    assert first['revision'] and first['store_identity'] == inspected['identity']
+    cached = read_store('CODEX', root, known_revision=first['revision'])
+    assert cached['not_modified'] is True
+    assert set(root.iterdir()) == {auth}
+    (root / 'sessions').mkdir()
+    assert inspect_store('CODEX', root)['status'] == 'AVAILABLE'
+    assert read_store('CODEX', root, known_revision=first['revision'])['not_modified'] is False
+    _codex_rollout(root, 'first', 'first-native-session')
+    populated = read_store('CODEX', root, known_revision=first['revision'])
+    assert populated['status'] == 'AVAILABLE'
+    assert populated['sessions'][0]['session_id'] == 'first-native-session'
+    assert populated['revision'] != first['revision']
+
+
+def test_missing_codex_root_is_not_an_empty_available_store(tmp_path):
+    missing = tmp_path / 'missing'
+    result = inspect_store('CODEX', missing)
+    assert result['status'] == 'UNKNOWN' and result['identity'] is None
+    assert read_store('CODEX', missing)['status'] == 'UNKNOWN'
+    assert not missing.exists()

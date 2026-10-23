@@ -1,0 +1,16 @@
+# Phase 14 — Fresh Codex store selection
+
+- Base8e91251, branchfix/codex-empty-store; requirementsWS managedexecution, ASG-TEST-001/004, ASG-SEC-002/003. User authorized reusingcurrentCodexlogin forrealdisposableacceptance.
+- Entry: actualCodex0.159.2 attemptb32b9ebc-40d3-4ff7-a9cc-90e2e557c222 failsessioncreationEXECUTION_STORE_IDENTITY_CHANGED. Safemetadata probes showunchangedrootidentity butbothhistorydirectoriesabsent.
+- Rootcause: safeexistingrootwithoutsessionhistoryclassifiedUNKNOWN; executioncorrectlyrejectsunknown. This isnotactualdirectoryreplacement.
+- Scope: session_metadata.inspect_store returnsEMPTY/SESSION_STORE_EMPTY onlyforverifiedsafeCODEXrootwherebothhistorypathsaremissing; emptyinventoryreturnsstableexistingdigest+[]. Noauth/configreads, nomkdir, noexecutionvalidationloosening, noschema/UI/APIfieldchange.
+- Negativeboundaries: missingroot, changedroot, invalidhistoryfiles, links/unreachablepathsremainunavailable. Existingbefore/afteridentityandrevisionverificationunchanged. Emptyhistorydoesnotprovecredentials, nativeproviderreadinessorsuccessfulmodelrun.
+- Tests: actualoldbehavior2failed/38passed/1skipped; metadataandmanagedselectionregressionsplusdiscovery/cache56passed/2skipped. Newintegrationteststartsitsnormalruntime; controlledprovideronly, nodummyproviderclaimedlive.
+- Realretryaf43b061-f6f5-45b4-b268-26ddfbb2cc37 passesselectionthenUNAVAILABLE/EXECUTION_PROVIDER_SCOPE_UNVERIFIED beforethread/model. CurrentUnixrequiresindependentsandboxproofandruntimehasnone; maintainfailclosed. Neverpassscope_verified=Truefromdirectoryidentity. Windowsrealreadinessandmodelacceptanceremainrequired. Historicalbwrapfailuresarenotthisrun'sevidence.
+- CI: CorePythonmatrixcollectsnewtests; actualheadremoteCIstillrequiresexplicitliftingearlierno-pushconstraint. Windowslightweight/installeddesktopCIpreparedbypriorphase.
+- Exit: relatedandfullbackendgreen, JUnitparser, independentreview, exactnegativeliveevidenceandblockedWindowsgatepreserved. Rollbackonlythisisolatedfix, base8e91251; noreset/clean/migration.
+
+## Final verification
+
+- Fullbackend1375passed/26skipped/0fail/0error89.15s; JUnit1401cases auditedusingprojectparser. Sixnewregressions allPASS; sourcehashesstable. ScopedRuff/diffchecks and independentreview pass. Existing684deprecations remain.
+- Evidence: artifacts/codex-fresh-store/full.{xml,log}; related.log; actualnative reports retainedinlive-acceptance. Userauthorizedcredentialreuseonly, nonewkey/nocredentialsoutput. NativeWindowsprovideracceptance remainsblockedpendingvalidenvironment.

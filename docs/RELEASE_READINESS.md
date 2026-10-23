@@ -2,11 +2,11 @@
 
 当前结论：可验证的本地预览，尚未达到 Windows 成品发布标准。
 
-基准：`fix/release-desktop-smoke` 从 `e8cab97` 派生；当前提交用 `git rev-parse HEAD` 获取。文中只将实际执行过的检查标为通过。
+基准：`fix/codex-empty-store` 从 `8e91251` 派生；当前提交用 `git rev-parse HEAD` 获取。文中只将实际执行过的检查标为通过。
 
 | 验收范围 | 证据与结论 | 边界 |
 | --- | --- | --- |
-| 后端自动化 | 1369 passed、26 skipped，1395 项；完整 pytest / JUnit 已核对 | 跳过项不能算通过 |
+| 后端自动化 | 1375 passed、26 skipped，1401 项；完整 pytest / JUnit 已核对 | 跳过项不能算通过 |
 | 双语前端 | 界面基线 `8d9a0a7`：244 测试、正式/demo 构建通过，正式静态资源已更新 | 保留原有 3D chunk 大小提示；无模型调用 |
 | 真实浏览器 → Core → SQLite | 创建工作/任务/手工成果、保存布局、独立复核与负责人验收通过 | 没有提供方执行；成果来源为 MANUAL |
 | 原生文件保护与恢复 | 实际 A/B/C 文件；UI 完成选择恢复、只读预览、真实 diff、撤销及过期预览拒绝，未选 C 保留 | 全局目录入口，不新增目录注册或保护策略配置 |
@@ -26,7 +26,7 @@
 2. 验证安装、升级、权限拒绝和进程异常退出后的恢复，再运行本次分支的远程 CI。
 3. 完成 Windows 桌面与手机真机的实际使用验收。本轮已接通已有保护目录的恢复 UI；新目录注册和保护策略仍未纳入此面板。
 
-这些门槛未完成前，不标记“全部修复”或给出无法证明的完成百分比。复现步骤见 [DEVELOPMENT.md](DEVELOPMENT.md)，阶段契约见 [13-desktop-smoke-release-gates.md](phases/13-desktop-smoke-release-gates.md)。
+这些门槛未完成前，不标记“全部修复”或给出无法证明的完成百分比。复现步骤见 [DEVELOPMENT.md](DEVELOPMENT.md)，阶段契约见 [14-codex-fresh-store.md](phases/14-codex-fresh-store.md)。
 
 本轮补充边界：版本使用现有 full API 每页 50 条，文件每页 50 条为客户端展示分页，不声称服务端文件分页。预览过期验收只修改隔离临时 SQLite 中该条预览的到期时间，随后通过真实界面确认：HTTP 409 / PROTECTION_PREVIEW_EXPIRED，原文件不变；未等待真实五分钟，也未增加生产测试入口。
 
@@ -41,9 +41,11 @@
 | 门槛 | 当前状态 | 下一退出证据 |
 | --- | --- | --- |
 | 桌面脚本假绿 | 本地修复及20项真实PowerShell回归完成 | Windows实际安装后二次验收仍由Windows工作流提供 |
-| 真实Codex闭环 | 用户已授权复用现登录；本轮实际尝试FAIL：EXECUTION_STORE_IDENTITY_CHANGED，会话创建被拒，未进入模型执行 | 修复根因后连接/执行/取消/续接/交付/文件全部严格通过 |
+| 真实Codex闭环 | 已修安全空历史误识别；实际重跑在提供方Unix沙箱proof门槛UNAVAILABLE，未进入thread/model；原始报告保留FAIL | Windows具备sandbox readiness后运行连接/执行/取消/续接/交付/文件完整验收 |
 | Windows发布 | 尚无本轮Windows执行环境 | 安装、旧版升级、DACL、打包进程异常恢复的原生证据 |
 | 远程CI | 本地代码与门禁已准备，保留此前不推送约束 | 明确允许推送后，审计准确HEAD的实际CI |
 | 桌面/手机真机 | 仅浏览器视口证据 | 原生桌面和物理手机交互验收 |
 
-脚本缺陷闭合后仍有4组发布证据门槛；其中Codex现有明确运行故障，继续定位，不能据测试总数估完成百分比。
+脚本假绿和空历史识别两项代码缺陷已修；仍有4组发布证据门槛。当前Codex阻塞来自本机Unix无独立provider sandbox proof，不绕过安全约束，也不将历史Windows通过结果当本轮。
+
+本轮实际提供方报告：`artifacts/live-acceptance/release-native-live.json`（空历史识别失败）与 `release-native-after-empty.json`（修复后到达Unix沙箱proof拒绝）。两个均为真实失败报告，不改成PASS；发布流程据原因记BLOCKED，未产生模型执行成功证据。
