@@ -1,0 +1,12 @@
+{
+  "tests": 1483,
+  "passed": 1434,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 49,
+  "xfailed": 0,
+  "xpassed": 0,
+  "sources": [
+    "/tmp/asg-core39974521102-fixed-full.xml"
+  ]
+}

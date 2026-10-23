@@ -1,0 +1,60 @@
+{
+  "result": "PASS",
+  "product_sha": "d99bb660844960eeebd064a3acb479607509e95a",
+  "artifact_id": 12511171014,
+  "exe_sha256": "d06254e932fd82fb2eea42ebb6337a5fcd8d56ad69f04a6a927ff8b9c3b455a8",
+  "scope": "Actual Windows packaged standalone Core on isolated data and loopback port18787; no desktop UI or MSI upgrade claim",
+  "checks": {
+    "both_real_containers_listed": true,
+    "both_real_container_process_probes_succeeded": true,
+    "expected_container_program_versions": true,
+    "inventory_not_paginated": true,
+    "two_container_runtime_observations": true,
+    "container_observation_grants_no_execution": true,
+    "doctor_no_phantom_agent_dev": true,
+    "core_python_detected": true
+  },
+  "observed_container_programs": [
+    {
+      "provider": "CCR",
+      "version": "3.0.7",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    },
+    {
+      "provider": "CODEX",
+      "version": "0.147.0",
+      "source_id": "docker-2f028af5dcca251fd2739b2e",
+      "running": false
+    },
+    {
+      "provider": "KIMI_CODE",
+      "version": "0.29.2",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    },
+    {
+      "provider": "CLOUDCLI",
+      "version": "1.37.5",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    },
+    {
+      "provider": "CLAUDE",
+      "version": "2.1.306",
+      "source_id": "docker-2296511e36ada7946faab557",
+      "running": false
+    }
+  ],
+  "limitations": [
+    "Docker restarted under existing explicit authorization",
+    "WSL Ubuntu remains stopped and unprobed",
+    "Original business data remains isolated pending test installation teardown",
+    "Desktop UI and new MuMu QR pairing remain unverified",
+    "Core CI d99 failed; deterministic diagnostic test correction in progress"
+  ],
+  "initial_failures_preserved": [
+    "Cross-OS exact raw source hash mismatch reflects CRLF Windows checkout vs LF Linux checkout; separate source-equivalence evidence recorded, raw-byte build gate unchanged",
+    "First standalone launch without redirected streams created test data but exited before health; redirected stdout/stderr launch succeeded"
+  ]
+}

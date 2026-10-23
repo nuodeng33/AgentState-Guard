@@ -139,13 +139,24 @@ def test_cli_writes_json_failure_and_returns_nonzero(tmp_path, capsys):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows build-script control flow")
-def test_local_build_verifier_failure_stops_before_copy_or_bundle(tmp_path):
+@pytest.mark.parametrize("relative_regression", [False, True], ids=["absolute-readers", "relative-regression"])
+def test_local_build_verifier_failure_stops_before_copy_or_bundle(tmp_path, relative_regression):
     repository = Path(__file__).resolve().parents[1]
     root = tmp_path / "project with spaces"
     scripts = root / "scripts"
     scripts.mkdir(parents=True)
-    shutil.copyfile(repository / "scripts/build-desktop.ps1", scripts / "build-desktop.ps1")
+    build_script = (repository / "scripts/build-desktop.ps1").read_text(encoding="utf-8-sig")
+    if relative_regression:
+        absolute_source = "$sourcePath = Join-Path $root $reader"
+        assert absolute_source in build_script, "Regression fixture must alter the real add-data source expression"
+        build_script = build_script.replace(absolute_source, "$sourcePath = $reader", 1)
+    (scripts / "build-desktop.ps1").write_text(build_script, encoding="utf-8")
     shutil.copyfile(repository / "scripts/verify_packaged_readers.py", scripts / "verify_packaged_readers.py")
+    for index, name in enumerate(REQUIRED_READERS):
+        source = root / name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(f"# actual audited fixture reader {index}\n".encode())
+    (root / "expected-readers.json").write_text(json.dumps(list(REQUIRED_READERS)), encoding="utf-8")
     provenance = root / "agentguard/core/_build_provenance.py"
     provenance.parent.mkdir(parents=True)
     original = b"# original\r\nPRODUCT_SHA = None\r\n"
@@ -165,11 +176,41 @@ root=Path(os.environ['ASG_READER_BUILD_ROOT'])
 stage='PyInstaller' if tool=='python' and '-m' in args else tool
 if any(arg.endswith('verify_packaged_readers.py') for arg in args): stage='verify-readers'
 if tool=='cargo' and 'build' in args: stage='tauri'
-with (root/'calls.jsonl').open('a') as output: output.write(json.dumps(stage)+'\\n')
+def record(value):
+ with (root/'calls.jsonl').open('a',encoding='utf-8') as output: output.write(json.dumps(value)+'\\n')
+def invalid(reason):
+ (root/'reader-arguments.json').write_text(json.dumps({'result':'FAIL','reason':reason}),encoding='utf-8')
+ record('add-data-invalid')
+ sys.exit(23)
+record(stage)
 if stage=='verify-readers': sys.exit(9)
 if tool=='git' and args[0]=='rev-parse': print('a'*40)
 elif tool=='rustc': print('host: x86_64-pc-windows-msvc')
 elif stage=='PyInstaller':
+ required=json.loads((root/'expected-readers.json').read_text(encoding='utf-8'))
+ values=[args[index+1] for index,value in enumerate(args) if value=='--add-data' and index+1<len(args)]
+ if args.count('--add-data')!=4 or len(values)!=4: invalid('ADD_DATA_COUNT')
+ spec=Path(args[args.index('--specpath')+1])
+ if not spec.is_absolute() or spec.resolve()==root.resolve(): invalid('SPEC_PATH_FIXTURE')
+ expected={(root/name).resolve():name for name in required}
+ seen=set()
+ observed=[]
+ for value in values:
+  if value.count(';')!=1: invalid('ADD_DATA_PAIR')
+  source,target=value.split(';')
+  path=Path(source)
+  if not path.is_absolute(): invalid('ADD_DATA_SOURCE_NOT_ABSOLUTE')
+  if not path.is_file() or path.stat().st_size==0: invalid('ADD_DATA_SOURCE_MISSING')
+  resolved=path.resolve()
+  if resolved not in expected or resolved in seen: invalid('ADD_DATA_SOURCE_IDENTITY')
+  name=expected[resolved]
+  if target!=name.rsplit('/',1)[0]: invalid('ADD_DATA_TARGET')
+  if 'project with spaces' not in source: invalid('ADD_DATA_SPACE_BOUNDARY')
+  seen.add(resolved)
+  observed.append({'source':source,'target':target})
+ if seen!=set(expected): invalid('ADD_DATA_INCOMPLETE')
+ (root/'reader-arguments.json').write_text(json.dumps({'result':'PASS','readers':observed}),encoding='utf-8')
+ record('add-data-verified')
  destination=Path(args[args.index('--distpath')+1]);destination.mkdir(parents=True)
  (destination/'agentguard-sidecar.exe').write_bytes(b'new invalid archive')
 """, encoding="utf-8")
@@ -183,7 +224,21 @@ elif stage=='PyInstaller':
     assert completed.returncode != 0
     assert (root / "calls.jsonl").exists(), (completed.stdout + completed.stderr).decode(errors="replace")
     calls = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
-    assert calls[-1] == "verify-readers"
+    assert (root / "reader-arguments.json").exists(), calls
+    reader_arguments = json.loads((root / "reader-arguments.json").read_text(encoding="utf-8"))
+    if relative_regression:
+        assert calls[-1] == "add-data-invalid"
+        assert "verify-readers" not in calls
+        assert "add-data-verified" not in calls
+        assert reader_arguments == {"result": "FAIL", "reason": "ADD_DATA_SOURCE_NOT_ABSOLUTE"}
+    else:
+        assert "add-data-verified" in calls
+        assert "add-data-invalid" not in calls
+        assert calls[-1] == "verify-readers"
+        assert reader_arguments["result"] == "PASS"
+        assert len(reader_arguments["readers"]) == len(REQUIRED_READERS)
+        expected = {(root / name).resolve(): name.rsplit("/", 1)[0] for name in REQUIRED_READERS}
+        assert {Path(item["source"]).resolve(): item["target"] for item in reader_arguments["readers"]} == expected
     assert "tauri" not in calls
     assert binary.read_bytes() == b"previous verified binary"
     assert provenance.read_bytes() == original

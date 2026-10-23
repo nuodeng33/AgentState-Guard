@@ -326,16 +326,48 @@ class TestIntegration:
             assert "check" in r
             assert "message" in r
 
-    def test_doctor_has_unreachable_in_container(self):
-        """In container mode, host services (Docker) should be UNREACHABLE."""
-        from agentguard.commands.doctor import doctor
+    def test_doctor_has_unreachable_in_container(self, monkeypatch):
+        """An isolated container without a Docker CLI reports unreachable Docker."""
         import agentguard.commands.doctor as doc_mod
-        original = doc_mod._in_container
-        doc_mod._in_container = lambda: True
-        try:
-            results = doctor({"container_name": "test", "port": 9999})
-            # Check that we have UNREACHABLE status in at least one result
-            unreachable = [r for r in results if r["status"] == "UNREACHABLE"]
-            assert len(unreachable) > 0, f"Expected UNREACHABLE, got statuses: {[r['status'] for r in results[:5]]}"
-        finally:
-            doc_mod._in_container = original
+        from agentguard.commands.doctor import doctor
+
+        monkeypatch.setattr(doc_mod, '_in_container', lambda: True)
+        monkeypatch.setattr(doc_mod, 'which', lambda _name: None)
+        monkeypatch.setattr(doc_mod, '_check_port', lambda _port: False)
+        monkeypatch.setattr(doc_mod.Path, 'is_dir', lambda _path: False)
+        results = doctor({"container_name": "test", "port": 9999})
+        unreachable = [row for row in results if row["status"] == "UNREACHABLE"]
+        assert len(unreachable) > 0, f"Expected UNREACHABLE, got statuses: {[row['status'] for row in results[:5]]}"
+        assert any(row["check"] == "docker-cli" for row in unreachable)
+        assert any(row["check"] == "container" for row in unreachable)
+
+    @pytest.mark.parametrize('has_targets', [False, True])
+    def test_doctor_reports_observed_local_docker_inside_container(self, monkeypatch, has_targets):
+        """Container detection cannot override an observed reachable local daemon."""
+        from types import SimpleNamespace
+
+        import agentguard.commands.doctor as doc_mod
+        from agentguard.commands.doctor import doctor
+        from agentguard.discovery.capabilities import CapabilityStatus
+
+        targets = (SimpleNamespace(name='actual-running-agent', status='Up'),) if has_targets else ()
+        listing = SimpleNamespace(status=CapabilityStatus.AVAILABLE if has_targets else CapabilityStatus.NOT_PRESENT,
+                                  reason_code='DOCKER_TARGETS_LISTED' if has_targets else 'DOCKER_TARGETS_EMPTY',
+                                  targets=targets)
+        monkeypatch.setattr(doc_mod, '_in_container', lambda: True)
+        monkeypatch.setattr(doc_mod, 'which', lambda name: name if name == 'docker' else None)
+        monkeypatch.setattr(doc_mod, 'DockerHostProbe', lambda: SimpleNamespace(list_targets=lambda: listing))
+        monkeypatch.setattr(doc_mod, '_check_port', lambda _port: False)
+        monkeypatch.setattr(doc_mod.Path, 'is_dir', lambda _path: False)
+        results = doctor({"container_name": "agent-dev", "port": 9999})
+        daemon = [row for row in results if row['check'] == 'docker-daemon']
+        assert daemon == [{'check': 'docker-daemon', 'status': 'PASS', 'message': 'Local Docker daemon enumerated'}]
+        docker_rows = [row for row in results if row['check'] in {'docker-cli', 'docker-daemon', 'container'}]
+        assert not any(row['status'] == 'UNREACHABLE' for row in docker_rows)
+        assert not any('agent-dev' in row['message'] for row in results)
+        location = next(row for row in results if row['check'] == 'container' and row['status'] == 'INFO')
+        assert location['message'] == 'Running inside container; Docker availability is diagnosed separately'
+        if has_targets:
+            assert any(row['check'] == 'container' and row['status'] == 'PASS' and 'actual-running-agent' in row['message'] for row in results)
+        else:
+            assert {'check': 'container', 'status': 'INFO', 'message': 'No running containers observed'} in results

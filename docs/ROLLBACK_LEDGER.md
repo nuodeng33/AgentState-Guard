@@ -39,3 +39,5 @@ Rollback1f66480. Revert spatial UI/components/appearancehelper, viewer and gener
 ## Actual packaged discovery / helper failure fixes
 
 Base405bbd4. Revert phase22 files/generated assets as one validated set; no schema change. Preserve original6-file backups and isolated originaldata before any teardown. Restore only after uninstall/ownedprocess+port checks and hash verification; never delete test failure evidence or alter historical ledger. No firewall/profile/PATH/container-name workaround.
+
+2026-10-23 discovery CI/local-build follow-up: base d99bb660844960eeebd064a3acb479607509e95a. Revert only follow-up doctor wording, deterministic diagnostic/build gate tests and absolute local add-data path construction. No public API/schema/permission change. Preserve original failed CI/JUnit and native test failures. Independent sidecar test process tree stopped only after PID/path/birth-time checks; test installation/user-data restore remains outstanding.

@@ -34,9 +34,9 @@ def doctor(config: dict) -> list[dict[str, object]]:
 
     # 1. Kernel / container detection
     if in_container:
-        results.append(_info("container", "Running inside container (no Docker socket access)"))
+        results.append(_info("container", "Running inside container; Docker availability is diagnosed separately"))
 
-    # --- Host services (UNREACHABLE when inside container) ---
+    # Docker availability is observed independently of the container heuristic.
 
     # 2. Docker
     docker_bin = which("docker")

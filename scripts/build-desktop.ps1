@@ -59,8 +59,18 @@ try {
             '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--noconsole',
             '--name', 'agentguard-sidecar', '--distpath', "$buildRoot\dist",
             '--workpath', "$buildRoot\work", '--specpath', $buildRoot,
-            '--paths', $root, '--collect-data', 'agentguard', '--add-data', 'agentguard/discovery/application_probe.py;agentguard/discovery', '--add-data', 'agentguard/discovery/session_metadata.py;agentguard/discovery', '--add-data', 'agentguard/discovery/probes/container_processes.py;agentguard/discovery/probes', '--add-data', 'agentguard/recovery/protection_helper.py;agentguard/recovery'
+            '--paths', $root, '--collect-data', 'agentguard'
         )
+        foreach ($reader in @(
+            'agentguard/discovery/application_probe.py',
+            'agentguard/discovery/session_metadata.py',
+            'agentguard/discovery/probes/container_processes.py',
+            'agentguard/recovery/protection_helper.py'
+        )) {
+            $sourcePath = Join-Path $root $reader
+            $destinationPath = [IO.Path]::GetDirectoryName($reader).Replace('\', '/')
+            $pyInstallerArgs += @('--add-data', ($sourcePath + ';' + $destinationPath))
+        }
         foreach ($module in @(
             'uvicorn', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto',
             'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto',

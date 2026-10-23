@@ -1,0 +1,30 @@
+{
+  "product_sha": "d99bb660844960eeebd064a3acb479607509e95a",
+  "comparison": "Cross-OS source equivalence; raw hash gate belongs to build checkout",
+  "readers": [
+    {
+      "path": "agentguard/discovery/application_probe.py",
+      "raw_sha256": "7d40c73d545a8467ab363a8ac0ea9d8d1219a4bb3a6356eb1ff4dd58317d2e1b",
+      "windows_checkout_crlf": true,
+      "source_matches_git_after_crlf_conversion": true
+    },
+    {
+      "path": "agentguard/discovery/session_metadata.py",
+      "raw_sha256": "11e28030e37b4f8db21c5f5ac838fc019777da9f5f30f8f2887655ce9edccd9c",
+      "windows_checkout_crlf": true,
+      "source_matches_git_after_crlf_conversion": true
+    },
+    {
+      "path": "agentguard/discovery/probes/container_processes.py",
+      "raw_sha256": "ccc0f6fd8003aef77b85904c60e01a177e8ad13b16487657bbcab6e32c1f8cdf",
+      "windows_checkout_crlf": true,
+      "source_matches_git_after_crlf_conversion": true
+    },
+    {
+      "path": "agentguard/recovery/protection_helper.py",
+      "raw_sha256": "6efa22d0e31a291ee7e123f3575ecaa8c7f574dfc693683eab91406bb4003db8",
+      "windows_checkout_crlf": true,
+      "source_matches_git_after_crlf_conversion": true
+    }
+  ]
+}
