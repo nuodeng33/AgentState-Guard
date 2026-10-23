@@ -92,9 +92,11 @@ describe('work session management', () => {
       payload: { source_id: 'local', path: '/new-project', request_id: 'same-request' } };
     const view = render(<WorkSessions {...props} protectionCommand={command} onProtectionCommandChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
+    await screen.findByRole('option', { name: /tools\/codex/ });
     expect((screen.getByLabelText('Application') as HTMLSelectElement).disabled).toBe(true);
     view.rerender(<WorkSessions {...props} visible={false} protectionCommand={command} onProtectionCommandChange={onChange} />);
     view.rerender(<WorkSessions {...props} protectionCommand={command} onProtectionCommandChange={onChange} />);
+    await screen.findByRole('option', { name: /tools\/codex/ });
     expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true);
     expect(post).not.toHaveBeenCalled(); expect(onChange).not.toHaveBeenCalled();
   });

@@ -1,0 +1,75 @@
+{
+  "requirement": "ASG-CLOSE-001",
+  "base_commit": "1f6648076132fba376c694f4751625e4527b2fa0",
+  "frontend": {
+    "tests": 282,
+    "passed": 282,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "/tmp/asg-spatial-independent-final-frontend.xml"
+    ]
+  },
+  "bubbles": {
+    "result": "PASS",
+    "mode": "demo fixtures / actual browser geometry",
+    "checks": {
+      "children_initially_absent": true,
+      "parent_to_child_hover_continuity": true,
+      "visible_parentward_retraction": true,
+      "click_pin_survives_leave": true,
+      "escape_returns_parent_without_navigation": true,
+      "narrow_no_page_overflow": true,
+      "core_larger_than_agent": true,
+      "mobile_children_bounded_and_clear_of_core": true,
+      "reduced_motion_closes": true
+    },
+    "geometry": {
+      "expandedDistance": 170.22225852202195,
+      "retractDistance": 2.6797642483091453
+    },
+    "page_errors": []
+  },
+  "viewer": {
+    "status": "PASS",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "environment": "Demo fixtures, headless Chromium with SwiftShader software WebGL; not native GPU/device acceptance",
+    "checks": [
+      "real WebGL canvas present",
+      "WebGL fallback absent",
+      "core identity stays visible in task mode",
+      "readable Agent labels use stacked layout",
+      "task list uses stacked layout",
+      "all six actual task records reachable",
+      "keyboard zoom changes projection",
+      "live reduced motion pauses scene",
+      "visible labels bounded 1440x1000",
+      "header scene facts do not overlap 1440x1000",
+      "readable list does not obscure core 1440x1000",
+      "no horizontal page overflow 1440x1000",
+      "visible labels bounded 390x844",
+      "header scene facts do not overlap 390x844",
+      "readable list does not obscure core 390x844",
+      "no horizontal page overflow 390x844",
+      "visible labels bounded 844x390",
+      "header scene facts do not overlap 844x390",
+      "readable list does not obscure core 844x390",
+      "no horizontal page overflow 844x390",
+      "2D viewport unchanged after return",
+      "no browser or shader errors"
+    ],
+    "errors": []
+  },
+  "typecheck": true,
+  "production_build": true,
+  "demo_build": true,
+  "persistence": "Pending required architecture answer; color picker/view persistence not implemented",
+  "limits": [
+    "Browser bubble test uses explicit demo fixtures, not new backend integration",
+    "Viewer uses software WebGL SwiftShader, not native GPU or physicaldevice",
+    "No matching CI for new spatial product code yet"
+  ]
+}

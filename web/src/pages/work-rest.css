@@ -18,7 +18,7 @@
 .work-rest-core-label.is-compact span { display: none; }
 .work-rest-core-label.is-compact strong { font-size: var(--scene-font-floor); }
 .work-rest-agent-labels { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-.work-rest-agent-label { position: absolute; --scene-scale: 1; transform: translate(-50%, calc(47px * var(--scene-scale))) scale(var(--scene-scale)); transform-origin: center top; display: grid; gap: 3px; width: min(160px, 20vw); min-width: 110px; padding: 5px 8px; border: 0; border-top: 1px solid #b5d4d39e; background: #101c20b9; color: var(--text-1); text-align: center; text-shadow: 0 2px 7px var(--bg-inset); pointer-events: auto; }
+.work-rest button.work-rest-agent-label { position: absolute; --scene-scale: 1; transform: translate(-50%, calc(47px * var(--scene-scale))) scale(var(--scene-scale)); transform-origin: center top; display: grid; gap: 3px; width: min(160px, 20vw); min-width: 110px; padding: 5px 8px; border: 0; border-top: 1px solid #b5d4d39e; background: #101c20b9; color: var(--text-1); text-align: center; text-shadow: 0 2px 7px var(--bg-inset); pointer-events: auto; }
 .work-rest-agent-label:hover { background: #29494ccf; }
 .work-rest-agent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
 .work-rest-agent-name-tiny { display: none; }
@@ -29,13 +29,13 @@
 .work-rest-agent-label.is-compact .work-rest-agent-name { font-size: var(--scene-font-floor); }
 .work-rest-empty { position: absolute; z-index: 2; right: clamp(20px, 3.5vw, 54px); top: 20px; display: flex; align-items: center; gap: 9px; max-width: 290px; color: var(--text-1); font-size: 12px; }
 .work-rest-task-markers { position: absolute; z-index: 2; inset: 0; pointer-events: none; }
-.work-rest-task-marker { position: absolute; --scene-scale: 1; transform: translate(-50%, -50%) scale(var(--scene-scale)); width: 26px; height: 26px; padding: 0; border: 1px solid var(--border-2); border-radius: 3px; background: #253c3be8; color: var(--text-1); font-size: 11px; font-variant-numeric: tabular-nums; pointer-events: auto; }
+.work-rest button.work-rest-task-marker { position: absolute; --scene-scale: 1; transform: translate(-50%, -50%) scale(var(--scene-scale)); width: 26px; height: 26px; padding: 0; border: 1px solid var(--border-2); border-radius: 3px; background: #253c3be8; color: var(--text-1); font-size: 11px; font-variant-numeric: tabular-nums; pointer-events: auto; }
 .work-rest-task-marker:hover { background: var(--border-3); }
 .work-rest-task-list { position: absolute; z-index: 3; top: 18px; right: clamp(20px, 3.5vw, 54px); width: min(310px, 31vw); max-height: calc(100% - 36px); overflow-y: auto; padding: 12px; border: 1px solid #b7d5c059; border-radius: 5px; background: #112124ed; }
 .work-rest-task-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 9px; }
 .work-rest-task-list-title { color: var(--text-1); font-size: 11px; font-weight: 600; }
 .work-rest-task-list-head button { border: 1px solid #9bbbae76; border-radius: 4px; background: #ffffff0a; color: var(--text-1); padding: 4px 6px; font-size: 10px; }
-.work-rest-task-row { display: grid; gap: 5px; width: 100%; min-width: 0; padding: 9px 5px; border: 0; border-top: 1px solid #adc3b234; background: transparent; color: var(--text-1); text-align: left; }
+.work-rest button.work-rest-task-row { display: grid; gap: 5px; width: 100%; min-width: 0; padding: 9px 5px; border: 0; border-top: 1px solid #adc3b234; background: transparent; color: var(--text-1); text-align: left; }
 .work-rest-task-row:hover { background: #4872673d; }
 .work-rest-task-title { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
 .work-rest-task-title b { flex: none; color: var(--text-1); font-size: 10px; font-weight: 600; }
@@ -52,7 +52,7 @@
 .work-rest-manage { flex: none; white-space: nowrap; }
 .work-rest-fallback { position: absolute; bottom: 100%; left: clamp(20px, 3.5vw, 54px); margin: 0 0 14px; padding: 8px 12px; background: #18272ae8; color: var(--text-1); font-size: 13px; }
 .work-rest-mobile-agents { display: none; }
-.work-rest-agent-row { min-width: 0; display: grid; gap: 2px; border: 1px solid #7fa5a454; border-radius: 4px; background: var(--bg-surface-2); color: var(--text-1); text-align: left; padding: 7px 9px; }
+.work-rest button.work-rest-agent-row { min-width: 0; display: grid; gap: 2px; border: 1px solid #7fa5a454; border-radius: 4px; background: var(--bg-surface-2); color: var(--text-1); text-align: left; padding: 7px 9px; }
 .work-rest-agent-label.is-not-current, .work-rest-agent-row.is-not-current { opacity: .64; }
 @media (max-width: 800px) {
   .work-rest-stage { bottom: 160px; }
@@ -77,7 +77,7 @@
   .work-rest-empty { top: auto; bottom: 15px; right: 16px; gap: 5px; font-size: 11px; }
   .work-rest-empty button { font-size: 11px; padding: 5px 8px; }
   .work-rest-task-list { top: auto; right: 12px; bottom: 9px; width: calc(100% - 24px); max-height: 42%; padding: 8px; }
-  .work-rest-task-row { padding: 6px 4px; }
+  .work-rest button.work-rest-task-row { padding: 6px 4px; }
   .work-rest-facts { min-height: 150px; padding: 11px 16px; bottom: 70px; gap: 7px; }
   .work-rest-work h1 { font-size: 16px; }
   .work-rest-date { display: none; }
@@ -87,7 +87,7 @@
   .work-rest-facts dd { font-size: 16px; margin-top: 2px; }
   .work-rest-manage { font-size: 11px; padding: 5px 7px; }
   .work-rest-mobile-agents { position: absolute; z-index: 4; bottom: 0; left: 0; right: 0; height: 70px; display: flex; gap: 6px; overflow-x: auto; padding: 7px 16px; background: var(--bg-inset); }
-  .work-rest-mobile-agents .work-rest-agent-row { flex: 0 0 min(170px, 47vw); }
+  .work-rest-mobile-agents .work-rest button.work-rest-agent-row { flex: 0 0 min(170px, 47vw); }
   .work-rest:not(.has-agents) .work-rest-stage { bottom: 150px; }
   .work-rest:not(.has-agents) .work-rest-facts { bottom: 0; }
 }
@@ -103,4 +103,43 @@
   .work-rest.has-agents .work-rest-stage { bottom: 168px; }
   .work-rest.has-agents .work-rest-facts { bottom: 58px; min-height: 110px; }
   .work-rest-mobile-agents { height: 58px; padding-top: 4px; padding-bottom: 4px; }
+}
+
+/* Projection crowding and overflow retain a complete, readable Agent list. */
+@media (min-width: 601px) {
+  .work-rest.has-crowded-labels .work-rest-mobile-agents,
+  .work-rest.has-agent-overflow .work-rest-mobile-agents {
+    position: absolute; z-index: 4; left: 20px; right: 20px; bottom: 135px;
+    display: flex; gap: 8px; max-height: 80px; overflow: auto; padding: 7px;
+    background: var(--bg-inset); border: 1px solid var(--border-2); border-radius: 5px;
+  }
+  .work-rest-mobile-agents .work-rest button.work-rest-agent-row { flex: 0 0 190px; }
+}
+.work-rest-stage:focus-visible { outline: 2px solid var(--work); outline-offset: -4px; }
+/* Short landscape keeps controls and facts in their own rows. */
+@media (max-height: 560px) {
+  .work-rest { display: grid; grid-template-rows: 56px minmax(110px, 1fr) auto auto; overflow-y: auto; }
+  .work-rest .work-rest-header { position: relative; height: 56px; padding: 0 14px; }
+  .work-rest .work-rest-stage { position: relative; inset: auto; min-height: 110px; }
+  .work-rest .work-rest-facts { position: relative; inset: auto; min-height: 0; padding: 8px 16px; gap: 6px 16px; }
+  .work-rest .work-rest-mobile-agents { position: relative; inset: auto; height: auto; max-height: 76px; padding: 5px 16px; margin: 0; }
+  .work-rest .work-rest-task-list { top: 6px; bottom: 6px; max-height: calc(100% - 12px); }
+  .work-rest .work-rest-fallback { position: static; margin: 0; }
+  .work-rest .work-rest-empty { top: 8px; bottom: auto; }
+}
+
+.work-rest-keyboard-hint { position: absolute; z-index: 1; left: 18px; bottom: 6px; margin: 0; max-width: calc(100% - 36px); color: var(--text-2); font-size: 10px; pointer-events: none; }
+.work-rest.has-crowded-labels .work-rest-agent-labels,
+.work-rest.has-agent-overflow .work-rest-agent-labels { visibility: hidden; }
+@media (max-width: 600px) { .work-rest-keyboard-hint { display: none; } }
+
+.work-rest button.work-rest-agent-label,
+.work-rest button.work-rest-agent-row,
+.work-rest button.work-rest-task-row { white-space: normal; justify-content: stretch; }
+.work-rest button.work-rest-task-marker { min-height: 26px; }
+
+@media (max-height: 560px) {
+  .work-rest.has-crowded-labels .work-rest-mobile-agents,
+  .work-rest.has-agent-overflow .work-rest-mobile-agents,
+  .work-rest.is-unavailable .work-rest-mobile-agents { position: relative; inset: auto; max-height: 76px; margin: 0; padding: 5px 16px; border: 0; border-radius: 0; }
 }

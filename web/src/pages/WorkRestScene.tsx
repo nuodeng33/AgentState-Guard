@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from '../vendor/three.module.js';
 import { useI18n } from '../i18n/I18nProvider';
+import { agentTint } from './workAppearance';
 import './work-rest.css';
 
 export type SceneAgent = {
@@ -29,6 +30,7 @@ export type WorkRestSceneProps = {
   updatedAt?: string;
   agents?: SceneAgent[];
   tasks?: SceneTask[];
+  agentTints?: Record<string, string>;
   onAgentSelect?: (agentId: string) => void;
   onTaskSelect?: (taskId: string) => void;
   onManageAgents?: () => void;
@@ -105,19 +107,23 @@ function makeBubbleGeometry() {
   return geometry;
 }
 
-function makeBubbleMaterial(dim: number) {
+function tintVector(tint: string) {
+  return new THREE.Vector3(...[1, 3, 5].map(index => parseInt(tint.slice(index, index + 2), 16) / 255));
+}
+
+function makeBubbleMaterial(dim: number, tint: string) {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.FrontSide,
-    uniforms: { time: { value: 0 }, dim: { value: dim } },
+    uniforms: { time: { value: 0 }, dim: { value: dim }, tint: { value: tintVector(tint) } },
     vertexShader: `varying vec3 vN; varying vec3 vP; varying vec3 vO; uniform float time;
       void main() { vec3 p=position; p+=normal*sin(p.y*3.+time*.5)*sin(p.x*2.7-time*.24)*.014;
         vec4 w=modelMatrix*vec4(p,1.); vO=p; vP=w.xyz; vN=normalize(mat3(modelMatrix)*normal);
         gl_Position=projectionMatrix*viewMatrix*w; }`,
-    fragmentShader: `precision highp float; varying vec3 vN; varying vec3 vP; varying vec3 vO; uniform float time; uniform float dim;
+    fragmentShader: `precision highp float; varying vec3 vN; varying vec3 vP; varying vec3 vO; uniform float time; uniform float dim; uniform vec3 tint;
       void main() { vec3 n=normalize(vN), eye=normalize(cameraPosition-vP); float f=1.-max(dot(n,eye),0.);
         vec3 r=reflect(-eye,n); float flow=sin(vO.x*4.+sin(vO.y*5.)+time*.08)*.13+sin(vO.y*8.+vO.z*4.)*.04;
         vec3 film=.5+.5*cos(6.28318*(f*2.4+flow*1.5+.1+vec3(0.,.33,.67)));
-        film=mix(film,vec3(.70,.84,.91),.48);
+        film=mix(film,tint,.48);
         float edge=pow(f,2.2); float band=pow(.5+.5*sin(f*28.+flow*24.),3.);
         float ribbon=exp(-pow((r.y-.55)/.11,2.))*smoothstep(-.7,.05,r.x);
         float soft=exp(-pow((r.x+.5)/.16,2.)-pow((r.y-.45)/.6,4.));
@@ -130,7 +136,7 @@ function makeBubbleMaterial(dim: number) {
 }
 
 export default function WorkRestScene({ title, requirementVersion, taskCount, artifactCount, updatedAt,
-  agents, tasks = [], onAgentSelect, onTaskSelect, onManageAgents, onReturn }: WorkRestSceneProps) {
+  agents, tasks = [], agentTints, onAgentSelect, onTaskSelect, onManageAgents, onReturn }: WorkRestSceneProps) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const stage = useRef<HTMLDivElement>(null);
@@ -138,9 +144,14 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
   const taskLabels = useRef<Map<string, HTMLButtonElement>>(new Map());
   const coreLabel = useRef<HTMLDivElement>(null);
   const slotById = useRef<Map<string, number>>(new Map());
-  const controls = useRef<{ toggle: () => void; reset: () => void; setTasks: (visible: boolean) => void } | null>(null);
+  const controls = useRef<{ toggle: () => void; reset: () => void; setTasks: (visible: boolean) => void;
+    rotate: (yaw: number, pitch: number) => void; zoom: (delta: number) => void; setTints: () => void } | null>(null);
+  const view = useRef({ yaw: 0, pitch: 0, distance: 9.8, initialized: false });
+  const tints = useRef(agentTints); tints.current = agentTints;
   const [paused, setPaused] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false);
+  const pausedRef = useRef(paused);
   const [showTasks, setShowTasks] = useState(false);
+  const tasksVisible = useRef(showTasks); tasksVisible.current = showTasks;
   const [unavailable, setUnavailable] = useState(false);
   const linkedAgents = (agents ?? []).filter(agent => agent.association === 'USER_LINKED')
     .sort((a, b) => a.agent_id.localeCompare(b.agent_id));
@@ -217,7 +228,7 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
     const bubbleMaterials: any[] = [];
     const bubbleCenters = visibleAgents.map(agent => {
       const position = SLOTS[slotById.current.get(agent.agent_id)!];
-      const material = makeBubbleMaterial(agent.presence === 'NOT_CURRENT' || agent.presence === 'STALE' || agent.presence === 'UNKNOWN' ? .48 : 1);
+      const material = makeBubbleMaterial(agent.presence === 'NOT_CURRENT' || agent.presence === 'STALE' || agent.presence === 'UNKNOWN' ? .48 : 1, agentTint(agent.agent_id, tints.current));
       bubbleMaterials.push(material);
       const mesh = new THREE.Mesh(bubbleGeometry, material);
       mesh.position.set(position[0], position[1], position[2]);
@@ -225,7 +236,7 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
       world.add(mesh);
       return { id: agent.agent_id, point: new THREE.Vector3(position[0], position[1], position[2]) };
     });
-    const taskGroup = new THREE.Group(); taskGroup.visible = false; world.add(taskGroup);
+    const taskGroup = new THREE.Group(); taskGroup.visible = tasksVisible.current; world.add(taskGroup);
     const taskGeometry = new THREE.BufferGeometry();
     taskGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
       0, .13, 0, .13, 0, 0, 0, -.13, 0, -.13, 0, 0,
@@ -251,13 +262,16 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
       return { id: task.id, point };
     });
 
-    let yaw = 0, pitch = 0, distance = 9.8, motionTime = 0, last = performance.now(), frameId = 0;
-    let isPaused = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let { yaw, pitch, distance } = view.current;
+    let motionTime = 0, last = performance.now(), frameId = 0;
+    let isPaused = pausedRef.current, contextLost = false;
+    const motionPreference = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     let drag: { x: number; y: number } | null = null;
     setPaused(isPaused);
     const draw = () => {
+      view.current = { yaw, pitch, distance, initialized: true };
       world.rotation.set(pitch, yaw, 0);
-      camera.position.set(0, 0, distance); camera.lookAt(0, 0, 0);
+      camera.position.set(0, 0, distance); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
       scene.updateMatrixWorld();
       const project = (point: any) => point.clone().project(camera);
       const screenDistance = (a: any, b: any) => Math.hypot(
@@ -274,6 +288,11 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
         coreLabel.current.style.setProperty('--scene-font-floor', `${9 / scale}px`);
         coreLabel.current.classList.toggle('is-compact', scale <= .55);
       }
+      const occupied: { left: number; top: number; right: number; bottom: number }[] = [];
+      const taskPanel = host.querySelector<HTMLElement>('.work-rest-task-list');
+      if (taskPanel) occupied.push({ left: taskPanel.offsetLeft, top: taskPanel.offsetTop,
+        right: taskPanel.offsetLeft + taskPanel.offsetWidth, bottom: taskPanel.offsetTop + taskPanel.offsetHeight });
+      let crowded = false;
       for (const bubble of bubbleCenters) {
         const label = labels.current.get(bubble.id);
         if (!label) continue;
@@ -286,7 +305,20 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
         label.style.setProperty('--scene-font-floor', `${8 / scale}px`);
         label.classList.toggle('is-compact', scale <= .65);
         label.classList.toggle('is-tiny', scale <= .5);
+        // Crowded or off-camera projections retain a readable list alternative.
+        const width = Math.min(160, Math.max(110, host.clientWidth * .20)) * scale;
+        const height = label.offsetHeight * scale;
+        const left = Math.max(8, Math.min(host.clientWidth - width - 8, (point.x * .5 + .5) * host.clientWidth - width / 2));
+        const top = Math.max(8, Math.min(host.clientHeight - height - 8, (-point.y * .5 + .5) * host.clientHeight + 47 * scale));
+        const box = { left, top, right: left + width, bottom: top + height };
+        const hidden = scale < .65 || point.z < -1 || point.z > 1 || host.clientWidth < width + 16 ||
+          occupied.some(other => box.left < other.right + 6 && box.right > other.left - 6 && box.top < other.bottom + 6 && box.bottom > other.top - 6);
+        label.style.visibility = hidden ? 'hidden' : '';
+        label.style.left = `${left + width / 2}px`;
+        label.style.top = `${top - 47 * scale}px`;
+        if (hidden) crowded = true; else occupied.push(box);
       }
+      host.parentElement?.classList.toggle('has-crowded-labels', crowded);
       for (const task of taskCenters) {
         const label = taskLabels.current.get(task.id);
         if (!label) continue;
@@ -299,28 +331,48 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
     };
     const frame = (now: number) => {
       frameId = 0;
-      if (isPaused) return;
+      if (isPaused || document.hidden || contextLost) return;
       motionTime += Math.min((now - last) / 1000, .05); last = now;
       for (const material of bubbleMaterials) material.uniforms.time.value = motionTime;
       draw(); frameId = requestAnimationFrame(frame);
     };
+    let previousFit = Math.max(9.8, 12.7 / Math.max(.54, Math.max(1, host.clientWidth) / Math.max(1, host.clientHeight)));
     const resize = () => {
       const width = Math.max(1, host.clientWidth), height = Math.max(1, host.clientHeight);
       renderer.setSize(width, height); camera.aspect = width / height;
-      distance = Math.max(distance, 8.5, 12.7 / Math.max(.54, camera.aspect));
+      const fitted = Math.max(9.8, 12.7 / Math.max(.54, camera.aspect));
+      distance = THREE.MathUtils.clamp(distance * fitted / previousFit, Math.max(7.4, 12.7 / Math.max(.54, camera.aspect)), 32);
+      previousFit = fitted;
       camera.updateProjectionMatrix(); draw();
     };
     const reset = () => {
       yaw = 0; pitch = 0;
-      distance = Math.max(9.8, 12.7 / Math.max(.54, host.clientWidth / Math.max(1, host.clientHeight)));
+      distance = Math.max(9.8, 12.7 / Math.max(.54, Math.max(1, host.clientWidth) / Math.max(1, host.clientHeight)));
       draw();
     };
     const toggle = () => {
-      isPaused = !isPaused; setPaused(isPaused);
+      isPaused = !isPaused; pausedRef.current = isPaused; setPaused(isPaused);
       if (isPaused) { cancelAnimationFrame(frameId); frameId = 0; draw(); }
-      else { last = performance.now(); frameId = requestAnimationFrame(frame); }
+      else if (!document.hidden && !contextLost) { last = performance.now(); frameId = requestAnimationFrame(frame); }
     };
-    controls.current = { toggle, reset, setTasks: visible => { taskGroup.visible = visible; draw(); } };
+    const rotate = (horizontal: number, vertical: number) => {
+      yaw += horizontal; pitch = THREE.MathUtils.clamp(pitch + vertical, -.65, .65); draw();
+    };
+    const zoom = (delta: number) => {
+      distance = THREE.MathUtils.clamp(distance + delta, Math.max(7.4, 12.7 / Math.max(.54, camera.aspect)), 32); draw();
+    };
+    controls.current = { toggle, reset, rotate, zoom, setTasks: visible => { taskGroup.visible = visible; draw(); },
+      setTints: () => { visibleAgents.forEach((agent, index) => bubbleMaterials[index].uniforms.tint.value.copy(tintVector(agentTint(agent.agent_id, tints.current)))); draw(); } };
+    const preferenceChanged = (event: MediaQueryListEvent) => {
+      if (!event.matches) return;
+      isPaused = true; pausedRef.current = true; setPaused(true); cancelAnimationFrame(frameId); frameId = 0; draw();
+    };
+    const visibilityChanged = () => {
+      cancelAnimationFrame(frameId); frameId = 0;
+      if (!document.hidden && !isPaused && !contextLost) { last = performance.now(); frameId = requestAnimationFrame(frame); }
+    };
+    motionPreference?.addEventListener?.('change', preferenceChanged);
+    document.addEventListener('visibilitychange', visibilityChanged);
     const down = (event: globalThis.PointerEvent) => {
       drag = { x: event.clientX, y: event.clientY };
       renderer.domElement.setPointerCapture(event.pointerId);
@@ -334,14 +386,12 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
     const up = () => { drag = null; };
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
-      distance = THREE.MathUtils.clamp(distance + event.deltaY * .007,
-        Math.max(7.4, 12.7 / Math.max(.54, camera.aspect)), 32);
-      draw();
+      zoom(event.deltaY * .007);
     };
-    const lost = (event: Event) => { event.preventDefault(); setUnavailable(true); cancelAnimationFrame(frameId); frameId = 0; };
+    const lost = (event: Event) => { event.preventDefault(); contextLost = true; setUnavailable(true); cancelAnimationFrame(frameId); frameId = 0; };
     const restored = () => {
-      setUnavailable(false); resize();
-      if (!isPaused) { last = performance.now(); frameId = requestAnimationFrame(frame); }
+      contextLost = false; setUnavailable(false); resize();
+      if (!isPaused && !document.hidden) { last = performance.now(); frameId = requestAnimationFrame(frame); }
     };
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
     observer?.observe(host); window.addEventListener('resize', resize);
@@ -352,10 +402,14 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
     renderer.domElement.addEventListener('wheel', wheel, { passive: false });
     renderer.domElement.addEventListener('webglcontextlost', lost);
     renderer.domElement.addEventListener('webglcontextrestored', restored);
-    reset(); resize();
-    if (!isPaused) frameId = requestAnimationFrame(frame);
+    if (!view.current.initialized) reset();
+    resize();
+    if (!isPaused && !document.hidden) frameId = requestAnimationFrame(frame);
     return () => {
       controls.current = null; cancelAnimationFrame(frameId); observer?.disconnect();
+      motionPreference?.removeEventListener?.('change', preferenceChanged);
+      document.removeEventListener('visibilitychange', visibilityChanged);
+      host.parentElement?.classList.remove('has-crowded-labels');
       window.removeEventListener('resize', resize);
       renderer.domElement.removeEventListener('pointerdown', down);
       renderer.domElement.removeEventListener('pointermove', move);
@@ -373,7 +427,8 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
     };
   }, [agentIds, sceneTaskIds]);
 
-  useEffect(() => { controls.current?.setTasks(showTasks); }, [showTasks, agentIds, sceneTaskIds]);
+  useEffect(() => { if (!unavailable) controls.current?.setTasks(showTasks); }, [showTasks, agentIds, sceneTaskIds, unavailable]);
+  useEffect(() => { controls.current?.setTints(); }, [agentTints]);
 
   const date = updatedAt ? new Date(updatedAt) : null;
   const dateText = date && !Number.isNaN(date.getTime()) ? date.toLocaleString(locale) : null;
@@ -399,7 +454,7 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
     return agent ? `${agent.detected_identity} · ${id.slice(-6)}` : id.slice(-8);
   };
 
-  return <section className={`work-rest${unavailable ? ' is-unavailable' : ''}${linkedAgents.length ? ' has-agents' : ''}`}
+  return <section className={`work-rest${unavailable ? ' is-unavailable' : ''}${linkedAgents.length ? ' has-agents' : ''}${linkedAgents.length > MAX_BUBBLES ? ' has-agent-overflow' : ''}`}
     aria-label={zh ? '工作空间观赏视图' : 'Workspace scene'}>
     <header className="work-rest-header">
       <button autoFocus className="work-rest-back" onClick={onReturn}
@@ -420,10 +475,20 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
             title={zh ? '复位视角' : 'Reset view'}><span aria-hidden="true">↺</span></button></>}
       </div>
     </header>
-    <div className="work-rest-stage" ref={stage}>
-      {!unavailable && !showTasks && <div className="work-rest-core-label" ref={coreLabel} aria-hidden="true">
+    <div className="work-rest-stage" ref={stage} tabIndex={unavailable ? undefined : 0}
+      role={unavailable ? undefined : 'group'} aria-label={zh ? '三维场景：方向键旋转，加减键缩放，Home 复位' : '3D scene: Arrow keys rotate, plus and minus zoom, Home resets'}
+      onKeyDown={event => {
+        if (event.target !== event.currentTarget) return;
+        const rotations: Record<string, [number, number]> = { ArrowLeft: [-.12, 0], ArrowRight: [.12, 0], ArrowUp: [0, -.10], ArrowDown: [0, .10] };
+        if (rotations[event.key]) { event.preventDefault(); controls.current?.rotate(...rotations[event.key]); }
+        else if (event.key === '+' || event.key === '=') { event.preventDefault(); controls.current?.zoom(-1); }
+        else if (event.key === '-') { event.preventDefault(); controls.current?.zoom(1); }
+        else if (event.key === 'Home') { event.preventDefault(); controls.current?.reset(); }
+      }}>
+      {!unavailable && <div className="work-rest-core-label" ref={coreLabel} aria-hidden="true">
         <span>WORK</span><strong>{title}</strong>
       </div>}
+      {!unavailable && <p className="work-rest-keyboard-hint">{zh ? '拖动旋转 · 滚动缩放 · 键盘：方向键、+/−、Home' : 'Drag to rotate · Scroll to zoom · Keyboard: arrows, +/−, Home'}</p>}
       {!unavailable && <div className="work-rest-agent-labels">{visibleAgents.map(agent => agentButton(agent, true))}</div>}
       {!unavailable && showTasks && <div className="work-rest-task-markers">
         {visibleTasks.map((task, index) => <button key={task.id} className="work-rest-task-marker"
@@ -469,7 +534,7 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
       {unavailable && <p role="status" className="work-rest-fallback">{zh ? '此设备无法显示 3D 场景。工作信息和 Agent 仍可查看。' : '3D is unavailable on this device. Work and agent details remain available.'}</p>}
     </footer>
     {linkedAgents.length > 0 && <div className="work-rest-mobile-agents" aria-label={zh ? '关联 Agent' : 'Linked agents'}>
-      {visibleAgents.map(agent => agentButton(agent, false))}
+      {linkedAgents.map(agent => agentButton(agent, false))}
     </div>}
   </section>;
 }

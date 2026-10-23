@@ -1,0 +1,19 @@
+.work-bubble-group { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; z-index: 2; }
+.work-bubble-group:focus-within, .work-bubble-group.is-expanded { z-index: 5; }
+.work-page .work-bubble-group > button.work-agent-bubble, .work-page .work-bubble-group > button.work-space-node { position: relative; left: auto; top: auto; transform: none; }
+.work-bubble-children, .work-bubble-seat { position: absolute; inset: 0; pointer-events: none; }
+.work-bubble-seat .work-bubble-bridge { position: absolute; left: 50%; top: calc(50% - 16px); width: var(--bridge-length); height: 32px; transform-origin: left center; transform: rotate(var(--bridge-angle)); pointer-events: none; }
+.is-expanded .work-bubble-bridge { pointer-events: auto; }
+.work-page button.work-bubble-child { position: absolute; left: 50%; top: 50%; width: 104px; min-height: 48px; max-height: 68px; padding: 8px; border: 1px solid var(--border-3); border-radius: 50%; background: var(--bg-surface-1); color: var(--text-1); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; white-space: normal; overflow: hidden; justify-content: center; transform: translate(-50%, -50%) translate(0, 0) scale(.18); opacity: .7; pointer-events: none; transition: transform 220ms cubic-bezier(.3,.15,.25,1), opacity 220ms ease; }
+.work-page .is-expanded button.work-bubble-child { transform: translate(-50%, -50%) translate(var(--child-x), var(--child-y)) scale(1); opacity: 1; pointer-events: auto; }
+.work-page button.work-bubble-pin { position: absolute; left: 50%; top: calc(100% + 12px); transform: translateX(-50%); padding: 4px 8px; max-width: 160px; font-size: 11px; pointer-events: auto; }
+.work-bubble-group.is-pinned > .work-bubble-trigger { outline: 1px solid var(--work); outline-offset: 4px; }
+@media (max-width: 620px) {
+  .work-agent-bubbles .work-bubble-group { width: 112px !important; height: 112px !important; }
+  .work-page button.work-bubble-child { width: 78px; min-height: 44px; max-height: 60px; font-size: 10px; }
+  .work-bubble-seat .work-bubble-bridge { width: var(--mobile-length); transform: rotate(var(--mobile-angle)); }
+  .work-page .is-expanded button.work-bubble-child { transform: translate(-50%, -50%) translate(var(--mobile-x), var(--mobile-y)) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .work-page button.work-bubble-child { transition: none; } }
+
+.work-page .work-bubble-group > button.work-space-node { width: 100%; box-sizing: border-box; }

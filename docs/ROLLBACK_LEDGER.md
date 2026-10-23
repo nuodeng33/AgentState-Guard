@@ -31,3 +31,7 @@
 ## 2026-10-23 ASG-ONBOARD-001
 
 Base0661c24. Revert this feature's UI/API client, focused tests, acceptance scripts and generated frontend assets together. No backend/database/schema change, original data directory mutation, permission change or credential copy. Newly registered disposable test scopes live only in removed harness temporary databases; real user directory policy is never changed by this verification.
+
+## 2026-10-23 ASG-CLOSE-001 spatial UI subset
+
+Rollback1f66480. Revert spatial UI/components/appearancehelper, viewer and generated static assets together. No database/API mutation in this subset. Pins are transient; previously saved work layout/requirements/links unaffected. Tests and actual browser reports retained. Color persistence and queue storage remain blocked on required architecture answer, not enabled implicitly.

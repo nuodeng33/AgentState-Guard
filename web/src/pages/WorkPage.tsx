@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
 import { TopBar, type PageKey } from '../components/AppShell';
 import { useI18n } from '../i18n/I18nProvider';
@@ -9,9 +9,11 @@ import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
 import WorkRecovery from '../components/WorkRecovery';
+import WorkBubbleGroup from '../components/WorkBubbleGroup';
+import { agentTint } from './workAppearance';
 import type { ProtectionScopeCommand } from '../api/protection';
 import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExecutionStatus';
-import { AgentFilm, AGENT_TINTS, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
+import { AgentFilm, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
 import './work.css';
 
 type Summary = { id: string; title: string; owner: string; revision: number; requirement_version: number; updated_at?: string };
@@ -111,6 +113,12 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const [hover, setHover] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [relationshipsOpen, setRelationshipsOpen] = useState(false);
+  const [relationsRetained, setRelationsRetained] = useState(false);
+  useEffect(() => {
+    if (relationshipsOpen) { setRelationsRetained(true); return; }
+    const timer = setTimeout(() => setRelationsRetained(false), 250);
+    return () => clearTimeout(timer);
+  }, [relationshipsOpen]);
   const [relationLimit, setRelationLimit] = useState(12);
   const [menuOpen, setMenuOpen] = useState(false);
   const [restOpen, setRestOpen] = useState(false);
@@ -221,7 +229,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   useEffect(() => {
     if (!visible || !work || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel) return;
     const keyboard = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       e.preventDefault();
       if (libraryOpen) setLibraryOpen(false);
       else if (menuOpen) setMenuOpen(false);
@@ -333,7 +341,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const space = board?.space; const inSpace = board?.surface !== 'board';
   const relatedNodes = space?.nodes.filter(node => node.kind !== 'requirement') ?? [];
   const visibleNodes = [...(space?.nodes.filter(node => node.kind === 'requirement' && node.version === work?.requirement_version) ?? []),
-    ...(relationshipsOpen ? relatedNodes.slice(0, relationLimit) : [])];
+    ...((relationshipsOpen || relationsRetained) ? relatedNodes.slice(0, relationLimit) : [])];
   const coreNode = visibleNodes.find(node => node.kind === 'requirement');
   // Agents sit just outside the tasks they carry; unlinked agents wait above the core.
   const agentNodes = agents.items.slice(0, 4).reduce<{ agent: WorkAgent; x: number; y: number }[]>((placed, agent, index) => {
@@ -442,23 +450,38 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
               const task = visibleNodes.find(item => item.kind === 'task' && item.ref_id === id);
               return task ? <path key={`${node.agent.agent_id}:${id}`} data-agent-task={id} d={curve(node, task)} className={`agent-link ${highlighted ? (highlighted.has(`agent:${node.agent.agent_id}`) && highlighted.has(key(task)) ? 'lit' : 'dim') : ''}`}><title>{locale === 'zh-CN' ? '用户任务关联；执行活动未知' : 'User task link; execution activity unknown'}</title></path> : [];
             }))}</svg>
-          {relationshipsOpen && agentNodes.map(({ agent, x, y }, index) => <AgentBubble key={agent.agent_id} agent={agent} index={index} size={150} tasks={work.tasks} copy={t}
-            className={highlighted && !highlighted.has(`agent:${agent.agent_id}`) ? 'dim' : highlighted ? 'lit' : ''} style={{ left: x, top: y }}
-            onPointerDown={event => event.stopPropagation()} onPointerEnter={() => setHover(`agent:${agent.agent_id}`)} onPointerLeave={() => setHover(null)} onClick={() => openAgents(agent.agent_id)} />)}
+          {(relationshipsOpen || relationsRetained) && agentNodes.map(({ agent, x, y }, index) => <WorkBubbleGroup key={agent.agent_id}
+            label={`${locale === 'zh-CN' ? 'Agent 子项' : 'Agent children'} ${agent.agent_id}`} width={150} height={150} style={{ left: x, top: y }} side={x < 0 ? 1 : -1} verticalSide={y < 0 ? -1 : 1}
+            forceClosed={!relationshipsOpen} onHover={open => setHover(open ? `agent:${agent.agent_id}` : null)}
+            actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
+              ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null, x: 0, y: 0 }) }))]}
+            renderTrigger={triggerProps => <AgentBubble agent={agent} index={index} size={150} tasks={work.tasks} copy={t} triggerProps={triggerProps}
+              className={highlighted && !highlighted.has(`agent:${agent.agent_id}`) ? 'dim' : highlighted ? 'lit' : ''} style={{}} onClick={() => openAgents(agent.agent_id)} />} />)}
           {visibleNodes.map(node => { const item = node.kind === 'task' ? work.tasks.find(x => x.id === node.ref_id) : node.kind === 'artifact' ? work.artifacts.find(x => x.id === node.ref_id && x.version === node.version) : null;
             if (node.kind !== 'requirement' && !item) return null;
             const state = highlighted ? (highlighted.has(key(node)) ? 'lit' : 'dim') : '';
-            return <button key={key(node)} className={`work-space-node ${node.kind} ${state}`} style={{ left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={() => { if (!suppressSpaceClick.current) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? work.title}`}>
+            const trigger = (triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>) => <button key={key(node)} {...triggerProps} className={`work-space-node ${node.kind} ${state} ${triggerProps?.className ?? ''}`} style={node.kind === 'task' ? {} : { left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={() => { if (!suppressSpaceClick.current) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? work.title}`}>
               {node.kind === 'requirement' ? <><WorkCore size={300} /><span className="work-core-text"><strong>{work.title}</strong>{goalOf(work.requirement) && <span className="work-core-goal">{goalOf(work.requirement)}</span>}<span className="work-core-counts"><span>{t.requirement} v{node.version}</span><span>{t.taskCount(work.tasks.length)}</span><span>{t.artifactCount(work.artifacts.length)}</span></span></span></> :
                 <><span className="work-anchor-icon"><Icon name={node.kind} size={16} /></span><strong>{item?.title ?? work.title}</strong>{node.version ? <em className="work-version">v{node.version}</em> : <small>{t[node.kind]}</small>}</>}
-            </button>; })}
-        </div>{!relationshipsOpen && <><div className="work-agent-bubbles">
+            </button>;
+            return node.kind === 'task' ? <WorkBubbleGroup key={key(node)} label={`${locale === 'zh-CN' ? '任务关联' : 'Task links'} ${item?.title ?? node.ref_id}`}
+              width={230} height={42} style={{ left: node.x, top: node.y }} side={node.x < 0 ? 1 : -1} verticalSide={node.y < 0 ? -1 : 1} pinOnClick={false} forceClosed={!relationshipsOpen}
+              pinLabel={locale === 'zh-CN' ? '固定子项' : 'Pin children'} unpinLabel={locale === 'zh-CN' ? '取消固定' : 'Unpin children'}
+              onHover={open => setHover(open ? key(node) : null)} renderTrigger={trigger}
+              actions={[{ id: 'open-task', label: `${t.open} ${item?.title ?? node.ref_id}`, onSelect: () => showOnBoard(node) },
+                ...agents.items.filter(agent => agent.task_ids?.includes(node.ref_id)).slice(0, 3).map(agent => ({ id: agent.agent_id,
+                  label: `${AGENT_NAMES[agent.detected_identity] ?? agent.detected_identity} · ${agent.agent_id.slice(-6)}`, onSelect: () => openAgents(agent.agent_id) }))]} /> : trigger(); })}
+        </div>{!relationshipsOpen && !relationsRetained && <><div className="work-agent-bubbles">
           <svg width="100%" height="100%" aria-hidden="true">{agents.items.slice(0, 4).map((agent, index) => {
             const [x, y] = [[22, 30], [78, 67], [22, 67], [78, 30]][index];
             return <line key={agent.agent_id} x1="50%" y1="50%" x2={`${x}%`} y2={`${y}%`} className="work-agent-tether" />;
           })}</svg>
           {agents.items.slice(0, 4).map((agent, index) => { const [x, y] = [[22, 30], [78, 67], [22, 67], [78, 30]][index];
-            return <AgentBubble key={agent.agent_id} agent={agent} index={index} size={170} tasks={work.tasks} copy={t} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => openAgents(agent.agent_id)} />;
+            return <WorkBubbleGroup key={agent.agent_id} label={`${locale === 'zh-CN' ? 'Agent 子项' : 'Agent children'} ${agent.agent_id}`}
+              width={170} height={170} style={{ left: `${x}%`, top: `${y}%` }} side={x < 50 ? 1 : -1} verticalSide={y < 50 ? -1 : 1}
+              actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
+                ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null, x: 0, y: 0 }) }))]}
+              renderTrigger={triggerProps => <AgentBubble agent={agent} index={index} size={170} tasks={work.tasks} copy={t} style={{}} triggerProps={triggerProps} onClick={() => openAgents(agent.agent_id)} />} />;
           })}</div></>}</div>}
       {!inSpace && <div className="work-area">{libraryOpen && <aside className="work-library"><div className="work-library-head"><h2>{t.library}</h2><button className="work-icon-button" onClick={() => setLibraryOpen(false)} aria-label={t.close}><Icon name="close" size={16} /></button></div>
         <label>{t.requirement}<input aria-label={t.showRequirement} type="number" min={1} max={work.requirement_version} value={requirementVersion} onChange={e => setRequirementVersion(bound(Number(e.target.value), 1, work.requirement_version))} /></label>
@@ -555,15 +578,16 @@ const AGENT_NAMES: Record<string, string> = { CODEX: 'Codex', CLAUDE_CODE: 'Clau
  * Agent as a replaceable tool: a tinted film with only facts the Core reports.
  * Presence comes from discovery; execution activity stays explicitly unknown.
  */
-function AgentBubble({ agent, index, size, tasks, copy, className = '', style, onClick, onPointerDown, onPointerEnter, onPointerLeave }: {
+function AgentBubble({ agent, index, size, tasks, copy, className = '', style, onClick, onPointerDown, onPointerEnter, onPointerLeave, triggerProps }: {
   agent: WorkAgent; index: number; size: number; tasks: { id: string; title: string }[]; copy: Copy; className?: string;
+  triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>;
   style: CSSProperties; onClick: () => void; onPointerDown?: (event: PointerEvent) => void; onPointerEnter?: () => void; onPointerLeave?: () => void;
 }) {
   const state = agent.presence === 'CURRENT' ? 'current' : agent.presence === 'NOT_CURRENT' ? 'absent' : 'unknown';
   const linked = tasks.filter(task => agent.task_ids?.includes(task.id));
-  return <button className={`work-agent-bubble is-${state} ${className}`} style={{ ...style, width: size, height: size }} onClick={onClick}
-    onPointerDown={onPointerDown} onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>
-    <AgentFilm seed={agent.agent_id} size={size} tint={AGENT_TINTS[index % AGENT_TINTS.length]} state={state} />
+  return <button style={{ ...style, width: size, height: size }} onClick={onClick}
+    onPointerDown={onPointerDown} onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} {...triggerProps} className={`work-agent-bubble is-${state} ${className} ${triggerProps?.className ?? ''}`}>
+    <AgentFilm seed={agent.agent_id} size={size} tint={agentTint(agent.agent_id)} state={state} />
     <span className="work-agent-text">
       <strong>{AGENT_NAMES[agent.detected_identity] ?? agent.detected_identity}</strong>
       <span className="work-agent-state"><i aria-hidden="true" />{state === 'current' ? copy.presentNow : state === 'absent' ? copy.presentAbsent : copy.presentUnknown}</span>
