@@ -103,7 +103,8 @@ def test_forced_process_death_recovers_durable_native_operation(tmp_path, point,
                 assert step['state'] == 'COMPENSATION_INTENT'
                 assert files(project)[step['relative_path']] == current[step['relative_path']]
             worker_process.kill()
-            worker_process.wait(timeout=10)
+            if worker_process.pid != child.pid:
+                worker_process.wait(timeout=10)
             child.wait(timeout=10)
             assert child.returncode != 0
             if os.name != 'nt':
