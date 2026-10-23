@@ -59,7 +59,7 @@ try {
             '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--noconsole',
             '--name', 'agentguard-sidecar', '--distpath', "$buildRoot\dist",
             '--workpath', "$buildRoot\work", '--specpath', $buildRoot,
-            '--paths', $root, '--collect-data', 'agentguard'
+            '--paths', $root, '--collect-data', 'agentguard', '--add-data', 'agentguard/discovery/application_probe.py;agentguard/discovery', '--add-data', 'agentguard/discovery/session_metadata.py;agentguard/discovery', '--add-data', 'agentguard/discovery/probes/container_processes.py;agentguard/discovery/probes', '--add-data', 'agentguard/recovery/protection_helper.py;agentguard/recovery'
         )
         foreach ($module in @(
             'uvicorn', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto',
@@ -75,6 +75,7 @@ try {
     }
     $sidecar = Join-Path $buildRoot 'dist\agentguard-sidecar.exe'
     if (-not (Test-Path -LiteralPath $sidecar -PathType Leaf)) { throw 'Sidecar build produced no EXE' }
+    Invoke-Checked $Python @((Join-Path $root 'scripts\verify_packaged_readers.py'), '--exe', $sidecar, '--source-root', $root, '--report', (Join-Path $buildRoot 'packaged-readers.json'))
     $binDir = Join-Path $root 'desktop\src-tauri\bin'
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
     Copy-Item -LiteralPath $sidecar -Destination (Join-Path $binDir "agentguard-sidecar-$triple.exe") -Force

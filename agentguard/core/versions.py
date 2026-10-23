@@ -1,5 +1,6 @@
 """Software version and local product provenance detection."""
 
+import platform
 import re
 from pathlib import Path
 
@@ -53,7 +54,7 @@ def all_versions() -> dict[str, str | None]:
     return {
         "docker": _get_version(["docker"]),
         "node": _get_version(["node"]),
-        "python": _get_version(["python3"]),
+        "python": f"Python {platform.python_version()} (Core)",
         "claude": _get_version(["claude"]),
         "cloudcli": _get_version(["cloudcli"]),
         "ccr": _get_version(["ccr"]),

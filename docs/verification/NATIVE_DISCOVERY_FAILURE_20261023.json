@@ -1,0 +1,37 @@
+{
+  "tested_product": "405bbd44b6c09e312843633c4f4e30c4dbbdee47",
+  "actual_environment": {
+    "windows_installed_main": true,
+    "fresh_mumu_index": 1,
+    "adb": "127.0.0.1:16416",
+    "android": "12",
+    "abi": "x86_64",
+    "existing_mumu_do_not_touch": [
+      2,
+      5
+    ]
+  },
+  "failures": {
+    "legacy_default_container": "agent-dev",
+    "actual_running_containers": [
+      "agent-claude-code",
+      "agent-codex-b"
+    ],
+    "process_reason": "DOCKER_PROCESS_PROBE_FAILED",
+    "four_raw_source_files_missing": true,
+    "process_argv_under_windows_limit": true,
+    "firewall_reason": "DEVICE_FIREWALL_ELEVATION_UNAVAILABLE",
+    "helper_parent_text_equal": false,
+    "helper_parent_samefile": true,
+    "native_input_tool_error": "coordinate input geometry is unavailable",
+    "camera_preview": "gray; not a passed QR decode"
+  },
+  "original_data": {
+    "files": 6,
+    "bytes": 3199253,
+    "backup_verified": true,
+    "isolated": true,
+    "restoration": "Required after test teardown; not yet restored"
+  },
+  "fixed_package_installed": "Not yet; rebuild/CI/actualacceptance required"
+}

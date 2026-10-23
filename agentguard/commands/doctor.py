@@ -1,9 +1,12 @@
 """doctor command — detailed diagnostic with PASS/WARN/FAIL/SKIP/UNREACHABLE."""
 
+import platform
 from pathlib import Path
-from typing import Any, Dict, List
 
 from ..core.runner import run_command, which
+from ..discovery.capabilities import CapabilityStatus
+from ..discovery.domains.docker_host import DockerHostProbe
+from .status import _check_port
 
 
 def _in_container() -> bool:
@@ -24,15 +27,14 @@ def _in_container() -> bool:
 HOST_SERVICES = {"docker"}
 
 
-def doctor(config: dict) -> List[Dict[str, object]]:
+def doctor(config: dict) -> list[dict[str, object]]:
     """Run comprehensive diagnostic checks."""
-    results: List[Dict[str, object]] = []
-    container_name = config.get("container_name", "agent-dev")
+    results: list[dict[str, object]] = []
     in_container = _in_container()
 
     # 1. Kernel / container detection
     if in_container:
-        results.append(_info("container", f"Running inside container (no Docker socket access)"))
+        results.append(_info("container", "Running inside container (no Docker socket access)"))
 
     # --- Host services (UNREACHABLE when inside container) ---
 
@@ -46,92 +48,42 @@ def doctor(config: dict) -> List[Dict[str, object]]:
         else:
             results.append(_fail("docker-cli", "Docker CLI not found in PATH"))
 
-    # 3. Docker daemon
+    # Docker enumeration is independent of the optional process/tool probe.
     if docker_bin:
         try:
-            r = run_command(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=10)
-            if r.success:
-                results.append(_ok("docker-daemon", f"Docker daemon v{r.stdout}"))
+            listing = DockerHostProbe().list_targets()
+            if listing.status in {CapabilityStatus.AVAILABLE, CapabilityStatus.DEGRADED} or listing.reason_code == "DOCKER_TARGETS_EMPTY":
+                results.append(_ok("docker-daemon", "Local Docker daemon enumerated"))
             else:
-                if in_container:
-                    results.append(_unreachable("docker-daemon",
-                        "Cannot reach Docker daemon from container (no socket). Expected."))
-                else:
-                    results.append(_warn("docker-daemon", f"Docker daemon not responding: {r.stderr}"))
-        except FileNotFoundError:
-            results.append(_unreachable("docker-daemon", "Docker CLI not available in container"))
-        except Exception as e:
-            results.append(_unreachable("docker-daemon", str(e)))
-
-    # 4. Container status
-    if docker_bin:
-        try:
-            r = run_command(
-                ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.ID}}"],
-                timeout=10,
-            )
-            if r.success and r.stdout.strip():
-                results.append(_ok("container", f"{container_name} is running"))
-                # Security posture
-                try:
-                    r2 = run_command([
-                        "docker", "inspect", container_name,
-                        "--format", "{{.HostConfig.Privileged}}|{{.HostConfig.CapDrop}}",
-                    ], timeout=10)
-                    if r2.success:
-                        parts = r2.stdout.split("|")
-                        priv = parts[0].strip() if len(parts) > 0 else "?"
-                        if priv == "false":
-                            results.append(_ok("docker-security", "Container not privileged"))
-                        else:
-                            results.append(_warn("docker-security", f"Container privileged={priv}"))
-                except Exception:
-                    results.append(_skip("docker-security", "Cannot inspect container"))
+                results.append(_unreachable("docker-daemon", listing.reason_code))
+            if listing.status in {CapabilityStatus.AVAILABLE, CapabilityStatus.DEGRADED}:
+                for target in listing.targets:
+                    results.append(_ok("container", f"{target.name}: {target.status}; process/tool capabilities are reported separately"))
+            elif listing.reason_code == "DOCKER_TARGETS_EMPTY":
+                results.append(_info("container", "No running containers observed"))
             else:
-                if in_container:
-                    results.append(_unreachable("container",
-                        f"Cannot check container '{container_name}' from inside container"))
-                else:
-                    results.append(_fail("container", f"{container_name} not running"))
-        except FileNotFoundError:
-            results.append(_unreachable("container", "Docker not available in container"))
-        except Exception as e:
-            results.append(_unreachable("container", str(e)))
+                results.append(_unreachable("container", listing.reason_code))
+        except (OSError, RuntimeError, ValueError):
+            results.append(_unreachable("container", "DOCKER_TARGET_LIST_FAILED"))
     else:
-        results.append(_unreachable("container", "Docker not available"))
+        results.append(_unreachable("container", "Docker CLI unavailable on the Core host"))
 
-    # 5. Port check
     port = int(config.get("port", 3001))
-    try:
-        r = run_command(["ss", "-tln", f"sport = :{port}"], timeout=5)
-        if r.success and f":{port}" in r.stdout:
-            results.append(_ok("port", f"Port {port} listening"))
-        else:
-            results.append(_warn("port", f"Port {port} not listening (expected if CloudCLI not running)"))
-    except FileNotFoundError:
-        results.append(_skip("port", "Cannot check port (no ss)"))
-    except Exception:
-        results.append(_skip("port", "Port check unavailable"))
+    results.append(_ok("port", f"Optional Core-host service port {port} is listening") if _check_port(port)
+                   else _skip("port", f"Optional Core-host service port {port} is not listening"))
 
     # 6. Node.js
     if which("node"):
         try:
             r = run_command(["node", "--version"], timeout=5)
             results.append(_ok("node", f"Node {r.stdout}" if r.success else "Node version unavailable"))
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             results.append(_fail("node", str(e)))
     else:
         results.append(_fail("node", "Node.js not found"))
 
-    # 7. Python
-    if which("python3"):
-        try:
-            r = run_command(["python3", "--version"], timeout=5)
-            results.append(_ok("python", f"Python {r.stdout}" if r.success else "Python version unavailable"))
-        except Exception as e:
-            results.append(_fail("python", str(e)))
-    else:
-        results.append(_fail("python", "Python3 not found"))
+    # The packaged Core is Python even when no python3 command is on PATH.
+    results.append(_ok("python", f"Python {platform.python_version()} (Core runtime)"))
 
     # 8-14. Tool versions
     _check_tool(results, "claude", ["claude", "--version"])
@@ -145,13 +97,16 @@ def doctor(config: dict) -> List[Dict[str, object]]:
         Path("/home/agent/.claude/settings.json"),
         Path("/workspace/.claude/settings.local.json"),
     ]
-    settings_ok = sum(1 for p in key_paths if p.is_file())
-    if settings_ok == len(key_paths):
-        results.append(_ok("config-files", "All key config files present"))
-    elif settings_ok > 0:
-        results.append(_warn("config-files", f"{settings_ok}/{len(key_paths)} config files present"))
+    if platform.system() != "Linux":
+        results.append(_skip("config-files", "Linux development-fixture config paths do not apply to this Core host"))
     else:
-        results.append(_fail("config-files", "No config files found"))
+        settings_ok = sum(1 for p in key_paths if p.is_file())
+        if settings_ok == len(key_paths):
+            results.append(_ok("config-files", "Linux development-fixture config files present"))
+        elif settings_ok > 0:
+            results.append(_info("config-files", f"{settings_ok}/{len(key_paths)} optional Linux development-fixture config files present"))
+        else:
+            results.append(_skip("config-files", "Optional Linux development-fixture config files not present"))
 
     # Filesystem
     workspace = Path("/workspace")
@@ -178,26 +133,26 @@ def _check_tool(results: list, name: str, cmd: list) -> None:
                 results.append(_warn(name, f"{cmd[0]} version unavailable"))
         except FileNotFoundError:
             results.append(_fail(name, f"{cmd[0]} not found"))
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             results.append(_fail(name, str(e)))
     else:
         results.append(_warn(name, f"{cmd[0]} not found"))
 
 
-def _ok(check_id: str, msg: str) -> Dict[str, object]:
+def _ok(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "PASS", "message": msg}
 
-def _warn(check_id: str, msg: str) -> Dict[str, object]:
+def _warn(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "WARN", "message": msg}
 
-def _fail(check_id: str, msg: str) -> Dict[str, object]:
+def _fail(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "FAIL", "message": msg}
 
-def _skip(check_id: str, msg: str) -> Dict[str, object]:
+def _skip(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "SKIP", "message": msg}
 
-def _unreachable(check_id: str, msg: str) -> Dict[str, object]:
+def _unreachable(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "UNREACHABLE", "message": msg}
 
-def _info(check_id: str, msg: str) -> Dict[str, object]:
+def _info(check_id: str, msg: str) -> dict[str, object]:
     return {"check": check_id, "status": "INFO", "message": msg}

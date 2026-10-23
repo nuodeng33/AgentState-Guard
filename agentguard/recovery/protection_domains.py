@@ -70,10 +70,10 @@ def _helper_source() -> str:
     prefix = 'import types,sys\n'
     for name, module in (('_asg_applications', application_probe), ('_asg_sessions', session_metadata),
                          ('_asg_processes', container_processes)):
-        source = Path(module.__file__).read_text(encoding='utf-8')
+        source = Path(module.__file__).with_suffix('.py').read_text(encoding='utf-8')
         prefix += f"{name}=types.ModuleType({name!r})\nsys.modules[{name!r}]={name}\n"
         prefix += f"exec(compile({source!r},{name!r},'exec'),{name}.__dict__)\n"
-    helper = Path(protection_helper.__file__).read_text(encoding='utf-8')
+    helper = Path(protection_helper.__file__).with_suffix('.py').read_text(encoding='utf-8')
     return 'from __future__ import annotations\n' + prefix + helper.replace('from __future__ import annotations', '')
 
 

@@ -1,16 +1,17 @@
 """status command — quick bounded environment probe (no health verdict)."""
 
-from typing import Any, Dict, Optional
+from typing import Any
 
-from ..core.docker import docker_available, container_running
-from ..core.runner import run_command
+from ..core.docker import docker_available
 from ..core.versions import all_versions
+from ..discovery.capabilities import CapabilityStatus
+from ..discovery.domains.docker_host import DockerHostProbe
 from ..storage.db import StateDB
 
 
-def status(config: dict, db: Optional[StateDB] = None) -> Dict[str, Any]:
+def status(config: dict, db: StateDB | None = None) -> dict[str, Any]:
     """Collect bounded environment facts; callers render them verbatim."""
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "timestamp_utc": __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc
         ).isoformat(),
@@ -22,9 +23,16 @@ def status(config: dict, db: Optional[StateDB] = None) -> Dict[str, Any]:
     docker_ok = docker_available()
     result["checks"]["docker"] = docker_ok
     if docker_ok:
-        running, info = container_running(config.get("container_name", "agent-dev"))
-        result["checks"]["container_running"] = running
-        result["checks"]["container_info"] = info
+        try:
+            listing = DockerHostProbe().list_targets()
+            listed = listing.status in {CapabilityStatus.AVAILABLE, CapabilityStatus.DEGRADED}
+            result["checks"]["container_running"] = bool(listing.targets) if listed else (
+                False if listing.reason_code == "DOCKER_TARGETS_EMPTY" else None)
+            names = "; ".join(f"{target.name}: {target.status}" for target in listing.targets)
+            result["checks"]["container_info"] = names or listing.reason_code
+        except (OSError, RuntimeError, ValueError):
+            result["checks"]["container_running"] = None
+            result["checks"]["container_info"] = "DOCKER_TARGET_LIST_FAILED"
 
     # Port check
     port = int(config.get("port", 3001))
@@ -38,23 +46,11 @@ def status(config: dict, db: Optional[StateDB] = None) -> Dict[str, Any]:
 
 
 def _check_port(port: int) -> bool:
-    """Quick TCP port check using /proc or ss."""
+    """Check only the configured loopback service, on every supported host OS."""
+    import socket
+
     try:
-        r = run_command(
-            ["ss", "-tln", f"sport = :{port}"],
-            timeout=5,
-        )
-        if r.success and f":{port}" in r.stdout:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.25):
             return True
-    except Exception:
-        pass
-    try:
-        r = run_command(
-            ["bash", "-c", f"cat /proc/net/tcp | awk '{{print $2}}' | grep -qi :{port:04x}"],
-            timeout=5,
-        )
-        if r.success and r.stdout.strip():
-            return True
-    except Exception:
-        pass
-    return False
+    except (OSError, OverflowError, ValueError):
+        return False

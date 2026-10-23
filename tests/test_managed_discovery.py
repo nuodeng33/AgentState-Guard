@@ -288,3 +288,15 @@ def test_future_observation_is_unknown_rather_than_current(tmp_path):
     assert all(item["presence"] == "UNKNOWN" for item in agents["items"])
     assert all(item["reason_code"] == "AGENT_OBSERVATION_UNKNOWN" for item in agents["items"])
     assert all(item["reason_code"] == "RUNTIME_OBSERVATION_UNKNOWN" for item in runtimes["items"])
+
+
+def test_running_container_runtime_remains_visible_when_process_probe_fails(tmp_path):
+    managed = service()
+    managed.docker.status = CapabilityStatus.UNREACHABLE
+    report = managed.discover_with_authority()
+    _agents, runtime = projection(tmp_path, report)
+    containers = [item for item in runtime['items'] if item['runtime_type'] == 'CONTAINER']
+    assert len(containers) == 2
+    assert all(item['availability'] == 'AVAILABLE' for item in containers)
+    assert all(item['capabilities'] == ['container_observation'] for item in containers)
+    assert all(item['state'] == 'UNREACHABLE' for item in managed.sources()['items'] if item['kind'] == 'CONTAINER')

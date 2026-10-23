@@ -156,8 +156,12 @@
     <string name="ai_advisory_note">Advisory only — AI analysis is informational; it never performs actions on this device.</string>
     <string name="ai_advisory_severity">Severity</string>
     <string name="ai_advisory_analyzed_at">Analyzed at</string>
-    <string name="pairing_scan_note">Scan the desktop invitation QR with the built-in scanner. Camera access is requested only when you tap Scan. No IP address is entered manually.</string>
+    <string name="pairing_scan_note">Scan the desktop invitation QR, or choose its image with the built-in reader. Camera access is requested only for Scan. No IP address is entered manually.</string>
     <string name="supervision_checkpoint_required">A checkpoint is required by the desktop policy.</string>
     <string name="pairing_camera_denied">Camera access was declined. You can cancel, or tap Scan to choose whether to allow camera access.</string>
     <string name="pairing_camera_unavailable">A working camera is not available on this device. You can return without connecting.</string>
+    <string name="pairing_image_action">Read QR from image</string>
+    <string name="pairing_image_loading">Reading QR image…</string>
+    <string name="pairing_image_too_large">This image exceeds the size limit. Choose a smaller QR image (up to 16 MiB and 64 megapixels).</string>
+    <string name="pairing_image_failed">This image could not be read as a QR code. Choose a clear image of the desktop invitation.</string>
 </resources>

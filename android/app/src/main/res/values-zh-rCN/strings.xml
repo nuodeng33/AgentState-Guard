@@ -126,8 +126,12 @@
     <string name="ai_advisory_note">仅供参考 — AI 分析仅为信息性建议，不会在此设备上执行任何操作。</string>
     <string name="ai_advisory_severity">严重度</string>
     <string name="ai_advisory_analyzed_at">分析于</string>
-    <string name="pairing_scan_note">使用内置扫码器扫描电脑端邀请二维码。仅在点击扫码时申请摄像头权限，无需手动输入 IP 地址。</string>
+    <string name="pairing_scan_note">扫描电脑端邀请二维码，或使用内置识别功能选择二维码图片。仅扫码时申请摄像头权限，无需手动输入 IP 地址。</string>
     <string name="supervision_checkpoint_required">电脑端策略要求检查点。</string>
     <string name="pairing_camera_denied">摄像头权限未获允许。你可以返回，或再次点击扫码选择是否允许。</string>
     <string name="pairing_camera_unavailable">此设备暂时没有可用摄像头。你可以返回，连接不会自动进行。</string>
+    <string name="pairing_image_action">从二维码图片识别</string>
+    <string name="pairing_image_loading">正在识别二维码图片…</string>
+    <string name="pairing_image_too_large">图片超过大小限制。请选择不超过16 MiB、6400万像素的二维码图片。</string>
+    <string name="pairing_image_failed">未能从此图片读取二维码，请选择清晰的电脑端邀请二维码图片。</string>
 </resources>

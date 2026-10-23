@@ -207,7 +207,7 @@ def process_probe_source():
     from pathlib import Path
 
     from .. import application_probe
-    source = Path(application_probe.__file__).read_text(encoding="utf-8")
+    source = Path(application_probe.__file__).with_suffix('.py').read_text(encoding="utf-8")
     return ("import types,sys\n_asg_applications=types.ModuleType('_asg_applications')\n"
             "sys.modules['_asg_applications']=_asg_applications\n"
             + "exec(compile(" + repr(source) + ", 'asg_application_probe', 'exec'), _asg_applications.__dict__)\n"

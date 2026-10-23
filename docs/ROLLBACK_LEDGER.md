@@ -35,3 +35,7 @@ Base0661c24. Revert this feature's UI/API client, focused tests, acceptance scri
 ## 2026-10-23 ASG-CLOSE-001 spatial UI subset
 
 Rollback1f66480. Revert spatial UI/components/appearancehelper, viewer and generated static assets together. No database/API mutation in this subset. Pins are transient; previously saved work layout/requirements/links unaffected. Tests and actual browser reports retained. Color persistence and queue storage remain blocked on required architecture answer, not enabled implicitly.
+
+## Actual packaged discovery / helper failure fixes
+
+Base405bbd4. Revert phase22 files/generated assets as one validated set; no schema change. Preserve original6-file backups and isolated originaldata before any teardown. Restore only after uninstall/ownedprocess+port checks and hash verification; never delete test failure evidence or alter historical ledger. No firewall/profile/PATH/container-name workaround.

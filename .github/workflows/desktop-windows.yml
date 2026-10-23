@@ -115,7 +115,15 @@ jobs:
             --hidden-import cryptography.hazmat.backends.openssl `
             --hidden-import cryptography.hazmat.primitives `
             --collect-data agentguard `
+            --add-data "agentguard/discovery/application_probe.py;agentguard/discovery" `
+            --add-data "agentguard/discovery/session_metadata.py;agentguard/discovery" `
+            --add-data "agentguard/discovery/probes/container_processes.py;agentguard/discovery/probes" `
+            --add-data "agentguard/recovery/protection_helper.py;agentguard/recovery" `
             desktop/src-tauri/desktop_sidecar.py
+
+      - name: Verify packaged audited reader sources
+        shell: pwsh
+        run: python scripts/verify_packaged_readers.py --exe dist/agentguard-sidecar.exe --source-root . --report artifacts/packaged-readers.json
 
       - name: Verify EXE
         shell: pwsh

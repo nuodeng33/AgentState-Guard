@@ -95,6 +95,8 @@ function envFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respons
   if (path === '/api/doctor') return Promise.resolve(json(DOCTOR_PAYLOAD));
   if (path === '/api/v1/runtime') return Promise.resolve(json(RUNTIME_VIEW));
   if (path === '/api/v1/agents') return Promise.resolve(json(AGENTS_VIEW));
+  if (path === '/api/v1/discovery/sources') return Promise.resolve(json({ items: [] }));
+  if (path.startsWith('/api/v1/discovery/applications?')) return Promise.resolve(json({ items: [], has_more: false }));
   if (path === '/api/v1/discovery/refresh') {
     // The frozen contract pins the request body to exactly {}.
     expect(init?.method).toBe('POST');
@@ -195,5 +197,29 @@ describe('EnvironmentPage real backend wiring', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
       expect(reads()).toBe(unmounted);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+
+describe('Environment source scope', () => {
+  it('shows running containers separately from failed process probes and source tool versions', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/v1/discovery/sources') return Promise.resolve(json({ items: [
+        { source_id: 'local', kind: 'NATIVE', label: 'Local processes', state: 'OBSERVED', freshness: 'FRESH', reason_code: 'LOCAL_PROCESS_OBSERVATION' },
+        { source_id: 'docker-a', kind: 'CONTAINER', label: 'agent-claude-code', state: 'UNREACHABLE', freshness: 'FRESH', reason_code: 'DOCKER_PROCESS_PROBE_FAILED', protection: { running: true, connected: false } },
+      ], inventory_coverage: [{ source_id: 'docker-a', status: 'UNREACHABLE', reason_code: 'APPLICATION_INVENTORY_UNAVAILABLE' }] }));
+      if (path.startsWith('/api/v1/discovery/applications?')) return Promise.resolve(json({ items: [
+        { id: 'claude-a', source_id: 'docker-a', provider: 'CLAUDE_CODE', label: 'Claude Code', version: '2.4.1', path: '/usr/bin/claude', status: 'AVAILABLE', running: true, freshness: 'FRESH' },
+      ], has_more: false }));
+      return envFetch(input, init);
+    }));
+    const view = render(<EnvironmentPage />);
+    expect(await screen.findByRole('heading', { name: 'agent-claude-code' })).toBeTruthy();
+    expect(screen.getByText('Running · Process probe unavailable')).toBeTruthy();
+    expect(screen.getByText('DOCKER_PROCESS_PROBE_FAILED')).toBeTruthy();
+    expect(screen.getByText('Claude Code · 2.4.1')).toBeTruthy();
+    expect(screen.getByText(/Versions below describe the Core host/)).toBeTruthy();
+    view.unmount();
   });
 });

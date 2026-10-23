@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -173,3 +174,37 @@ def test_rust_helper_source_has_no_profile_mutation_or_generic_shell():
     assert main.index("firewall_helper::run_if_requested") < main.index(
         "tauri::Builder::default"
     )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows namespace alias contract")
+def test_elevation_accepts_same_installed_directory_namespace_alias(tmp_path):
+    desktop, sidecar = _installed_paths(tmp_path)
+    alias = Path("\\\\?\\" + str(desktop.resolve()))
+    calls = []
+    runner = WindowsFirewallElevationRunner(
+        helper_path=alias, sidecar_path=sidecar,
+        launcher=lambda path, args: calls.append((path, args)) or 0,
+    )
+    assert runner.apply("192.168.50.8", 24).ok is True
+    assert calls[0][0] == desktop.resolve()
+    assert not str(calls[0][0]).startswith("\\\\?\\")
+
+
+@pytest.mark.parametrize("mode", ["lookup-error", "different-normalized-file"])
+def test_elevation_rejects_unverified_filesystem_identity(tmp_path, monkeypatch, mode):
+    desktop, sidecar = _installed_paths(tmp_path)
+    original = os.path.samefile
+    def identity(first, second):
+        if mode == "lookup-error":
+            raise OSError("Identity lookup unavailable")
+        if Path(first).is_file():
+            return False
+        return original(first, second)
+    monkeypatch.setattr(os.path, "samefile", identity)
+    calls = []
+    runner = WindowsFirewallElevationRunner(
+        helper_path=desktop, sidecar_path=sidecar,
+        launcher=lambda *args: calls.append(args) or 0,
+    )
+    assert runner.apply("192.168.50.8", 24).reason_code == "DEVICE_FIREWALL_ELEVATION_UNAVAILABLE"
+    assert not calls

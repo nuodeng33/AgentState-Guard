@@ -112,15 +112,31 @@ class WindowsFirewallElevationRunner:
             helper_info = self._helper_path.lstat()
         except OSError:
             return None
+        try:
+            same_parent = os.path.samefile(helper.parent, sidecar.parent)
+        except OSError:
+            return None
         if (
             not helper.is_file()
             or self._helper_path.is_symlink()
             or helper_info.st_size <= 0
             or helper.suffix.casefold() != ".exe"
-            or helper.parent != sidecar.parent
+            or not same_parent
         ):
             return None
-        return helper
+        shell_helper = helper
+        if os.name == "nt":
+            value = str(helper)
+            if value.startswith("\\\\?\\UNC\\"):
+                shell_helper = Path("\\\\" + value[8:])
+            elif value.startswith("\\\\?\\"):
+                shell_helper = Path(value[4:])
+        try:
+            if not os.path.samefile(shell_helper, helper):
+                return None
+        except OSError:
+            return None
+        return shell_helper
 
 
 def _valid_scope(address: str, prefix_length: int) -> bool:

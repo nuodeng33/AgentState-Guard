@@ -228,6 +228,25 @@ class ManagedDiscoveryService:
                         source(source_id, "CONTAINER", target.name, "DISABLED", "SOURCE_DISABLED")
                         failure(source_id, domain_id, "SOURCE_DISABLED", CapabilityStatus.UNSUPPORTED)
                         continue
+                    runtime_id = _id("container-runtime", target.container_id)
+                    runtime_ref = _id("container-evidence", local.snapshot_id, domain_id)
+                    domains.append(ExecutionDomainDescriptor(
+                        domain_id=domain_id, kind=ExecutionDomainKind.CONTAINER,
+                        evidence_ids=(runtime_ref,), confidence=0.9,
+                    ))
+                    runtimes.append(RuntimeDescriptor(
+                        runtime_id=runtime_id, runtime_type="CONTAINER", domain_id=domain_id,
+                        status=CapabilityStatus.AVAILABLE, evidence_ids=(runtime_ref,), confidence=0.9,
+                    ))
+                    runtime_capabilities = ["container_observation"]
+                    evidence.append(ProbeEvidence(
+                        evidence_id=runtime_ref, collector="managed-discovery",
+                        source="docker-local-metadata", observed_at=now,
+                        fact_type="runtime.metadata",
+                        value={"runtime_kind": "CONTAINER", "execution_domain_id": domain_id,
+                               "source_id": source_id, "capabilities": runtime_capabilities},
+                        reliability=EvidenceReliability.HIGH, status=CapabilityStatus.AVAILABLE, sanitized=True,
+                    ))
                     if self._docker_disconnected(source_id):
                         source(source_id, "CONTAINER", target.name, "NOT_PROBED", "DOCKER_PROCESS_PROBE_DISCONNECTED")
                         sources[-1]["capabilities"]["observe"] = False
@@ -251,24 +270,7 @@ class ManagedDiscoveryService:
                         failure(source_id, domain_id, observation.reason_code, state)
                         status = CapabilityStatus.DEGRADED
                         continue
-                    runtime_id = _id("container-runtime", target.container_id, observation.boot_id)
-                    runtime_ref = _id("container-evidence", local.snapshot_id, domain_id)
-                    domains.append(ExecutionDomainDescriptor(
-                        domain_id=domain_id, kind=ExecutionDomainKind.CONTAINER,
-                        evidence_ids=(runtime_ref,), confidence=0.9,
-                    ))
-                    runtimes.append(RuntimeDescriptor(
-                        runtime_id=runtime_id, runtime_type="CONTAINER", domain_id=domain_id,
-                        status=CapabilityStatus.AVAILABLE, evidence_ids=(runtime_ref,), confidence=0.9,
-                    ))
-                    evidence.append(ProbeEvidence(
-                        evidence_id=runtime_ref, collector="managed-discovery",
-                        source="docker-local-metadata", observed_at=observation.observed_at,
-                        fact_type="runtime.metadata",
-                        value={"runtime_kind": "CONTAINER", "execution_domain_id": domain_id,
-                               "source_id": source_id, "capabilities": ["process_observation"]},
-                        reliability=EvidenceReliability.HIGH, status=CapabilityStatus.AVAILABLE, sanitized=True,
-                    ))
+                    runtime_capabilities.append("process_observation")
                     shared: dict[str, list[str]] = {}
                     for process in observation.processes:
                         signature = classify_metadata(process, domain_id)
