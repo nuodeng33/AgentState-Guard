@@ -1,0 +1,236 @@
+{
+  "candidate_sha": "40693d78d5e5f7bd9ff046bee72da1e5c1ddea3f",
+  "audited_date": "2026-10-23",
+  "runs": [
+    {
+      "id": 39913027492,
+      "url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/39913027492",
+      "head_sha": "40693d78d5e5f7bd9ff046bee72da1e5c1ddea3f",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "frontend",
+          "conclusion": "success"
+        },
+        {
+          "name": "test (3.13)",
+          "conclusion": "success"
+        },
+        {
+          "name": "test (3.12)",
+          "conclusion": "success"
+        },
+        {
+          "name": "test (3.11)",
+          "conclusion": "success"
+        },
+        {
+          "name": "local-workflow",
+          "conclusion": "success"
+        },
+        {
+          "name": "wheel",
+          "conclusion": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 12484615109,
+          "name": "local-workflow-evidence",
+          "digest": "sha256:59efc0101efa718cfccaaadb06d103c8c595a31149059e26b0fad6e33a2f39f5",
+          "size_in_bytes": 722731
+        },
+        {
+          "id": 12484122370,
+          "name": "wheel",
+          "digest": "sha256:defac7356f520e7dac4c55f9a0818171121f6873d5bf0760e8f231ce8052938a",
+          "size_in_bytes": 793727
+        },
+        {
+          "id": 12483677439,
+          "name": "core-tests-3.12",
+          "digest": "sha256:2d369881aecdac1225712fbaf9f5302fb36a19618326c4a22e82a9cdb58e88ea",
+          "size_in_bytes": 28605
+        },
+        {
+          "id": 12483402732,
+          "name": "core-tests-3.13",
+          "digest": "sha256:18ccf8b4e0730176382914bb53a0cc0dcd5843f05c08ea65e2e0a692e350bb3c",
+          "size_in_bytes": 28735
+        },
+        {
+          "id": 12483178380,
+          "name": "core-tests-3.11",
+          "digest": "sha256:45735af96eb04740f17b3b8a0cdb252f02d83843ff9a8dd1d047e905fa920b3a",
+          "size_in_bytes": 28707
+        }
+      ]
+    },
+    {
+      "id": 39913027509,
+      "url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/39913027509",
+      "head_sha": "40693d78d5e5f7bd9ff046bee72da1e5c1ddea3f",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "frontend-build",
+          "conclusion": "success"
+        },
+        {
+          "name": "recovery-process",
+          "conclusion": "success"
+        },
+        {
+          "name": "sidecar-build",
+          "conclusion": "success"
+        },
+        {
+          "name": "sidecar-smoke",
+          "conclusion": "success"
+        },
+        {
+          "name": "tauri-build",
+          "conclusion": "success"
+        },
+        {
+          "name": "runtime-smoke",
+          "conclusion": "success"
+        },
+        {
+          "name": "msi-smoke",
+          "conclusion": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 12484860648,
+          "name": "packaged-main-smoke-logs",
+          "digest": "sha256:f19cf3a825cbb07bf9396f9824c68682ddc96bd612e8dddd4245b72373bf0edf",
+          "size_in_bytes": 12540
+        },
+        {
+          "id": 12484501976,
+          "name": "desktop-tauri-build",
+          "digest": "sha256:343184936803116b6f8b140c940a9d2458b8006d735135b5a0514b2b5e7cb20a",
+          "size_in_bytes": 68434488
+        },
+        {
+          "id": 12484055416,
+          "name": "desktop-web-build",
+          "digest": "sha256:a150abeb45ee842ea5e43545de2fe1dd80072f8c51d46f7f37b602dfd33482f5",
+          "size_in_bytes": 407829
+        },
+        {
+          "id": 12483727148,
+          "name": "agentguard-sidecar-exe",
+          "digest": "sha256:d5cec6f8a860c5a40cb276bb66a4aaecfdfe2f60604fae1d4b6f9f331ffd78d0",
+          "size_in_bytes": 20142920
+        },
+        {
+          "id": 12483254539,
+          "name": "recovery-process-windows",
+          "digest": "sha256:d63c5d4929ab0c190d4b325f1dc4c523a8a16c1cd5bc87292bdfdf178518e104",
+          "size_in_bytes": 927
+        }
+      ]
+    }
+  ],
+  "python_matrix": {
+    "3.11": {
+      "tests": 1401,
+      "passed": 1375,
+      "skipped": 26,
+      "failures": 0,
+      "errors": 0
+    },
+    "3.12": {
+      "tests": 1401,
+      "passed": 1375,
+      "skipped": 26,
+      "failures": 0,
+      "errors": 0
+    },
+    "3.13": {
+      "tests": 1401,
+      "passed": 1375,
+      "skipped": 26,
+      "failures": 0,
+      "errors": 0
+    }
+  },
+  "local_workflow": {
+    "result": "PASS",
+    "scope": "manual Work + native file protection; no model calls",
+    "environment": "Linux",
+    "checked_at": 1792738370.1464088,
+    "run_id": "b39dc9ad-4471-43e4-8987-ea782c7bb004",
+    "checks": {
+      "browser_work_delivery": true,
+      "native_versions_and_attribution": true,
+      "preview_is_read_only": true,
+      "actual_diff": true,
+      "selective_restore": true,
+      "operation_idempotency": true,
+      "undo_restore": true,
+      "stale_preview_rejected": true,
+      "ui_global_directory_and_version": true,
+      "ui_preview_read_only": true,
+      "ui_actual_diff": true,
+      "ui_selective_restore": true,
+      "ui_undo_restore": true,
+      "ui_expired_preview_rejected": true,
+      "ui_mobile_confirm_accessible": true,
+      "ui_keyboard_focus": true,
+      "ui_final_bytes": true,
+      "operation_survives_restart": true,
+      "browser_reopens_after_core_restart": true,
+      "ui_recovery_history_after_restart": true,
+      "database_integrity": true,
+      "no_execution_created": true
+    }
+  },
+  "binary_integrity": [
+    {
+      "artifact": "desktop-tauri-build",
+      "name": "agentguard-sidecar.exe",
+      "bytes": 20386425,
+      "format": "PE",
+      "sha256": "6d596da73116f6dbf7e6290e1f7224c04afcca8aa46b39ec5a4c58711328fe6a"
+    },
+    {
+      "artifact": "desktop-tauri-build",
+      "name": "agentguard-sidecar-x86_64-pc-windows-msvc.exe",
+      "bytes": 20386425,
+      "format": "PE",
+      "sha256": "6d596da73116f6dbf7e6290e1f7224c04afcca8aa46b39ec5a4c58711328fe6a"
+    },
+    {
+      "artifact": "desktop-tauri-build",
+      "name": "agentstate-guard.exe",
+      "bytes": 11662336,
+      "format": "PE",
+      "sha256": "6e8d69db680bbf5fb3de2c900316751e7496632babe3733095cfc4480c79b5c3"
+    },
+    {
+      "artifact": "desktop-tauri-build",
+      "name": "bundle/msi/AgentState Guard_0.9.0_x64_en-US.msi",
+      "bytes": 24330240,
+      "format": "MSI compound file",
+      "sha256": "3562de74965c8d092e2f82c5e40fb2d746f2ae10d6cbf0e942ddea0bcee269f7"
+    },
+    {
+      "artifact": "agentguard-sidecar-exe",
+      "name": "agentguard-sidecar.exe",
+      "bytes": 20386425,
+      "format": "PE",
+      "sha256": "6d596da73116f6dbf7e6290e1f7224c04afcca8aa46b39ec5a4c58711328fe6a"
+    }
+  ],
+  "windows_recovery_process": {
+    "tests": 35,
+    "passed": 35,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0
+  }
+}
