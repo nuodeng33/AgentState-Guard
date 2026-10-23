@@ -1,5 +1,13 @@
 # Source and cloud development
 
+## 2026-10-23：真实恢复进程终止验收
+
+```bash
+python -m pytest tests/test_protection_process_crash.py -v --basetemp /path/outside/git/crash-tests --junitxml artifacts/recovery-process.xml
+```
+
+仅准备隔离的 A/B/C 文件并杀死本次创建的测试子进程；无需模型、浏览器或现有会话。覆盖四个故障点、原运行时启动补偿、外部编辑保留、原请求幂等和数据库完整性。Linux 使用 SIGKILL，Windows 使用 TerminateProcess；本轮只运行 Linux。基线 UI 没有改动，不重复构建或将旧界面结果冒充新 Windows 结果。Windows CI 轻量 job 已配置，仍需实际运行。
+
 ## 2026-10-23：文件恢复界面
 
 打开任意 Work → 更多操作 → 文件恢复。该入口浏览所有已保护目录，不自动修改 Work 关联。选择目录、版本和文件后先预览，再明确确认恢复；成功操作可从全局记录选择文件并预览撤销。未选文件保留，切换选择会使旧预览失效。请求结果不明时保留原命令，可刷新记录核对或重试同一提交；关闭面板不取消后台操作。页面重载只读取历史，不自动重放命令。

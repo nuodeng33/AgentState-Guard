@@ -1,6 +1,7 @@
 # Desktop Windows — Sidecar build, Tauri build, runtime smoke, MSI lifecycle
 #
-# Jobs (sequential by dependency):
+# Jobs (by dependency):
+#   0. recovery-process — native Python termination/restart contracts; gates Tauri build
 #   1. frontend-build  — test and build React frontend
 #   2. sidecar-build   — PyInstaller -> agentguard-sidecar.exe
 #   3. sidecar-smoke   — standalone sidecar: health, API, shutdown, no-orphan
@@ -26,6 +27,24 @@ env:
   SIDECAR_PORT: 8787
 
 jobs:
+  recovery-process:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - name: Native recovery process termination and restart contracts
+        shell: pwsh
+        run: |
+          $crashTemp = Join-Path $env:RUNNER_TEMP "asg-recovery-process"
+          python -m pytest tests/test_protection_process_crash.py -v --tb=short --basetemp $crashTemp --junitxml artifacts/recovery-process-windows.xml
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: always()
+        with:
+          name: recovery-process-windows
+          path: artifacts/recovery-process-windows.xml
+          if-no-files-found: warn
   # ── 1. Frontend Build ──────────────────────────────────────────
   frontend-build:
     runs-on: windows-latest
@@ -232,7 +251,7 @@ jobs:
   tauri-build:
     runs-on: windows-latest
     timeout-minutes: 60
-    needs: [frontend-build, sidecar-build]
+    needs: [frontend-build, sidecar-build, recovery-process]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: dtolnay/rust-toolchain@stable

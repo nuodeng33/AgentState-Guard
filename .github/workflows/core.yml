@@ -16,7 +16,13 @@ jobs:
       - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
         with: { python-version: "${{ matrix.python }}" }
       - run: pip install -e ".[dev]"
-      - run: python -m pytest tests/ -v --tb=short
+      - run: python -m pytest tests/ -v --tb=short --junitxml=artifacts/core-tests-${{ matrix.python }}.xml
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: always()
+        with:
+          name: core-tests-${{ matrix.python }}
+          path: artifacts/core-tests-${{ matrix.python }}.xml
+          if-no-files-found: warn
       - run: python -m agentguard --help
   frontend:
     runs-on: ubuntu-latest
