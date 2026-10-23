@@ -2,6 +2,7 @@ export const workspaceCopy = {
   'zh-CN': {
     agents: '关联 Agent',
     sessions: '会话管理',
+    recovery: '文件恢复',
     delivery: '交付', runOutput: '执行原始输出', editedRunOutput: '用户编辑执行输出',
     title: '我的工作', intro: '把要求、任务和真实成果放在一起。', overviewCount: (n: number) => `${n} 项工作，按最近更新排列。`, updated: '更新于',
     taskCount: (n: number) => `${n} 项任务`, artifactCount: (n: number) => `${n} 项成果`,
@@ -30,6 +31,7 @@ export const workspaceCopy = {
   'en-US': {
     agents: 'Linked agents',
     sessions: 'Session management',
+    recovery: 'File recovery',
     delivery: 'Delivery', runOutput: 'Original execution output', editedRunOutput: 'User-edited execution output',
     title: 'My work', intro: 'Keep requirements, tasks and real deliverables together.', overviewCount: (n: number) => `${n} work ${n === 1 ? 'item' : 'items'}, most recently updated first.`, updated: 'Updated',
     taskCount: (n: number) => `${n} ${n === 1 ? 'task' : 'tasks'}`, artifactCount: (n: number) => `${n} ${n === 1 ? 'artifact' : 'artifacts'}`,

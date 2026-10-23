@@ -24,10 +24,15 @@ from agentguard.api.server import create_app
 CREATE_CHECKS = ('created_work', 'created_task', 'manual_artifact', 'layout_saved',
                  'language_preserved_content', 'review_separate_from_acceptance', 'owner_accepted')
 REOPEN_CHECKS = ('work_persisted', 'artifact_persisted', 'layout_persisted', 'acceptance_persisted', 'mobile_readable')
+RECOVERY_UI_CHECKS = ('ui_global_directory_and_version', 'ui_preview_read_only', 'ui_actual_diff',
+                      'ui_selective_restore', 'ui_undo_restore', 'ui_expired_preview_rejected',
+                      'ui_mobile_confirm_accessible', 'ui_keyboard_focus')
+RECOVERY_REOPEN_CHECKS = ('ui_recovery_history_after_restart',)
 REQUIRED_CHECKS = ('browser_work_delivery', 'native_versions_and_attribution', 'preview_is_read_only',
                    'actual_diff', 'selective_restore', 'operation_idempotency', 'undo_restore',
                    'stale_preview_rejected', 'operation_survives_restart',
-                   'browser_reopens_after_core_restart', 'database_integrity', 'no_execution_created')
+                   'browser_reopens_after_core_restart', 'database_integrity', 'no_execution_created',
+                   *RECOVERY_UI_CHECKS, *RECOVERY_REOPEN_CHECKS, 'ui_final_bytes')
 
 
 def validate_temp_parent(value):
@@ -99,6 +104,40 @@ def browser_phase(url, directory, phase, work_id=None):
     result = json.loads((directory / f'browser-{phase}.json').read_text(encoding='utf-8'))
     validate_browser_report(result, CREATE_CHECKS if phase == 'create' else REOPEN_CHECKS)
     return result
+
+
+def recovery_browser_phase(url, directory, phase, fixture):
+    command = ['node', str(ROOT / 'scripts/verify_file_recovery_browser.cjs'), '--url', url,
+               '--report-dir', str(directory), '--phase', phase, '--fixture', str(fixture)]
+    with (directory / f'browser-recovery-{phase}.log').open('w', encoding='utf-8') as output:
+        completed = subprocess.run(command, check=False, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, timeout=120)
+    if completed.returncode:
+        raise RuntimeError('RECOVERY_BROWSER_PROCESS_FAILED: ' + phase)
+    result = json.loads((directory / f'browser-recovery-{phase}.json').read_text(encoding='utf-8'))
+    validate_browser_report(result, RECOVERY_UI_CHECKS if phase == 'exercise' else RECOVERY_REOPEN_CHECKS)
+    return result
+
+
+def ui_bytes_after_undo(project):
+    return ((project / 'A.txt').read_bytes() == b'changed-A\n' and not (project / 'B.txt').exists()
+            and (project / 'C.txt').read_bytes() == b'new-C\n')
+
+
+def prepare_ui_fixture(client, project, state, work_id):
+    """Only prepare disposable real files; recovery itself must use the browser UI."""
+    project.mkdir()
+    (project / 'A.txt').write_bytes(b'original-A\n')
+    (project / 'B.txt').write_bytes(b'original-B\n')
+    scope = request(client, 'POST', '/protection/scopes',
+                    {'request_id': str(uuid4()), 'source_id': 'local', 'path': str(project)}, 201)
+    route = '/protection/scopes/' + scope['scope_id']
+    baseline = request(client, 'GET', route + '/versions')['items'][0]
+    (project / 'A.txt').write_bytes(b'changed-A\n')
+    (project / 'B.txt').unlink()
+    (project / 'C.txt').write_bytes(b'new-C\n')
+    request(client, 'POST', route + '/capture', {})
+    return {'work_id': work_id, 'scope_id': scope['scope_id'], 'version_id': baseline['id'],
+            'project': str(project), 'database': str(state / 'state.db'), 'python': sys.executable}
 
 
 def request(client, method, path, body=None, expected=200):
@@ -180,12 +219,20 @@ def main(argv=None):
                 with httpx.Client(base_url=server.url, timeout=15, trust_env=False) as client:
                     client.headers['X-Session-Token'] = client.get('/api/session').json()['token']
                     operation_id = protect_and_restore(client, project, checks)
+                    ui_project = root / 'ui-project'
+                    fixture = root / 'ui-recovery-fixture.json'
+                    fixture.write_text(json.dumps(prepare_ui_fixture(client, ui_project, state, created['work_id'])), encoding='utf-8')
+                ui = recovery_browser_phase(server.url, directory, 'exercise', fixture)
+                checks.update({name: ui['checks'][name] for name in RECOVERY_UI_CHECKS})
+                checks['ui_final_bytes'] = ui_bytes_after_undo(ui_project)
             with CoreServer(state) as server:
                 with httpx.Client(base_url=server.url, timeout=15, trust_env=False) as client:
                     client.headers['X-Session-Token'] = client.get('/api/session').json()['token']
                     checks['operation_survives_restart'] = request(client, 'GET', '/recovery/operations/' + operation_id)['state'] == 'SUCCEEDED'
                 browser_phase(server.url, directory, 'reopen', created['work_id'])
                 checks['browser_reopens_after_core_restart'] = True
+                ui = recovery_browser_phase(server.url, directory, 'reopen', fixture)
+                checks.update({name: ui['checks'][name] for name in RECOVERY_REOPEN_CHECKS})
             with sqlite3.connect(state / 'state.db') as db:
                 checks['database_integrity'] = db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
                 checks['no_execution_created'] = db.execute('SELECT COUNT(*) FROM work_runs').fetchone()[0] == 0 and db.execute('SELECT COUNT(*) FROM work_sessions').fetchone()[0] == 0

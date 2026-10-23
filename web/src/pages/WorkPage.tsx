@@ -8,6 +8,7 @@ import { workspaceCopy } from './workspaceCopy';
 import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
+import WorkRecovery from '../components/WorkRecovery';
 import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExecutionStatus';
 import { AgentFilm, AGENT_TINTS, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
 import './work.css';
@@ -69,24 +70,34 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const [sessionPanel, setSessionPanel] = useState(false);
   const [executionTarget, setExecutionTarget] = useState<ExecutionTarget | null>(null);
   const [deliveryPanel, setDeliveryPanel] = useState(false);
+  const [recoveryPanel, setRecoveryPanel] = useState(false);
   const [deliveryOutput, setDeliveryOutput] = useState<WorkRunOutput | null>(null);
   const deliveryOpener = useRef<HTMLElement | null>(null); const deliveryReturnsToSession = useRef(false);
   const sessionMemory = useRef(createWorkSessionMemory());
   const sessionOpener = useRef<HTMLElement | null>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  function openSessions(target?: ExecutionTarget) { sessionOpener.current = target ? document.activeElement as HTMLElement | null : menuButton.current; setExecutionTarget(target ?? null); setDeliveryPanel(false); setSessionPanel(true); setMenuOpen(false); }
+  function openSessions(target?: ExecutionTarget) { sessionOpener.current = target ? document.activeElement as HTMLElement | null : menuButton.current; setExecutionTarget(target ?? null); setRecoveryPanel(false); setDeliveryPanel(false); setSessionPanel(true); setMenuOpen(false); }
   function closeSessions() { setSessionPanel(false); requestAnimationFrame(() => { if (sessionOpener.current?.isConnected) sessionOpener.current.focus(); else menuButton.current?.focus(); }); }
   function openDelivery(output: WorkRunOutput | null = null) {
     deliveryOpener.current = output ? document.activeElement as HTMLElement | null : menuButton.current;
     deliveryReturnsToSession.current = Boolean(output && sessionPanel);
-    setDeliveryOutput(output); setDeliveryPanel(true); setSessionPanel(false); setMenuOpen(false);
+    setDeliveryOutput(output); setRecoveryPanel(false); setDeliveryPanel(true); setSessionPanel(false); setMenuOpen(false);
   }
   function closeDelivery() {
     setDeliveryPanel(false); if (deliveryReturnsToSession.current) setSessionPanel(true);
     requestAnimationFrame(() => { if (deliveryOpener.current?.isConnected) deliveryOpener.current.focus(); else menuButton.current?.focus(); });
   }
+  function openRecovery() {
+    setRecoveryPanel(true); setSessionPanel(false); setDeliveryPanel(false);
+    deliveryReturnsToSession.current = false;
+    setAgentPanel(null); setRestOpen(false); setForm(null); setFocus(null); setMenuOpen(false);
+  }
+  function closeRecovery() {
+    setRecoveryPanel(false);
+    requestAnimationFrame(() => menuButton.current?.focus());
+  }
   const agentOpener = useRef<HTMLElement | null>(null);
-  function openAgents(selected?: string) { agentOpener.current = document.activeElement as HTMLElement | null; setAgentPanel({ selected }); }
+  function openAgents(selected?: string) { agentOpener.current = document.activeElement as HTMLElement | null; setRecoveryPanel(false); setAgentPanel({ selected }); }
   function closeAgents() { setAgentPanel(null); requestAnimationFrame(() => agentOpener.current?.focus()); }
   const [board, setBoard] = useState<Board | null>(null); const boardRef = useRef<Board | null>(null);
   const [status, setStatus] = useState(''); const [error, setError] = useState('');
@@ -206,7 +217,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     return () => { document.removeEventListener('keydown', keyboard); previous?.focus(); };
   }, [form, focus, busy, visible]);
   useEffect(() => {
-    if (!visible || !work || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel) return;
+    if (!visible || !work || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel) return;
     const keyboard = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
@@ -216,7 +227,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       else void back();
     };
     document.addEventListener('keydown', keyboard); return () => document.removeEventListener('keydown', keyboard);
-  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, agentPanel, sessionPanel, deliveryPanel]);
+  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel]);
   function addCard(kind: Card['kind'], ref: string, version: number | null) {
     const current = boardRef.current; if (!current) return;
     const existing = current.cards.find(card => card.kind === kind && card.ref_id === ref && card.version === version);
@@ -417,7 +428,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       <header className="work-toolbar"><button className="work-back" onClick={back}><Icon name="back" />{t.back}</button><div className="work-heading"><strong>{work.title}</strong><span className="work-version">{t.requirement} v{work.requirement_version}</span></div>
         <LanguageSelector compact />
         <button ref={menuButton} className="work-icon-button" aria-label={t.actions} title={t.actions} aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><Icon name="more" /></button>
-        {menuOpen && <div className="work-menu"><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={() => { setForm('task'); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setForm('artifact'); setMenuOpen(false); }}>{t.newArtifact}</button><button onClick={() => { onNavigate?.('home'); setMenuOpen(false); }}>{t.guard}</button></div>}</header>
+        {menuOpen && <div className="work-menu"><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={openRecovery}>{t.recovery}</button><button onClick={() => { setRecoveryPanel(false); setForm('task'); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setRecoveryPanel(false); setForm('artifact'); setMenuOpen(false); }}>{t.newArtifact}</button><button onClick={() => { onNavigate?.('home'); setMenuOpen(false); }}>{t.guard}</button></div>}</header>
       <WorkExecutionStatus key={work.id} client={client} workId={work.id} visible={visible} onOpen={openSessions}
         onRequirement={version => { if (workRef.current?.id === work.id && workRef.current.requirement_version < version) void refreshDeliveryWork(work.id); }} />
       {!inSpace && <div className="work-tools"><button className="work-quiet" onClick={returnToSpace}><Icon name="back" />{t.returnSpace}</button><button className="work-quiet" onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}><Icon name="library" />{t.addRelated}</button><div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
@@ -481,10 +492,11 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
           <button className="work-icon-button" aria-label={t.settings} title={t.settings} onClick={() => onNavigate?.('settings')}><Icon name="settings" /></button>
         </div></nav>
     </>}
-    {work && <WorkSessions key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
+    <WorkRecovery client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
+    {work && <WorkSessions key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
-    {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowArtifact={(id, version) => {
+    {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowArtifact={(id, version) => {
       if (workRef.current?.id !== work.id) return;
       compareOnBoard('artifact', id, version);
     }} onRevision={revision => {
