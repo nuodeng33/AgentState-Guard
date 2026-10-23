@@ -1,5 +1,7 @@
 # Release readiness — 2026-10-23
 
+2026-10-23 本机接续：Windows完整回归1388通过/13跳过；真实Edge/Core22项与真实Codex执行/续接/取消/验收/恢复PASS，真实DACL拒绝及ACL还原PASS。修复当前session继承网络策略、验收SQLite连接释放、Windows venv worker PID与路径校验。旧库副本升级仍FAIL：迁移前后均1648条LEDGER_AUTHORITY_INVALID；原始行保留，未修改原库。打包程序启动遭自动审批拒绝，本机MSI/升级与打包异常业务恢复未验收。详见 [本机验证](WINDOWS_NATIVE_VERIFICATION_20261023.md)。
+
 当前结论：Windows 新装 CI 链已通过，产品仍为开发预览；尚未达到完整成品发布标准。
 
 ## 固定候选与最终证据
@@ -23,7 +25,7 @@
 | 产物完整性 | 下载ZIP digest吻合；实际主EXE和sidecar为PE，MSI格式头有效，逐文件SHA-256已保存 | 未在本机安装/启动；格式校验非签名信任验证 |
 | 验收脚本可信度 | 必需检查严格true；RUNNING/FAIL/PASS区分；桌面脚本健康/归属/清理失败必须失败 | 强杀留下RUNNING不能算PASS |
 
-## 剩余发布门槛
+## CI候选时剩余门槛（本机后续结果见上方记录）
 
 1. Windows真实Codex连接、执行、取消、精确续接、文件结果及交付验收。历史真实重跑通过空历史选择，随后被Unix provider sandbox proof拒绝，未进入thread/model；保留FAIL/UNAVAILABLE，不绕过安全约束。
 2. 旧版本升级、真实DACL权限拒绝、打包程序异常退出后的业务恢复。当前成功的是新装和卸载CI链，不能覆盖这些场景。

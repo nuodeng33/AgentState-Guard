@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-23",
+  "platform": "Windows native host",
+  "base_sha": "add07756faaf8a39d6132a9529e57b554f182ef5",
+  "product_changes": [
+    "Pin per-session Codex workspace sandbox network and temporary roots without editing global configuration",
+    "Close final verifier SQLite connection explicitly; preserve lexical and resolved system-scope rejection",
+    "Track verified actual worker process under Windows venv launcher"
+  ],
+  "windows_full_suite": {
+    "tests": 1401,
+    "passed": 1388,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 13
+  },
+  "final_targeted_tests": {
+    "passed": 42,
+    "failed": 0
+  },
+  "real_browser": {
+    "result": "PASS",
+    "run_id": "dae9d409-484d-4de8-a7ac-884c7a10569f",
+    "checks": {
+      "browser_work_delivery": true,
+      "native_versions_and_attribution": true,
+      "preview_is_read_only": true,
+      "actual_diff": true,
+      "selective_restore": true,
+      "operation_idempotency": true,
+      "undo_restore": true,
+      "stale_preview_rejected": true,
+      "ui_global_directory_and_version": true,
+      "ui_preview_read_only": true,
+      "ui_actual_diff": true,
+      "ui_selective_restore": true,
+      "ui_undo_restore": true,
+      "ui_expired_preview_rejected": true,
+      "ui_mobile_confirm_accessible": true,
+      "ui_keyboard_focus": true,
+      "ui_final_bytes": true,
+      "operation_survives_restart": true,
+      "browser_reopens_after_core_restart": true,
+      "ui_recovery_history_after_restart": true,
+      "database_integrity": true,
+      "no_execution_created": true
+    }
+  },
+  "real_codex": {
+    "result": "PASS",
+    "run_id": "ba126478-5cec-4904-a69a-2cc0cb91c3e7",
+    "provider_version": "0.163.0",
+    "execution_state": "COMPLETED",
+    "checks": {
+      "actual_files": true,
+      "retry_same_run": true,
+      "durable_output": true,
+      "sequential_events": true,
+      "attribution_unclaimed": true,
+      "exact_native_reconciliation": true,
+      "fixed_delivery_acceptance": true,
+      "continue_exact_session": true,
+      "selective_restore": true
+    },
+    "cancel_state": "CANCELLED"
+  },
+  "real_dacl": {
+    "result": "PASS",
+    "checks": {
+      "native_read_denied": true,
+      "protection_refuses_success": true,
+      "bytes_unchanged": true,
+      "temporary_acl_restored": true
+    },
+    "scope": "real Windows DACL denial on disposable file only",
+    "rejection": "ProtectionError:PROTECTION_FILE_NOT_RESTORABLE"
+  },
+  "existing_data_copy_migration": {
+    "result": "FAIL",
+    "schema_before": 10,
+    "schema_after": 19,
+    "all_existing_rows_preserved": true,
+    "integrity": "ok",
+    "ledger_authority_invalid_before": 1648,
+    "ledger_authority_invalid_after": 1648
+  },
+  "packaged_local_execution": "BLOCKED_BY_AUTOMATIC_APPROVAL_REVIEW; no packaged executable launched; existing default ASG data left untouched",
+  "not_verified": [
+    "local MSI installation and upgrade",
+    "packaged Tauri/Core business recovery after crash",
+    "physical mobile device interactions"
+  ],
+  "report_sha256": {
+    "native-codex-fixed.json": "d1c6744e4586525ae0fd1f2d1ba439efcc97924609a4e6eae90acf3a9488cacc",
+    "report.json": "17f01c39e5ce61e1edbe2eaa50ec1f492c5b8851937b9fae87df60ad3a57ae87",
+    "windows-fixed.xml": "ffd9c650f458c2b44ff52e0c3a67a8bd828453966e25cb49c38fc75b69d18caa",
+    "real-dacl.json": "fdeecfb548dcecb7ab23462d472bbd75913d8af33f86081516489ca010a90695"
+  }
+}

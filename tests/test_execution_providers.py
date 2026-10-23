@@ -96,7 +96,9 @@ def test_session_disables_inherited_external_tools_without_changing_provider_con
     client.create_session('/work')
     params = next(params for method, params in rpc.calls if method == 'thread/start')
     assert params['config'] == {'mcp_servers': {'external': {'enabled': False}},
-                                'features': {'apps': False, 'multi_agent': False}, 'web_search': 'disabled'}
+                                'features': {'apps': False, 'multi_agent': False}, 'web_search': 'disabled',
+                                'sandbox_workspace_write': {'network_access': False, 'exclude_tmpdir_env_var': True,
+                                                            'exclude_slash_tmp': True}}
     assert rpc.results['config/read']['config']['mcp_servers']['external']['enabled'] is True
 
 

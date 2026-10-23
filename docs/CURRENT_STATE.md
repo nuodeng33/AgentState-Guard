@@ -1,5 +1,7 @@
 # Current State
 
+2026-10-23 本机接续：Windows完整回归1388通过/13跳过；真实Edge/Core22项与真实Codex执行/续接/取消/验收/恢复PASS，真实DACL拒绝及ACL还原PASS。修复当前session继承网络策略、验收SQLite连接释放、Windows venv worker PID与路径校验。旧库副本升级仍FAIL：迁移前后均1648条LEDGER_AUTHORITY_INVALID；原始行保留，未修改原库。打包程序启动遭自动审批拒绝，本机MSI/升级与打包异常业务恢复未验收。详见 [本机验证](WINDOWS_NATIVE_VERIFICATION_20261023.md)。
+
 2026-10-23 接续最终核验：验收产品代码固定为 `40693d78d5e5f7bd9ff046bee72da1e5c1ddea3f`，分支 `fix/codex-empty-store`。实际 Core run `39913027492` 与 Desktop Windows run `39913027509` 均已终态 SUCCESS；Windows 包含 recovery-process、frontend/sidecar/Tauri 构建、独立与打包 sidecar、MSI 新装→打包主程序到 Core→严格桌面检查→清理→卸载及残留检查。实际下载的三份远端 JUnit 经项目解析器分别核对为 1375 passed / 26 skipped（各1401项，不跨运行累加）；真实 Linux UI 报告22项均严格为true。产物ZIP按GitHub digest核验，EXE/安装包格式与逐文件哈希另行核对。详见 [最终CI核验](verification/CI_40693d7_20261023.json)；未改产品代码、未调用模型、未合并或发布。旧版升级、真实DACL拒绝、打包程序异常后的业务恢复、Windows真实Codex闭环、桌面/手机真机仍未验收。以下记录为历史。
 
 2026-10-23 ASG-TEST-004 远程 CI 推进：用户已明确允许推送 `fix/codex-empty-store`，仍不合并或发布。`4011655` 已推送；Core run `39912640138` 在调度前失败（无 jobs），actionlint 复现 job env 不允许 runner 上下文。将 PLAYWRIGHT_MODULE 原值移到真实验收步骤的 env，actionlint 由 exit1 转为 exit0；产品、协议、权限及依赖不变。设计及独立复核通过，完整后端 1375 passed / 26 skipped（JUnit 1401 项，88.98 秒）；新 SHA 远程验收另行记录，不将配置校验当成 CI 通过。回滚仅 revert 此配置修复，基准 `4011655`。

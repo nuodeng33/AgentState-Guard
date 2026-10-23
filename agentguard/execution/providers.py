@@ -310,7 +310,9 @@ class CodexProvider(ProviderClient):
         if not isinstance(servers, dict) or len(servers) > 128:
             raise ProviderError('EXECUTION_PROVIDER_CONFIG_UNVERIFIED')
         overrides = {'mcp_servers': {name: {'enabled': False} for name in servers},
-                     'features': {'apps': False, 'multi_agent': False}, 'web_search': 'disabled'}
+                     'features': {'apps': False, 'multi_agent': False}, 'web_search': 'disabled',
+                     'sandbox_workspace_write': {'network_access': False, 'exclude_tmpdir_env_var': True,
+                                                 'exclude_slash_tmp': True}}
         params = {"cwd": cwd, "sandbox": "read-only" if read_only else "workspace-write",
                   "approvalPolicy": "on-request", "approvalsReviewer": "user", 'config': overrides}
         if mode == "NEW":

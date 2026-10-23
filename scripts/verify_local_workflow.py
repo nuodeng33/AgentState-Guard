@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import closing
 from pathlib import Path
 from uuid import uuid4
 
@@ -36,11 +37,14 @@ REQUIRED_CHECKS = ('browser_work_delivery', 'native_versions_and_attribution', '
 
 
 def validate_temp_parent(value):
-    parent = Path(value).resolve(strict=True)
-    if parent.parts[1:2] and parent.parts[1] in {
+    candidate = Path(value)
+    forbidden = {
         'bin', 'boot', 'dev', 'etc', 'lib', 'lib64', 'proc', 'run', 'sbin', 'sys', 'usr', 'var',
-    }:
+    }
+    resolved = candidate.resolve(strict=False)
+    if any(p.parts[1:2] and p.parts[1] in forbidden for p in (candidate, resolved)):
         raise ValueError('TEMP_PARENT_SYSTEM_SCOPE')
+    parent = resolved.resolve(strict=True)
     if any((ancestor / '.git').exists() for ancestor in (parent, *parent.parents)):
         raise ValueError('TEMP_PARENT_INSIDE_GIT')
     return parent
@@ -233,7 +237,7 @@ def main(argv=None):
                 checks['browser_reopens_after_core_restart'] = True
                 ui = recovery_browser_phase(server.url, directory, 'reopen', fixture)
                 checks.update({name: ui['checks'][name] for name in RECOVERY_REOPEN_CHECKS})
-            with sqlite3.connect(state / 'state.db') as db:
+            with closing(sqlite3.connect(state / 'state.db')) as db:
                 checks['database_integrity'] = db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
                 checks['no_execution_created'] = db.execute('SELECT COUNT(*) FROM work_runs').fetchone()[0] == 0 and db.execute('SELECT COUNT(*) FROM work_sessions').fetchone()[0] == 0
             if any(checks.get(name) is not True for name in REQUIRED_CHECKS):

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
+import psutil
 import pytest
 
 from agentguard.recovery.protection import ProtectionService
@@ -74,12 +75,17 @@ def test_forced_process_death_recovers_durable_native_operation(tmp_path, point,
     with (tmp_path / 'worker.log').open('w', encoding='utf-8') as log:
         child = subprocess.Popen([sys.executable, str(WORKER), str(state), queued['id'], point, str(marker)],
                                  cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+        worker_process = None
         try:
             def paused():
                 assert child.poll() is None, (tmp_path / 'worker.log').read_text()
                 return json.loads(marker.read_text()) if marker.exists() else None
             receipt = until(paused, bool)
-            assert receipt['pid'] == child.pid
+            launcher = psutil.Process(child.pid)
+            owned = {p.pid: p for p in [launcher, *launcher.children(recursive=True)]}
+            assert receipt['pid'] in owned
+            worker_process = owned[receipt['pid']]
+            assert worker_process.create_time() >= launcher.create_time()
             assert receipt['operation_id'] == queued['id'] and receipt['point'] == point
             with service(state) as observer:
                 interrupted = observer.operation(queued['id'])
@@ -96,12 +102,16 @@ def test_forced_process_death_recovers_durable_native_operation(tmp_path, point,
             else:
                 assert step['state'] == 'COMPENSATION_INTENT'
                 assert files(project)[step['relative_path']] == current[step['relative_path']]
-            child.kill()
+            worker_process.kill()
+            worker_process.wait(timeout=10)
             child.wait(timeout=10)
             assert child.returncode != 0
             if os.name != 'nt':
                 assert child.returncode == -signal.SIGKILL
         finally:
+            if worker_process is not None and worker_process.is_running():
+                worker_process.kill()
+                worker_process.wait(timeout=10)
             if child.poll() is None:
                 child.kill()
                 child.wait(timeout=10)

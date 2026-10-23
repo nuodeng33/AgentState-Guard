@@ -1,5 +1,7 @@
 # Rollback Ledger
 
+2026-10-23 Windows本机修复：基准add0775。仅回退本轮providers与验收/测试代码即可；无schema、全局Codex配置、旧库或权限持久变更。原始失败/成功证据均保留。
+
 2026-10-23 CI证据接续：基准 `40693d7`，仅更新最终CI核验与发布/交接记录，无产品、配置、协议、数据库和运行服务变更。回滚仅 revert 本次文档提交，不撤销已验证产品代码、不 reset/clean。
 
 2026-10-23 ASG-TEST-004 远程 CI 推进：用户已明确允许推送 `fix/codex-empty-store`，仍不合并或发布。`4011655` 已推送；Core run `39912640138` 在调度前失败（无 jobs），actionlint 复现 job env 不允许 runner 上下文。将 PLAYWRIGHT_MODULE 原值移到真实验收步骤的 env，actionlint 由 exit1 转为 exit0；产品、协议、权限及依赖不变。设计及独立复核通过，完整后端 1375 passed / 26 skipped（JUnit 1401 项，88.98 秒）；新 SHA 远程验收另行记录，不将配置校验当成 CI 通过。回滚仅 revert 此配置修复，基准 `4011655`。
