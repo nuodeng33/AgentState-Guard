@@ -13,20 +13,47 @@ import java.io.ByteArrayInputStream
 import java.io.InputStream
 import org.junit.Assert.*
 import org.junit.Test
-import javax.imageio.ImageIO
+import java.io.DataInputStream
+import java.security.DigestInputStream
+import java.security.MessageDigest
+import java.util.zip.GZIPInputStream
+import org.json.JSONObject
 
 class InvitationImageDecoderTest {
     @Test fun realBrowserDenseInvitationRastersRoundTripAcrossSizesAndDisplayScales() {
-        val expected = javaClass.getResourceAsStream("/pairing-qr/invitation.txt")!!
-            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        fun resource(name: String) = javaClass.getResourceAsStream("/pairing-qr/$name")!!
+        fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        fun sha256(bytes: ByteArray) = hex(MessageDigest.getInstance("SHA-256").digest(bytes))
+        val expected = resource("invitation.txt").bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val manifest = JSONObject(resource("argb-manifest.json").bufferedReader().use { it.readText() })
+            .getJSONObject("files")
         assertEquals(547, expected.length)
         for (cell in listOf(3, 4, 5)) for (dpr in listOf("1", "1_25", "1_5", "2")) {
-            val name = "dense-cell$cell-dpr$dpr.png"
-            val image = javaClass.getResourceAsStream("/pairing-qr/$name")!!.use { ImageIO.read(it) }
-            val pixels = image.getRGB(0, 0, image.width, image.height, null, 0, image.width)
-            val result = decodeQrImagePixels(pixels, image.width, image.height)
-            assertEquals(name, expected, result.payload)
-            assertNull(name, result.reasonCode)
+            val stem = "dense-cell$cell-dpr$dpr"
+            val metadata = manifest.getJSONObject("$stem.png")
+            assertEquals(stem, metadata.getString("png_sha256"), sha256(resource("$stem.png").use { it.readBytes() }))
+            val compressed = resource("$stem.argb.gz").use { it.readBytes() }
+            assertEquals(stem, metadata.getString("gzip_sha256"), sha256(compressed))
+            val digest = MessageDigest.getInstance("SHA-256")
+            // Exact browser ARGB values, losslessly exported: no Android-incompatible
+            // Java desktop ImageIO dependency and no change to the product decoder.
+            val (width, height, pixels) = DataInputStream(DigestInputStream(
+                GZIPInputStream(ByteArrayInputStream(compressed)), digest
+            )).use { input ->
+                assertEquals(stem, 0x41534731, input.readInt())
+                val width = input.readInt()
+                val height = input.readInt()
+                assertEquals(stem, metadata.getInt("width"), width)
+                assertEquals(stem, metadata.getInt("height"), height)
+                assertTrue(stem, width in 1..2048 && height in 1..2048 && width.toLong() * height <= 4_194_304)
+                val pixels = IntArray(width * height) { input.readInt() }
+                assertEquals(stem, -1, input.read()) // Also validates the gzip trailer/CRC.
+                Triple(width, height, pixels)
+            }
+            assertEquals(stem, metadata.getString("raw_stream_sha256"), hex(digest.digest()))
+            val result = decodeQrImagePixels(pixels, width, height)
+            assertEquals(stem, expected, result.payload)
+            assertNull(stem, result.reasonCode)
         }
         // Pixel decoding supplies text, never authority: this synthetic offer is expired.
         assertNull(QrPayload.parse(expected, nowEpochSeconds = 1_000_000_001L))

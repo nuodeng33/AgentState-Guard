@@ -35,3 +35,7 @@ Rollback: ordinary revert of these rendering/presentation files, their tests/ass
 Exit requires exact new CI and package verification plus cleanup/restoration, not only unit tests. Original business data is currently isolated at `original-isolated-phase24-0c88`, with immutable `original-backup`; current AppData is test data. Do not start/migrate the isolated original. No Windows restart, merge, release or permanent cleanup.
 
 See `verification/DEVICE_QR_NATIVE_20261024.json` and `verification/DEVICE_QR_FRONTEND_20261024.json`.
+
+### Android fixture compile follow-up
+
+`211ae68` Core CI succeeded. Both Android workflows failed before unit execution because the new raster test imported Java desktop ImageIO, absent from Android Kotlin compilation; product Kotlin/lint had passed. The test-only loader now reads losslessly serialized original ARGB values using existing java.io/java.util.zip, verifies PNG/gzip/raw-stream hashes and bounded header/dimensions/EOF, then invokes the identical product decoder. Independent twelve-resource/hash review and native Java pixel-for-pixel equality plus decode passed. No product code/dependency/permission changes or assertion weakening. New exact-source CI and real JUnit remain required; previous failures are retained. See `verification/DEVICE_QR_FIXTURE_CI_20261024.json`.

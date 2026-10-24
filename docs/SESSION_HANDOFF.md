@@ -1,5 +1,9 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### Android fixture compile follow-up
+
+`211ae68` Core CI succeeded. Both Android workflows failed before unit execution because the new raster test imported Java desktop ImageIO, absent from Android Kotlin compilation; product Kotlin/lint had passed. The test-only loader now reads losslessly serialized original ARGB values using existing java.io/java.util.zip, verifies PNG/gzip/raw-stream hashes and bounded header/dimensions/EOF, then invokes the identical product decoder. Independent twelve-resource/hash review and native Java pixel-for-pixel equality plus decode passed. No product code/dependency/permission changes or assertion weakening. New exact-source CI and real JUnit remain required; previous failures are retained. See `verification/DEVICE_QR_FIXTURE_CI_20261024.json`.
+
 ### 2026-10-24 latest checkpoint — real MuMu failure reproduced and repaired in source
 
 The tested 0c88 baseline has all four exact-commit CI workflows successful. Actual old4a8→0c88 MSI direct upgrade passed (5 seed / 9 reread checks), actual MSI payload hashes matched, schema19→20 preserved migration/ledger/step-event history, and two actual installed-Core restore interruption cases passed with compensation/external-change preservation and stable replay/restart.

@@ -1,0 +1,36 @@
+{
+  "failed_commit": "211ae688ffedb57e085f9bb69b5844f6c9822172",
+  "first_failing_layer": "compileDebugUnitTestKotlin; no unit test ran",
+  "error": "Unresolved reference javax.imageio / ImageIO in the new fixture adapter; productcompile and lint passed",
+  "runs": {
+    "android_build": 40093445286,
+    "android_build_job": 120870686418,
+    "emulator": 40093445296,
+    "emulator_job": 120870686994
+  },
+  "job_log_sha256": {
+    "android": "67dc4e01fb859a94957998bb36fa8d4df901eed9374fd8572d0315b599d45aa2",
+    "emulator": "69d83083fd27cf4780507177f9b5d4808d6044862242c44a698e1cdcda5051ed"
+  },
+  "root_cause": "Java desktop ImageIO is unavailable in Android Kotlin compilation; native Java diagnostic availability did not imply Android test compilation availability",
+  "fix_scope": [
+    "InvitationImageDecoderTest.kt fixture loader only",
+    "twelve lossless ARGB gzip resource fixtures and hash manifest",
+    "offline fixture exporter / README"
+  ],
+  "unchanged_product": true,
+  "new_dependencies": false,
+  "assertions_preserved": [
+    "12 actual browser PNG source hashes",
+    "exact full547-byte text",
+    "unchanged product decoder",
+    "expired synthetic invitation is rejected by strict parser"
+  ],
+  "fresh_validation": {
+    "independent_manifest_header_dimension_crc_hash_review": "PASS12",
+    "native_java_every_pixel_equals_original_png": "PASS12",
+    "exact_android_java_decoder_same_payload": "PASS12",
+    "new_android_compile_and_junit": "REQUIRED_NOT_YET_RUN"
+  },
+  "limits": "ARGB is a JVM fixture transport, not BitmapFactory/OpenDocument endtoend; final actualAPK MuMu path remains required. Original PNGs and prior CI failures retained."
+}
