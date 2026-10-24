@@ -108,6 +108,7 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
     // (single-flight inside the adapter). dataVersion re-reads projections so
     // a resume-triggered refresh updates every surface without any polling.
     var dataVersion by remember { mutableLongStateOf(0L) }
+    var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(linkAdapter) {
         linkAdapter.refresh()
@@ -120,6 +121,7 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
             if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) foreground = true
             if (event == Lifecycle.Event.ON_STOP) foreground = false
             if (event == Lifecycle.Event.ON_RESUME) {
+                nowEpochMs = System.currentTimeMillis()
                 scope.launch {
                     linkAdapter.refresh()
                     dataVersion++
@@ -162,13 +164,13 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
     var pairing by remember { mutableStateOf<PairingUiState?>(null) }
     var pairingBusy by remember { mutableStateOf(false) }
     val pairingEpoch = remember { longArrayOf(0L) }
-    var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var actionBusy by remember { mutableStateOf(false) }
     var actionResult by remember { mutableStateOf<SupervisionActionUiResult?>(null) }
     var localFailure by remember { mutableStateOf<String?>(null) }
     var evidenceId by remember { mutableStateOf<String?>(null) }
 
     fun showPairing(next: PairingUiState) {
+        nowEpochMs = System.currentTimeMillis()
         pairing = next
         if (next.phase == PairingPhase.PAIRED) {
             dataVersion++
@@ -224,7 +226,7 @@ fun AgentStateApp(adapter: DeviceLinkUiAdapter? = null) {
 
     LaunchedEffect(pairing?.expiresAtEpochMs, pairing?.phase) {
         if (pairing?.phase in IN_FLIGHT_PHASES) while (true) {
-            delay(1000); nowEpochMs = System.currentTimeMillis()
+            nowEpochMs = System.currentTimeMillis(); delay(1000)
         }
     }
     // Repeated equal states still poll; pausing the app stops new network requests.

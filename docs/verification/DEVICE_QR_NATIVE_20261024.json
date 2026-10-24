@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-24",
+  "requirement": "ASG-CLOSE-004",
+  "baseline_product_sha": "0c88bd935b3b2dea8e91b99f83716c26012972c3",
+  "baseline_exact_ci": {
+    "core": 40085472082,
+    "windows": 40085472049,
+    "android": 40085472173,
+    "emulator": 40085472050,
+    "all_terminal": "success"
+  },
+  "baseline_native": {
+    "old_4a8_seed_checks": 5,
+    "direct_upgrade": "MSI /i, exit0; oldProductCode removed/new registered; no uninstall before upgrade",
+    "new_read_checks": 9,
+    "main_matches_actual_msi_payload": true,
+    "installed_sidecar_sha256": "40983091624d5ca4df3052e7a95f9690cf08e6a821d02edb917fea6cf4fd2e4b",
+    "migration": "schema19to20, only2 approved tables; old migration/ledger/step-event hashes preserved",
+    "actual_packaged_restore_interrupt_cases": 2,
+    "restore_results": [
+      "COMPENSATED",
+      "NEEDS_ATTENTION retains external bytes"
+    ],
+    "original_uuid_replay_and_second_restart": "stable"
+  },
+  "qr_failure": {
+    "first": "innerSVG360PNG QR_IMAGE_NO_CODE",
+    "second": "wholecard396PNG QR_IMAGE_NO_CODE while invitation unexpired",
+    "causal_control": "Same actual547-byte expired invitation, sameSVG, CSS180 vs natural461; exact AndroidJavaZXing3.4.1 RGBLuminanceSource/HybridBinarizer/QRCodeReader TRY_HARDER fails vs returns identical SHA",
+    "payload_sha256": "e18bda03fa5a51ed7678dddc84f08404e2eb5e2b8a04823cabe81383ad8d9f4f",
+    "real_invitation_not_published": true
+  },
+  "fix": {
+    "render": "intrinsic integer3..5 CSSpx per module; four-module quietzone; no forced180 CSS shrink; minimumgrid horizontaloverflow",
+    "android_clock": "fresh presentation time before new pairing state, first ticker delay and lifecycle resume",
+    "unchanged": [
+      "QR decoder",
+      "strict invitation parser",
+      "SAS confirmation",
+      "TLS pins",
+      "expiry authority",
+      "Core API/schema",
+      "permissions"
+    ]
+  },
+  "synthetic_positive_compatibility": {
+    "actual_react_component": true,
+    "actual_qr_tokens_css": true,
+    "cases": 12,
+    "cells": [
+      3,
+      4,
+      5
+    ],
+    "dpr": [
+      1,
+      1.25,
+      1.5,
+      2
+    ],
+    "all_exact_java_payload_sha256": "009caad6e0fed9248ce18cbdd16df9585a42298a91ac25acf8e1df17d2a0424e",
+    "all_pass": true,
+    "legacy_synthetic_pattern": "also decodes; not claimed as causal failure. Incorrect diagnostic negative assertion retained separately."
+  },
+  "actual_mumu1_diagnostic": {
+    "ci_apk_sha256": "60f43bab404665a1f5a822a9da8196c3a2010c42915d6650edf504c67ce5552d",
+    "installed_apk_identity_checked": true,
+    "normal_OpenDocument_import": true,
+    "diagnostic_browser_geometry_override_only": true,
+    "sas_equal_and_dual_confirmation": true,
+    "durable_binding_and_real_home_data": true,
+    "disable_offline_and_cache_label": true,
+    "reenable_same_binding_reconnect": true,
+    "android_app_restart_binding_preserved": true,
+    "desktop_revoke_requires_auth": true,
+    "local_unpair_cleared": true,
+    "normal_disable_and_no_bound_devices_afterward": true,
+    "final_fixed_package_acceptance": false
+  },
+  "limitations": [
+    "Native Tauri WebView loaded actual dashboard but Sky captures timed out and click geometry unavailable; headlessChrome does not replace native pointer acceptance",
+    "Physical camera, physical phone and hardware-backed Keystore remain separate",
+    "Fresh exact-source CI and final new MSI/APK real repeat still required",
+    "Original six business files remain isolated with immutable backup; current AppData is testcopy, mandatory archive/uninstall/restore/hash verification outstanding"
+  ],
+  "cleanup_policy": "manual move checkpoint only; no permanent deletion/claimed freed space; MuMu2/5 and other apps untouched"
+}

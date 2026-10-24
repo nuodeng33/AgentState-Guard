@@ -69,3 +69,8 @@ Base405bbd4. Revert phase22 files/generated assets as one validated set; no sche
 2026-10-24 canonicalentryfix base4f4a7ef: revertonlysuccessfulcontainerlocatorcanonicalizationanditsregressions/evidence. NoDBmigration,aliasrowdeletion,ledgerrewrite,sourceenablingorprocessstartup. Preserve4f4freshWindowscatalog2-rowfailureforcomparison.
 
 2026-10-24 phase24 rollbackbase4a8e320. Ordinarycode revert only; preserve schema20 tables, pending/color rows and historical receipts. Never automatically downgrade or delete queued user data. OriginalWindows business6filesrestored beforedevelopment andhashverified; migrationtestedonlyisolatedcopy. NewfeatureCI/packageacceptance pending atcommit.
+
+
+## 2026-10-24 ASG-CLOSE-004 dense QR follow-up
+
+Baseline0c88. Ordinary revert of QrCodeCard/app.css, App.kt presentation-clock sampling, corresponding tests/raster resources and generated assets only. No API/schema/permissions or historical ledger changes. Preserve original six-file isolation/backup and all failure evidence; test package teardown and exact restore still required.

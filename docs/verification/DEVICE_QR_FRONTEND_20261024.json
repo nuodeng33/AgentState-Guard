@@ -1,0 +1,49 @@
+{
+  "status": "PASS_FINAL_FRONTEND",
+  "base_commit": "0c88bd935b3b2dea8e91b99f83716c26012972c3",
+  "scope": "Independent complete frontend/typecheck/normalproductionbuild; QRrenderproduct not authored byverifier. Backendunchanged notrerun; Androidcompile/newAPKscan/countdown excluded",
+  "counts": {
+    "tests": 326,
+    "passed": 326,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "artifacts/qr-render-independent/final-frontend.xml"
+    ]
+  },
+  "typecheck": "PASS",
+  "normal_production_build": "PASS",
+  "diff_check": "PASS",
+  "review_findings": [],
+  "review_notes": [
+    "MemoizedQRmatrix retainsfullpayload; SVGnaturalinteger3..5CSSpxmodule size and4-modulequietzones avoidfractionalscaling",
+    "Belowminimumwidthscrollcontainer preservescompleteQRratherthanresampling",
+    "Modulecount-change recalculatesmeasurement; samecountpayload geometryunchangedcorrectly",
+    "ResizeObserver/windowfallbackcleanupsandhiddenzero-widthguard present; narrownegativebound covered"
+  ],
+  "first_snapshot": "frontend.xml 325passed1failed:CSS?rawfixturestubempty, maxWidthassertfailed; oldevidencepreserved",
+  "second_snapshot": "focused-reproduction.log suite0tests: authorconcurrentlychangedfixture toimport.meta.url readFileSync; protocolnotfile",
+  "final_fixture_fix": "Authorusedtypedvi.importActual(node:fs) readingactualstylesheetfromwebcwd; existingstyleassertionsunchanged",
+  "warnings": [
+    "ExistingWorkRestScene507.34kBlazychunkwarning"
+  ],
+  "changes_by_verifier": "Onlyauthorizednormalbuildgeneratedweb_static outputs andignoredlogs; no productsource/testedits",
+  "node_modules_symlink": "Untouched",
+  "source_sha256": {
+    "web/src/components/devices/QrCodeCard.tsx": "9cfd2bf60e22664ea2f4b54a2bc105dec89dcb39eecc6343c0b5986460264ca6",
+    "web/src/styles/app.css": "31b130f661dfeae892206942ea3fae5e7805457f6d3993bc19c3ac694779b2ba",
+    "web/src/components/devices/QrCodeCard.test.tsx": "083675463ccb386aa2b9e3884e279299c0e593f09cc10c03b937b63dbb3794b5"
+  },
+  "evidence_sha256": {
+    "frontend.xml": "44e1bc736122f9aab0b5741a009b80b90ef89e7e3d412f0a4253a14fca8485e4",
+    "frontend.log": "3cda36da5ac63f429b0302fdd719a4adc98bb30bdd6d6fb1fe0741d8c4c86da4",
+    "focused-reproduction.log": "e0299fb95c8bbf5dec3c323c685bcc3037e62f5f63e7a59e3de0d077ddb93237",
+    "final-frontend.xml": "cbe8a09e65ebe3ac3b3a5646551af8ea213b4fc65665a10b7e54a649d8c99da9",
+    "final-frontend.log": "3e22e079082160e445872a94619703934dc193fc3f5f6ba9de2590e4a5bb39bb",
+    "final-typecheck.log": "3af23e1432c918480a1c6754c69ad0cc81f0570f9fa32a3eb66332d6c0ae15fa",
+    "final-build.log": "7aab74bb874111e1742c799a85e4a3fbfbcfc0897bae9ccc9ece79fbf2392915"
+  }
+}

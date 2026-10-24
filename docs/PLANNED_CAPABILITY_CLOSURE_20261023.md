@@ -1,5 +1,15 @@
 # Full capability closure — 2026-10-23
 
+### 2026-10-24 latest checkpoint — real MuMu failure reproduced and repaired in source
+
+The tested 0c88 baseline has all four exact-commit CI workflows successful. Actual old4a8→0c88 MSI direct upgrade passed (5 seed / 9 reread checks), actual MSI payload hashes matched, schema19→20 preserved migration/ledger/step-event history, and two actual installed-Core restore interruption cases passed with compensation/external-change preservation and stable replay/restart.
+
+Real MuMu 1 then exposed `QR_IMAGE_NO_CODE` on the installed CI APK. The same real invitation failed Android's exact Java decoder at forced180 CSS pixels and decoded identically at natural461. The source renderer now uses explicit integer3–5px modules and four-module white zones; Android's stale first-frame countdown sample is also corrected without changing expiry or confirmation authority. Independent full frontend **326 passed / 45 files**, typecheck/build passed. Twelve actual-component raster/DPI cases all decoded exactly with the unchanged Android Java pipeline. Prior fixture failures and the synthetic legacy-pattern diagnostic assertion remain recorded separately.
+
+Actual diagnostic mobile dual-SAS/durable binding, real data, offline/cache, reconnect, app restart, revoke/auth-required and local unpair succeeded. They used a browser-only geometry experiment; **new exact-commit CI, fixed MSI/APK and formal repeated pairing are still required**. Native WebView loaded the actual dashboard; Sky capture timed out and click geometry was unavailable, so full native pointer operation is not claimed. Fresh human authorization covers only ASG and MuMu1; MuMu2/5 and other windows remain protected.
+
+**Current data state supersedes older historical entries below:** final0c88 test MSI remains installed; original six business files are isolated with immutable backup, and AppData contains test data. Mandatory test archive/uninstall/original restore/hash verification remains. Cleanup is manual-move only; no permanent deletion or released-space claim. Full capability goal remains active, with Docker scope/ACP, stopped Ubuntu and physical-hardware limits recorded independently. See [phase25](phases/25-dense-qr-native-acceptance.md), [native evidence](verification/DEVICE_QR_NATIVE_20261024.json), [frontend evidence](verification/DEVICE_QR_FRONTEND_20261024.json).
+
 ### 2026-10-24 ASG-CLOSE-006 promotion refresh loop repaired
 
 The required Windows browser job on `00d7f3c` launched its normal sandbox successfully and passed the first two queue checks, then exposed a real UI loop: a promoted instruction refreshed the parent, which unmounted/remounted its child; the new child treated the same PROMOTED receipt as new and refreshed forever. The failure screenshot shows Session management stuck on Loading records. Native headless Chrome reproduced the exact 30-second wait for the promoted status before any fix was overlaid.

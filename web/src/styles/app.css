@@ -892,6 +892,13 @@ code {
   max-width: 560px;
 }
 
+.qr-viewport {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
 .qr-card {
   background: #ffffff;
   border: 1px solid var(--border);
@@ -904,8 +911,7 @@ code {
 
 .qr-svg svg {
   display: block;
-  width: 180px;
-  height: 180px;
+  max-width: none;
 }
 
 .sas-card {

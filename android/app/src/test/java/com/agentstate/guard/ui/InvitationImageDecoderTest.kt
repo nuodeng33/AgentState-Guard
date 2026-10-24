@@ -1,5 +1,6 @@
 package com.agentstate.guard.ui
 
+import com.agentstate.guard.network.QrPayload
 import com.agentstate.guard.ui.link.MAX_QR_IMAGE_BYTES
 import com.agentstate.guard.ui.link.QrImageFailure
 import com.agentstate.guard.ui.link.decodeQrImagePixels
@@ -12,8 +13,25 @@ import java.io.ByteArrayInputStream
 import java.io.InputStream
 import org.junit.Assert.*
 import org.junit.Test
+import javax.imageio.ImageIO
 
 class InvitationImageDecoderTest {
+    @Test fun realBrowserDenseInvitationRastersRoundTripAcrossSizesAndDisplayScales() {
+        val expected = javaClass.getResourceAsStream("/pairing-qr/invitation.txt")!!
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        assertEquals(547, expected.length)
+        for (cell in listOf(3, 4, 5)) for (dpr in listOf("1", "1_25", "1_5", "2")) {
+            val name = "dense-cell$cell-dpr$dpr.png"
+            val image = javaClass.getResourceAsStream("/pairing-qr/$name")!!.use { ImageIO.read(it) }
+            val pixels = image.getRGB(0, 0, image.width, image.height, null, 0, image.width)
+            val result = decodeQrImagePixels(pixels, image.width, image.height)
+            assertEquals(name, expected, result.payload)
+            assertNull(name, result.reasonCode)
+        }
+        // Pixel decoding supplies text, never authority: this synthetic offer is expired.
+        assertNull(QrPayload.parse(expected, nowEpochSeconds = 1_000_000_001L))
+    }
+
     @Test fun bundledDecoderReturnsQrPayloadExactlyWithoutInferringTrust() {
         val payload = "agentstate://pair?v=1&sid=exact-opaque-value&ticket=not-authenticated-by-decoder"
         val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 512, 512)

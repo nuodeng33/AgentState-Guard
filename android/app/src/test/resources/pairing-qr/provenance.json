@@ -1,0 +1,168 @@
+{
+  "legacy": false,
+  "source_sha256": "8ab2aa10568405ea7f46f2b438e8803ed6d91cd8b29a9820b742114fdf801f2e",
+  "css_sha256": "31b130f661dfeae892206942ea3fae5e7805457f6d3993bc19c3ac694779b2ba",
+  "payload_length": 547,
+  "payload_sha256": "009caad6e0fed9248ce18cbdd16df9585a42298a91ac25acf8e1df17d2a0424e",
+  "note": "Synthetic expired canonical-shape invitation; no live key or ticket. Actual source QrCodeCard mounted with React in Chrome155; full app token+QR CSS. No raster transformation. 12 screenshots confirmed with exactAndroid ZXingcore3.4.1 pipeline. This is decoder compatibility, not protocol trust.",
+  "capture": [
+    {
+      "file": "dense-cell5-dpr1.png",
+      "dpr": 1,
+      "cell": 5,
+      "container": 560,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 503,
+        "svgWidth": 485
+      }
+    },
+    {
+      "file": "dense-cell4-dpr1.png",
+      "dpr": 1,
+      "cell": 4,
+      "container": 410,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 406,
+        "svgWidth": 388
+      }
+    },
+    {
+      "file": "dense-cell3-dpr1.png",
+      "dpr": 1,
+      "cell": 3,
+      "container": 330,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 309,
+        "svgWidth": 291
+      }
+    },
+    {
+      "file": "dense-cell5-dpr1_25.png",
+      "dpr": 1.25,
+      "cell": 5,
+      "container": 560,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 503,
+        "svgWidth": 485
+      }
+    },
+    {
+      "file": "dense-cell4-dpr1_25.png",
+      "dpr": 1.25,
+      "cell": 4,
+      "container": 410,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 406,
+        "svgWidth": 388
+      }
+    },
+    {
+      "file": "dense-cell3-dpr1_25.png",
+      "dpr": 1.25,
+      "cell": 3,
+      "container": 330,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 309,
+        "svgWidth": 291
+      }
+    },
+    {
+      "file": "dense-cell5-dpr1_5.png",
+      "dpr": 1.5,
+      "cell": 5,
+      "container": 560,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 503,
+        "svgWidth": 485
+      }
+    },
+    {
+      "file": "dense-cell4-dpr1_5.png",
+      "dpr": 1.5,
+      "cell": 4,
+      "container": 410,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 406,
+        "svgWidth": 388
+      }
+    },
+    {
+      "file": "dense-cell3-dpr1_5.png",
+      "dpr": 1.5,
+      "cell": 3,
+      "container": 330,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 309,
+        "svgWidth": 291
+      }
+    },
+    {
+      "file": "dense-cell5-dpr2.png",
+      "dpr": 2,
+      "cell": 5,
+      "container": 560,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 503,
+        "svgWidth": 485
+      }
+    },
+    {
+      "file": "dense-cell4-dpr2.png",
+      "dpr": 2,
+      "cell": 4,
+      "container": 410,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 406,
+        "svgWidth": 388
+      }
+    },
+    {
+      "file": "dense-cell3-dpr2.png",
+      "dpr": 2,
+      "cell": 3,
+      "container": 330,
+      "geometry": {
+        "border": "1px",
+        "padding": "8px",
+        "cardWidth": 309,
+        "svgWidth": 291
+      }
+    }
+  ],
+  "png_sha256": {
+    "dense-cell3-dpr1.png": "877df5ecbeb51a6d430ac73333c28691d1681312f08bcf0fac0251f38da6e5ee",
+    "dense-cell3-dpr1_25.png": "18f152a87095a04499e6ffc99dcb397a521f06f6c02c885ff3c2fcb182cffb3a",
+    "dense-cell3-dpr1_5.png": "d9fd9094d1871a511e530868a9b73382758996c232bdd8bf6a9819b04a7c1cad",
+    "dense-cell3-dpr2.png": "08a8bba4f5809b6a64fd8f069fb00f63b0184f6785dfc68909e9572ddba287e4",
+    "dense-cell4-dpr1.png": "27be975648df065c9176987ce78bb7dabfad7f86805f980b95f275c26b097cf9",
+    "dense-cell4-dpr1_25.png": "5f23cd470162578ae73928cb2aaf12f9a6fc65fd758e94390d1094e76492fa58",
+    "dense-cell4-dpr1_5.png": "0de5d340a8fe226bc41c944251ba0981712858c24ee2a6ff599904b8854df936",
+    "dense-cell4-dpr2.png": "a378aab6b22b8de6e487f47771872eccf9711ba10fd3680c39bdd933056a10c0",
+    "dense-cell5-dpr1.png": "fdf43aa5c093c424cffc0ba3f8bb43bc3f585479e81abbe9fd2805f264841dd3",
+    "dense-cell5-dpr1_25.png": "f00dfefa129c07e36ff5d2a970ef1ef1b3a87b43f519b4dc2368d417a9aa0275",
+    "dense-cell5-dpr1_5.png": "d2004675d30b65556d3bd57c0d2dd72a9439233dfe84d980b69f6845de35d06b",
+    "dense-cell5-dpr2.png": "bc8da46357f2e1ae53556e8f3563882787fa7f1a44bf047b7717183732d3112c"
+  }
+}
