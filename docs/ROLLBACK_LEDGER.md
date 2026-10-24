@@ -1,5 +1,13 @@
 # Rollback Ledger
 
+### 2026-10-24 ASG-CLOSE-006 promotion refresh loop repaired
+
+The required Windows browser job on `00d7f3c` launched its normal sandbox successfully and passed the first two queue checks, then exposed a real UI loop: a promoted instruction refreshed the parent, which unmounted/remounted its child; the new child treated the same PROMOTED receipt as new and refreshed forever. The failure screenshot shows Session management stuck on Loading records. Native headless Chrome reproduced the exact 30-second wait for the promoted status before any fix was overlaid.
+
+The parent now remembers handled notifications by work/session/promoted-run key before refreshing. It remains independent of manual history selection and still follows a different new promotion. Three causal integration tests cover those behaviors. Independent full frontend **320 passed / 44 files**, typecheck and production build passed. On this Windows machine the unchanged strict production browser gate then passed **exercise 8 checks + reopen 4 checks**, with no restart replay, using the fixed production assets, isolated actual Core/SQLite and controlled no-model provider. The sandbox stayed enabled; user browser profiles, desktop input and original ASG data were not used. Source backend remains the separate 1542 passed/49 skipped snapshot; real native Codex queue evidence from 116b remains separate. Failure diagnostics now retain masked, bounded detail after page creation as well as launch errors. See [Windows RED/GREEN evidence](verification/PHASE24_QUEUE_UI_WINDOWS_20261024.json).
+
+Commit/push this narrow UI fix, then require all exact-commit CI and final MSI upgrade evidence. Current tested MSI remains uninstalled, original six files restored and backup retained. Native desktop/MuMu input still needs fresh authorization after physical Escape; browser proof does not replace those items. No merge, publication, Windows restart or permanent cleanup.
+
 ### 2026-10-24 strict browser CI and real native queue evidence
 
 `116b0f1` passed all three remote Python jobs and frontend, plus Windows and both Android workflows. The retained Core CI failure is now `BROWSER_SANDBOX_UNAVAILABLE` at browser launch on Linux; the preceding 22-check manual/recovery flow passed. The strict queue exercise/reopen gate moves to a required `windows-latest` job using normal `chromiumSandbox: true`. Linux recovery checks remain required, and wheel depends on both jobs. No sandbox flags, security policies, user environment settings, product modules, API or schema are changed. Launch failures now retain a token-masked, bounded diagnostic. Actionlint, JavaScript/PowerShell syntax and three launch-failure contract checks passed; actual new Windows CI is still required.

@@ -1,0 +1,184 @@
+{
+  "status": "PASS_LOCAL_WINDOWS_BROWSER_AND_FRONTEND",
+  "requirement_id": "ASG-CLOSE-006",
+  "base_commit": "00d7f3ceee3f2bb93e99282a1408d301151e806e",
+  "bug": "PROMOTED notification refresh clears session and unmounts child; new child forgets notification and emits it again indefinitely",
+  "fix": "Parent-owned handledPromotions ref keyed by work/session/promoted run, marked before refreshing; independent of user history selection",
+  "independent_frontend": {
+    "status": "PASS_LOCAL_FRONTEND",
+    "base_commit": "00d7f3ceee3f2bb93e99282a1408d301151e806e",
+    "scope": "Independent frontend/test/typecheck/productionbuild only; no backend/API/schema change; realWindowsstrictbrowser remains parentnative/CIgate",
+    "counts": {
+      "tests": 320,
+      "passed": 320,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "sources": [
+        "artifacts/phase24-promotion-independent/frontend.xml"
+      ]
+    },
+    "typecheck": "PASS",
+    "production_build": "PASS",
+    "node_syntax": "PASS",
+    "diff_check": "PASS",
+    "review_findings": [],
+    "review": [
+      "ParenthandledPromotions persistswhilechildunmounts, work/session/run compositekey preventssamepromotionrefreshloop",
+      "Promotiondedupindependentofmanualhistoryselection; differentpromotedchild stillfollowedonce",
+      "No execute/send/stateauthority changes"
+    ],
+    "launcher_diagnostics": "browser-error.log ifbrowserexists, launch-error.log otherwise; maskcontrolledfixturetoken,bound16384characters; unchangedreason/status/sandbox/exactgates",
+    "vm_cases": [
+      {
+        "message": "No usable sandbox",
+        "reason": "BROWSER_SANDBOX_UNAVAILABLE",
+        "diagnostic_characters": 16384,
+        "token_masked": true,
+        "failure_exit_retained": true,
+        "created_browser_closed": null
+      },
+      {
+        "message": "Browser launch denied by host policy",
+        "reason": "QUEUE_BROWSER_FAILED",
+        "diagnostic_characters": 16384,
+        "token_masked": true,
+        "failure_exit_retained": true,
+        "created_browser_closed": null
+      },
+      {
+        "message": "EXACT_LAUNCH_FAILURE",
+        "reason": "EXACT_LAUNCH_FAILURE",
+        "diagnostic_characters": 16384,
+        "token_masked": true,
+        "failure_exit_retained": true,
+        "created_browser_closed": null
+      },
+      {
+        "message": "Browser newPage failed with controlled driver",
+        "reason": "QUEUE_BROWSER_FAILED",
+        "diagnostic_characters": 16384,
+        "token_masked": true,
+        "failure_exit_retained": true,
+        "created_browser_closed": true
+      }
+    ],
+    "prior_failure_evidence": "ActualWindows00d strictbrowser failure preservedbyparent; causalREDlocalintegrationlog preservedartifacts/debug/queue-promoted-refresh-loop/red.log",
+    "backend": "Unchanged;1542passed49skip baseline notrerun oraddedtofrontendcounts",
+    "warnings": [
+      "ExistingWorkRestScene507.34kBlazychunkwarning"
+    ],
+    "product_changes_by_reviewer": "Only approved bounded CJSdiagnostics; WorkSessions reviewednotedited",
+    "source_sha256": {
+      "web/src/components/WorkSessions.tsx": "f044c431ee4149a1857102aaa5e7ad10210f91c41ab4eb0c18d1422543a2fed9",
+      "web/src/components/WorkSessions.test.tsx": "4e4a403c1b49f8abeb1976d3a869035a1570e99674aedcf4fb8919cb24f3a25a",
+      "scripts/verify_pending_instruction_browser.cjs": "f17397e03daa13df2234317fe29822319ec3a751b2a43c767db6e5f74f0ee0d0"
+    },
+    "evidence_sha256": {
+      "frontend.xml": "0c8dadd1b91b3cbbc680a01953a1716049a5a310a8b62346f92c22a6e39e7165",
+      "frontend.log": "928ad82ebc58be385fbc4af715bd0e0f12e1d0d4b5dc286e333b19bf3438748e",
+      "typecheck.log": "3af23e1432c918480a1c6754c69ad0cc81f0570f9fa32a3eb66332d6c0ae15fa",
+      "build.log": "f70c415db5b8f0b7596106e65bbfb42976d6b7a4b0e532b51cd7655d75ea89ca"
+    }
+  },
+  "actual_windows_red_green": {
+    "result": "PASS",
+    "base_source_sha": "00d7f3ceee3f2bb93e99282a1408d301151e806e",
+    "source_overlay": "Only fixed production web_static from WorkSessions promoted-notification dedup; backend/source harness otherwise extracted base, plus bounded failure-only local diagnostic logging",
+    "platform": "Actual Windows host, headless Google Chrome155.0.8059.86, separate Playwright temporary profile",
+    "chromiumSandbox": true,
+    "security_policy_or_browser_sandbox_changed": false,
+    "model_calls": false,
+    "desktop_mouse_keyboard_inputs": false,
+    "original_asg_data_opened": false,
+    "red": {
+      "result": "FAIL",
+      "scope": "actual production browser/Core/SQLite with no-model provider fixture",
+      "exclusions": [
+        "real provider execution",
+        "model quality",
+        "Windows host UI",
+        "ADB",
+        "user data"
+      ],
+      "frontend_index_sha256": "54e9542f253105b6b53c575a24a10f346b4c82c862a30d7f7f3381d71c081af7",
+      "reason": "QUEUE_BROWSER_FAILED"
+    },
+    "red_error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('region', { name: 'Session management', exact: true }).getByText('Started as an execution', { exact: true }) to be visible\u001b[22m\n\n    at C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\queue-browser-local\\source\\scripts\\verify_pending_instruction_browser.cjs:75:70",
+    "green": {
+      "result": "PASS",
+      "scope": "actual production browser/Core/SQLite with no-model provider fixture",
+      "exclusions": [
+        "real provider execution",
+        "model quality",
+        "Windows host UI",
+        "ADB",
+        "user data"
+      ],
+      "frontend_index_sha256": "1acf776520b40a3a7fd84a398a3cf70c310483c175c50b6eac3e9e0d26241a44",
+      "exercise": {
+        "result": "PASS",
+        "phase": "exercise",
+        "checks": {
+          "explicit_queue_immutable_exact_text": true,
+          "one_slot_no_early_dispatch_and_draft_clear": true,
+          "real_completed_file_result_precedes_child_once": true,
+          "promoted_execution_visible": true,
+          "stop_cancels_current_and_pending_no_next_send": true,
+          "durable_pending_prepared_for_restart": true,
+          "no_model_calls": true,
+          "no_page_errors": true
+        },
+        "scope": "production browser/Core/SQLite; protocol fixture, no models"
+      },
+      "reopen": {
+        "result": "PASS",
+        "phase": "reopen",
+        "checks": {
+          "reopened_held_exact_text": true,
+          "no_automatic_resubmit_or_replay": true,
+          "no_model_calls": true,
+          "no_page_errors": true
+        },
+        "scope": "production browser/Core/SQLite; protocol fixture, no models"
+      },
+      "restart_sent_nothing": true
+    },
+    "original_ci_failure": {
+      "run": 40071746447,
+      "job": 120807058228,
+      "artifact_id": 12551488475,
+      "artifact_zip_sha256": "efde1d948ed0a479f3747398b94c7d591ba0102e944503ba2618a4e8274efd24",
+      "first_two_checks_passed": true,
+      "failure_screenshot": "Session management stuck Loading records"
+    },
+    "fixed_source_sha256": "f044c431ee4149a1857102aaa5e7ad10210f91c41ab4eb0c18d1422543a2fed9",
+    "static_index_sha256": "1acf776520b40a3a7fd84a398a3cf70c310483c175c50b6eac3e9e0d26241a44",
+    "evidence_sha256": {
+      "acceptance-red\\report.json": "7981acb71459315196a23504d2287d3ae2ee26d8b7b558556b36146fd1c697be",
+      "acceptance-red\\exercise\\browser.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "acceptance-red\\exercise\\failure.png": "2bfe3b2f52cbb6ffe17554197d82ef5e06f0c20aa2ca44fadf8928897b05632a",
+      "acceptance-red\\exercise\\local-flow-error.log": "d8c91e6337bb48f50720233c2de585a4b22c4d826ee3c0bd399fe93a960f6548",
+      "acceptance-red\\exercise\\queue-pending.png": "c973bb3ec0ad16f16168db9cd66859c8bb4653a8aa935aca18f798ea240a6a42",
+      "acceptance-red\\exercise\\report.json": "220081d15e348c1a4b608bd6a5bcfc911080f518ac0fa1c5015fa408b7afdf21",
+      "acceptance-green\\report.json": "ee8ed2b6cefe69e61a7e9fb595489fcf624c32c121108263adf041faa5e40ff2",
+      "acceptance-green\\exercise\\browser.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "acceptance-green\\exercise\\queue-pending.png": "6982196f4dd2afecb867f561c2ae67641961cc54cc198a4dd9ee792c089084f8",
+      "acceptance-green\\exercise\\queue-promoted.png": "f3d9112a08167322af037bbfc4f70b3065f6df95ff16eaa499dd9bf05399fcea",
+      "acceptance-green\\exercise\\report.json": "fab7cc02a5a1af627a7aa95474d009ba663791bf7278dd3bbd843b0a95c2bb1a",
+      "acceptance-green\\reopen\\browser.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "acceptance-green\\reopen\\queue-held-after-restart.png": "f73506342e739c98fa33c7fc84446fec524cefe7e86f3f55120146cb42d718a8",
+      "acceptance-green\\reopen\\report.json": "6871ca333de9a58e97908bc634cc01bd055c7b8b2b3ce13ef8450bc3f09d1a74"
+    },
+    "limits": [
+      "No Tauri desktop input, MSI upgrade, MuMu pairing or physical phone pass",
+      "Controlled no-model provider for browser flow; separate116b real native Codex9checks retained without summing",
+      "New exact-commit CI and package must still be verified"
+    ],
+    "cleanup": "Test Core/browser ended via original context/finally close. Isolated developer venv/Playwright tooling retained only within local stage for later manual cleanup."
+  },
+  "rollback": "Revert only WorkSessions dedup/tests/generated assets and verifier diagnostics; preserve API/schema20/receipts/history/failures/original backup",
+  "remaining": "Exact new commit CI/new Windows package upgrade/native desktop and mobile input; physical Escape still forbids Computer Use without fresh human authorization"
+}

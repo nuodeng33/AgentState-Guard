@@ -43,6 +43,38 @@ function fixture(initialRun?: ExecutionRun) {
     memory: createWorkSessionMemory(), onClose: vi.fn(), onRevision: vi.fn(), onOpenRequirement: vi.fn() };
   return { props, get, post, stream, setRun: (run: ExecutionRun) => { executions = [run]; } };
 }
+function promotionFixture() {
+  const f = fixture(execution('RUNNING'));
+  const original = f.get.getMockImplementation()!;
+  let promotedRunId: string | null = null, reads = 0, allowedReads = 2;
+  const promotedRuns = new Map<string, ExecutionRun>();
+  f.get.mockImplementation(async path => {
+    if (path.endsWith('/sessions/a')) {
+      reads++;
+      // Bound an erroneous refresh loop so the causal regression fails rather
+      // than hanging the test process in an unbounded microtask chain.
+      if (reads > allowedReads) return new Promise(() => {});
+    }
+    if (path.includes('/pending-instruction')) return { item: promotedRunId ? {
+      id: `pending-${promotedRunId}`, work_id: 'work-a', session_id: 'a', request_id: `enqueue-${promotedRunId}`,
+      predecessor_run_id: 'run-a', state: 'PROMOTED', input: `Queued ${promotedRunId}`,
+      requirement_version: 3, context_refs: [], reason_code: null, revision: 2,
+      promoted_run_id: promotedRunId, created_at: '', updated_at: '',
+    } : null };
+    if (promotedRunId && /\/sessions\/a\/runs\?/.test(path)) return {
+      items: [...promotedRuns.values()].reverse().concat(execution('COMPLETED')), has_more: false,
+    };
+    if (promotedRunId && path.endsWith('/runs/run-a')) return execution('COMPLETED');
+    for (const [id, run] of promotedRuns) if (path.endsWith('/runs/' + id)) return run;
+    return original(path);
+  });
+  return { ...f, sessionReads: () => reads, allowReads: (count: number) => { allowedReads = count; },
+    promote: (id: string) => {
+      promotedRunId = id;
+      promotedRuns.set(id, { ...execution('COMPLETED'), id, input_summary: `Queued ${id}` });
+    } };
+}
+
 async function openSession(id = 'a') { fireEvent.click(await screen.findByRole('button', { name: new RegExp(`CODEX.*native-${id}`) })); await screen.findByLabelText('Execution input'); }
 afterEach(() => { cleanup(); history.replaceState(null, '', '/'); });
 
@@ -416,6 +448,50 @@ describe('work session management', () => {
     expect(stop.disabled).toBe(true);
     fireEvent.click(stop);
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it('keeps a promoted execution visible without reloading the same promotion again', async () => {
+    const f = promotionFixture();
+    render(<WorkSessions {...f.props} />); await openSession();
+    await screen.findByRole('button', { name: 'Refresh next instruction' });
+    f.promote('run-next');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
+    expect(f.sessionReads()).toBe(2);
+    expect(screen.getByLabelText('Execution input')).toBeTruthy();
+    expect(screen.getByText('Started as an execution')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Execution ended.*Queued run-next/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(f.post).not.toHaveBeenCalled();
+  });
+
+  it('does not steal manual history selection when the same promotion is read after refresh', async () => {
+    const f = promotionFixture();
+    render(<WorkSessions {...f.props} />); await openSession();
+    await screen.findByRole('button', { name: 'Refresh next instruction' });
+    f.promote('run-next');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Execution ended.*Fix the issue/ })); });
+    f.allowReads(3);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reload sessions' })); });
+    expect(f.sessionReads()).toBe(3);
+    expect(screen.getByRole('button', { name: /Execution ended.*Fix the issue/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /Execution ended.*Queued run-next/ }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByLabelText('Execution input')).toBeTruthy();
+    expect(f.post).not.toHaveBeenCalled();
+  });
+
+  it('follows a different promoted execution once after handling the previous promotion', async () => {
+    const f = promotionFixture();
+    render(<WorkSessions {...f.props} />); await openSession();
+    await screen.findByRole('button', { name: 'Refresh next instruction' });
+    f.promote('run-next');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
+    f.allowReads(3); f.promote('run-later');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
+    expect(f.sessionReads()).toBe(3);
+    expect(screen.getByRole('button', { name: /Execution ended.*Queued run-later/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /Execution ended.*Queued run-next/ }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByLabelText('Execution input')).toBeTruthy();
+    expect(f.post).not.toHaveBeenCalled();
   });
 
 });

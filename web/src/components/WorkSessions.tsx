@@ -104,6 +104,7 @@ export default function WorkSessions({ client, workId, revision, requirementVers
   const revealedAction = useRef<string | null>(null);
   const openedTarget = useRef<ExecutionTarget | null>(null);
   const rememberedRuns = useRef(new Map<string, string>());
+  const handledPromotions = useRef(new Set<string>());
   const selection = useRef({ selected, runId }); selection.current = { selected, runId };
   const currentRevision = useRef(revision); currentRevision.current = revision;
   const creationRef = useRef(creation); creationRef.current = creation;
@@ -580,7 +581,12 @@ export default function WorkSessions({ client, workId, revision, requirementVers
               memory.drafts.delete(currentKey); setInput('');
             }
           }}
-          onPromoted={nextRunId => { rememberedRuns.current.set(session.id, nextRunId); setRefresh(value => value + 1); }} />
+          onPromoted={nextRunId => {
+            const promotionKey = `${workId}:${session.id}:${nextRunId}`;
+            if (handledPromotions.current.has(promotionKey)) return;
+            handledPromotions.current.add(promotionKey);
+            rememberedRuns.current.set(session.id, nextRunId); setRefresh(value => value + 1);
+          }} />
         <h3>{label('Execution records', '执行记录')}</h3>
         {!runs.length && !loading && <p>{label('No executions', '暂无执行')}</p>}
         <div className="work-run-list">{runs.map(item => <button type="button" key={item.id} aria-pressed={runId === item.id} onClick={() => { rememberedRuns.current.set(session.id, item.id); setRunId(item.id); setRun(null); }}>
