@@ -56,11 +56,17 @@ jobs:
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/asg-playwright/node_modules/playwright
         run: python scripts/verify_local_workflow.py --temp-root "$RUNNER_TEMP"
+      - name: Explicit pending instruction browser and restart acceptance
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/asg-playwright/node_modules/playwright
+        run: python scripts/verify_pending_instruction.py --report-dir artifacts/pending-instruction-browser
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         if: always()
         with:
           name: local-workflow-evidence
-          path: artifacts/local-workflow/
+          path: |
+            artifacts/local-workflow/
+            artifacts/pending-instruction-browser/
           if-no-files-found: warn
   wheel:
     runs-on: ubuntu-latest

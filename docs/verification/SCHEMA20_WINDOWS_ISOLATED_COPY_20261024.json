@@ -1,0 +1,119 @@
+{
+  "result": "PASS",
+  "source_version": 10,
+  "target_version": 20,
+  "scope": "Actual Windows stdlib migration on an isolated SQLite copy of verified original backup; original database never opened writable or started",
+  "checks": {
+    "copy_migration_succeeded": true,
+    "every_old_table_preserved_exactly": true,
+    "old_migration_history_preserved": true,
+    "integrity_ok": true,
+    "new_pending_table_empty": true,
+    "new_color_table_empty": true,
+    "original_backup_file_hash_unchanged": true
+  },
+  "source_db_sha256": "45ceaa2e04b64272d120800b371eead60a36bd65532b486742321d4fb59bc521",
+  "tables": {
+    "checkpoints": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "sqlite_sequence": {
+      "rows": 1,
+      "sha256": "3b511bafdecc7548b9efea77609930e02340d0ba1af4f0ec2c38ef8bdd03a0c7"
+    },
+    "restore_log": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "blobs": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "snapshot_files": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "audit_events": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "transactions": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "transaction_steps": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "host_observations": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "evidence_ledger_events": {
+      "rows": 2340,
+      "sha256": "fa111674ff6d48873267f66cfc3159f4531549af4abb885d997805e2c3655a6e"
+    },
+    "supervision_sessions": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "recovery_drills": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "recovery_drill_approvals": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "trusted_baselines": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "trusted_baseline_retirements": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "trusted_baseline_candidates": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "trusted_baseline_approvals": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "recovery_drill_bindings": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "trusted_baseline_candidate_bindings": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "recovery_authorizations": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "device_link_bindings": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "workspace_quarantine_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "workspace_scope_observations": {
+      "rows": 53,
+      "sha256": "456d4602b4d9fd99ee52694d4c25b08067df3f31298b03cd3d4688891fb4812d"
+    }
+  },
+  "migration_errors": [],
+  "sources": {
+    "delivery_schema.py": "5b1f2e06a187f6f86cd3b7546b837fd9019c885678afc9bc901f82e3a7cc88a5",
+    "discovery_schema.py": "666fcd6c8ec8d661e8cc9e5d5807e265e3a8ffe02588369f667352d39c5dde36",
+    "execution_schema.py": "7efeb82e361f5fcbf2f2fe5eb9103594900bee8265f3b146f3dc7de1f14721a7",
+    "migrations.py": "d912a2fa799b005e9bc328b19b79decbbdf567970c6f32a70e7a5398a61e44fe",
+    "protection_schema.py": "802db62e3d5984a944ed9485c50d5f326fbfd7ad31555976e412842807c7a8aa",
+    "work_extensions_schema.py": "60a021e83fa1d719ce28f0c7811a002e0be0796dac61e224ca370564b81e7ab5"
+  }
+}

@@ -301,6 +301,8 @@ def create_app(
     from .work import work_router
 
     app.include_router(work_router(db_path, agent_enricher=lambda result: enrich_agents(result)))
+    from .work_appearance import appearance_router
+    app.include_router(appearance_router(db_path))
     snapshots_dir = cfg_o.snapshot_dir()
     from ..recovery.protection import ProtectionRuntime
     from ..recovery.protection_domains import DomainRegistry

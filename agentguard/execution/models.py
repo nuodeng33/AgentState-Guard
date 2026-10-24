@@ -43,6 +43,14 @@ class StartRun(Command):
         return value
 
 
+class QueueInstruction(StartRun):
+    predecessor_run_id: UUID
+
+
+class CancelPendingInstruction(Command):
+    expected_revision: int = Field(strict=True, ge=1)
+
+
 class SessionMutation(Command):
     expected_revision: int = Field(strict=True, ge=1)
 

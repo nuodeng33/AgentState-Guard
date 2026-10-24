@@ -466,7 +466,9 @@ def test_upgrade_v9_retains_guard_checkpoint_and_adds_work_tables(tmp_path):
             assert (
                 conn.execute("SELECT label FROM checkpoints").fetchone()[0] == "keep-me"
             )
-            assert engine.current_version(conn) == 19
+            assert engine.current_version(conn) == 20
+            assert conn.execute("SELECT count(*) FROM work_pending_instructions").fetchone()[0] == 0
+            assert conn.execute("SELECT count(*) FROM work_agent_appearances").fetchone()[0] == 0
             assert conn.execute("SELECT count(*) FROM works").fetchone()[0] == 0
     finally:
         database.close()

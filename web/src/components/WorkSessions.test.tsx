@@ -31,6 +31,7 @@ function fixture(initialRun?: ExecutionRun) {
     if (path.startsWith('/api/v1/discovery/sources/local/sessions?')) return { sessions: [{ session_id: 'external-native', binding_id: 'exact-binding', store_id: 'store', provider: 'CODEX', native_session_id: 'native-external', title: 'Existing', cwd: '/work/repo' }], has_more: false };
     if (/\/sessions\?/.test(path)) return { items: [session('a'), session('b')], has_more: false };
     if (/\/sessions\/[ab]\/runs/.test(path)) return { items: path.includes('/a/') ? executions : [], has_more: false };
+    if (path.includes('/pending-instruction')) return { item: null };
     if (path.endsWith('/sessions/a')) return session('a');
     if (path.endsWith('/sessions/b')) return session('b');
     if (path.endsWith('/runs/run-a')) return executions[0];
@@ -147,7 +148,7 @@ describe('work session management', () => {
     fireEvent.change(screen.getByLabelText('Execution input'), { target: { value: 'Next execution' } });
     expect((screen.getByRole('button', { name: 'Start execution' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Prepare delivery' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Stop execution' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Stop execution' }) as HTMLButtonElement).disabled).toBe(false);
     setRun(execution('COMPLETED'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Prepare delivery' })).toBeTruthy(), { timeout: 3500 });
   });
@@ -346,4 +347,75 @@ describe('work session management', () => {
     await act(async () => finish({ items: [session('a')], has_more: false }));
     expect(screen.queryByRole('button', { name: /CODEX.*native-a/ })).toBeNull();
   });
+  it('queues the existing draft during an active run and preserves Stop behavior', async () => {
+    const { props, get, post } = fixture(execution('RUNNING'));
+    let pendingItem: Record<string, unknown> | null = null;
+    const originalGet = get.getMockImplementation()!, originalPost = post.getMockImplementation()!;
+    get.mockImplementation(async path => path.includes('/pending-instruction') ? { item: pendingItem } : originalGet(path));
+    post.mockImplementation(async (path, body) => {
+      if (path.endsWith('/pending-instruction')) {
+        const command = body as Record<string, unknown>;
+        pendingItem = { id: 'next-a', work_id: 'work-a', session_id: 'a', ...command,
+          state: 'PENDING', reason_code: null, revision: 1, promoted_run_id: null, created_at: '', updated_at: '' };
+        return { pending_id: 'next-a', session_id: 'a', request_id: command.request_id,
+          predecessor_run_id: command.predecessor_run_id, state: 'PENDING', revision: 1 };
+      }
+      return originalPost(path, body);
+    });
+    render(<WorkSessions {...props} />); await openSession();
+    fireEvent.change(screen.getByLabelText('Execution input'), { target: { value: 'Next exact instruction' } });
+    const queue = await screen.findByRole('button', { name: 'Queue next instruction' });
+    await waitFor(() => expect((queue as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => { fireEvent.click(queue); });
+    expect(post.mock.calls[0][0]).toBe('/api/v1/works/work-a/sessions/a/pending-instruction');
+    expect(post.mock.calls[0][1]).toMatchObject({ predecessor_run_id: 'run-a', input: 'Next exact instruction', requirement_version: 3, expected_revision: 2 });
+    expect((screen.getByLabelText('Execution input') as HTMLTextAreaElement).value).toBe('');
+    expect(screen.getByText('Queued for next execution')).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Stop execution' })); });
+    expect(post.mock.calls[1][0]).toBe('/api/v1/works/work-a/runs/run-a/cancel');
+    expect(post.mock.calls[1][1]).toMatchObject({ request_id: expect.any(String) });
+  });
+  it('freezes an unknown queued draft while keeping explicit Stop available', async () => {
+    const { props, post } = fixture(execution('RUNNING'));
+    post.mockRejectedValueOnce(new Error('lost receipt'));
+    render(<WorkSessions {...props} />); await openSession();
+    fireEvent.change(screen.getByLabelText('Execution input'), { target: { value: 'Keep this exact draft' } });
+    const queue = await screen.findByRole('button', { name: 'Queue next instruction' });
+    await waitFor(() => expect((queue as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => { fireEvent.click(queue); });
+    expect((screen.getByLabelText('Execution input') as HTMLTextAreaElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Stop execution' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(props.memory.pendingInstructions.size).toBe(1);
+    expect(props.memory.drafts.get('work-a:a')).toBe('Keep this exact draft');
+  });
+
+  it('Stop remains available during file finalization and cancels through the existing run route', async () => {
+    const { props, get, post } = fixture(execution('FINALIZING'));
+    const originalGet = get.getMockImplementation()!;
+    get.mockImplementation(async path => path.includes('/pending-instruction') ? { item: {
+      id: 'next-a', work_id: 'work-a', session_id: 'a', request_id: 'next-request',
+      predecessor_run_id: 'run-a', input: 'Pending instruction', requirement_version: 3,
+      context_refs: [], state: 'PENDING', revision: 1, reason_code: null, promoted_run_id: null,
+    } } : originalGet(path));
+    render(<WorkSessions {...props} />); await openSession();
+    await screen.findByText('Queued for next execution');
+    const stop = screen.getByRole('button', { name: 'Stop execution' }) as HTMLButtonElement;
+    expect(stop.disabled).toBe(false);
+    await act(async () => { fireEvent.click(stop); });
+    expect(post.mock.calls[0][0]).toBe('/api/v1/works/work-a/runs/run-a/cancel');
+    expect(post.mock.calls[0][1]).toEqual({ request_id: expect.any(String) });
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+  it('file-finalization Stop preserves the server cancellation capability boundary', async () => {
+    const { props, get, post } = fixture(execution('FINALIZING'));
+    const originalGet = get.getMockImplementation()!;
+    get.mockImplementation(async path => path.endsWith('/sessions/a')
+      ? { ...session('a'), capabilities: { ...session('a').capabilities, cancel: false } } : originalGet(path));
+    render(<WorkSessions {...props} />); await openSession();
+    const stop = screen.getByRole('button', { name: 'Stop execution' }) as HTMLButtonElement;
+    expect(stop.disabled).toBe(true);
+    fireEvent.click(stop);
+    expect(post).not.toHaveBeenCalled();
+  });
+
 });

@@ -94,6 +94,8 @@ class ExecutionRuntime:
     def _startup_reconcile(self):
         finalizing = []
         with self.journal() as service, service.db.transaction() as conn:
+            for pending_id, in conn.execute("SELECT id FROM work_pending_instructions WHERE state='PENDING'").fetchall():
+                service._pending_transition(conn, service._pending_row(pending_id), 'HELD', 'CORE_RESTARTED', now())
             for run_id, dispatch_state, state, result_json, session_id in conn.execute('SELECT id,dispatch_state,state,result_json,session_id FROM work_runs WHERE state IN (' + ','.join('?' * len(ACTIVE)) + ')', ACTIVE).fetchall():
                 result_value = json.loads(result_json)
                 if state == 'FINALIZING' and result_value.get('status') in {'completed', 'interrupted', 'failed'}:
@@ -116,6 +118,13 @@ class ExecutionRuntime:
             for run_id, session_id, state in service.conn.execute("SELECT id,session_id,state FROM work_runs WHERE state IN ('QUEUED','CANCELLING') ORDER BY created_at LIMIT 8").fetchall():
                 self._submit('run:' + run_id if state == 'QUEUED' else 'cancel:' + run_id,
                              self._dispatch if state == 'QUEUED' else self._cancel, session_id, run_id)
+        with self.journal() as service:
+            pending = service.conn.execute("""SELECT p.id,p.session_id FROM work_pending_instructions p
+                JOIN work_runs r ON r.id=p.predecessor_run_id JOIN work_sessions s ON s.id=p.session_id
+                WHERE p.state='PENDING' AND (r.state IN ('COMPLETED','FAILED','CANCELLED','INTERRUPTED','UNCERTAIN')
+                    OR s.state<>'READY') ORDER BY p.created_at LIMIT 8""").fetchall()
+            for pending_id, session_id in pending:
+                self._submit('pending:' + pending_id, self._promote_pending, session_id, pending_id)
         with self.lock:
             for channel in list(self.channels.values()):
                 self._flush(channel)
@@ -127,6 +136,26 @@ class ExecutionRuntime:
             self.last_collect = current
             with self.journal() as service, service.db.transaction():
                 service.collect()
+
+    def _promote_pending(self, session_id, pending_id):
+        if self.stop_event.is_set():
+            return
+        with self.lock:
+            channel = self.channels.get(session_id)
+            # File finalization clears its predecessor from the channel last.
+            # Wait for that handoff rather than replacing a live dispatch owner.
+            if channel and channel.get('run_id'):
+                return
+            generation = channel.get('generation') if channel else None
+        with self.service() as service:
+            row = service._pending_row(pending_id)
+            if row['state'] != 'PENDING':
+                return
+            session = service.one('work_sessions', session_id)
+            if session['state'] != 'READY' or generation is None or generation != session['generation']:
+                service.hold_pending(session_id, 'SESSION_CONNECTION_LOST')
+                return
+            service.promote_pending(pending_id)
 
     def _build_provider(self, session, on_message):
         if self.provider_factory:
@@ -368,6 +397,8 @@ class ExecutionRuntime:
             service.append(conn, run_id, 'RUN_UNCERTAIN' if state == 'UNCERTAIN' else 'RUN_FAILED', {'reason_code': reason})
             conn.execute('UPDATE work_runs SET state=?,reason_code=?,revision=revision+1,updated_at=?,completed_at=? WHERE id=?',
                          (state, reason, now(), None if state == 'UNCERTAIN' else now(), run_id))
+            for pending_id, in conn.execute("SELECT id FROM work_pending_instructions WHERE predecessor_run_id=? AND state='PENDING'", (run_id,)).fetchall():
+                service._pending_transition(conn, service._pending_row(pending_id), 'HELD', reason, now())
 
     def reconcile(self, work_id, run_id, command):
         with self.journal() as service:
@@ -508,6 +539,9 @@ class ExecutionRuntime:
     def close(self):
         self.accepting = False
         self.stop_event.set()
+        with self.journal() as service, service.db.transaction() as conn:
+            for pending_id, in conn.execute("SELECT id FROM work_pending_instructions WHERE state='PENDING'").fetchall():
+                service._pending_transition(conn, service._pending_row(pending_id), 'HELD', 'CORE_SHUTDOWN', now())
         self.wake.set()
         if self.thread:
             self.thread.join(timeout=5)

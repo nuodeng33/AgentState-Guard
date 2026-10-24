@@ -1,0 +1,15 @@
+.work-appearance-form > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.work-appearance-form > header h2 { margin: 0; }
+.work-appearance-form p { color: var(--text-2); white-space: normal; line-height: 1.5; }
+.work-appearance-form fieldset { margin: 18px 0 0; padding: 14px; border: 1px solid var(--border-2); border-radius: 12px; }
+.work-appearance-form legend { padding: 0 6px; overflow-wrap: anywhere; }
+.work-appearance-palette { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.work-appearance-form .work-appearance-palette label { position: relative; display: flex; align-items: center; gap: 7px; margin: 0; cursor: pointer; }
+.work-appearance-form .work-appearance-palette input { width: 18px; margin: 0; flex: none; }
+.work-appearance-swatch, .work-appearance-default { width: 25px; height: 25px; display: inline-grid; place-items: center; border: 1px solid rgba(255,255,255,.5); border-radius: 50%; color: #13191b; flex: none; }
+.work-appearance-default { width: 14px; height: 14px; }
+.work-appearance-form fieldset:disabled { opacity: .65; }
+@media(max-width: 480px) { .work-appearance-palette { grid-template-columns: repeat(2,minmax(0,1fr)); } .work-appearance-form { padding: 20px; } }
+
+.work-page.is-appearance > :not(.work-appearance-overlay) { visibility: hidden; pointer-events: none; }
+.work-page.is-resting > .work-appearance-overlay { visibility: visible; pointer-events: auto; }

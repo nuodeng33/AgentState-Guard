@@ -179,3 +179,14 @@ There is no public Internet/cloud transport, relay, generic LAN browser,
 manual-IP onboarding, multi-device framework, remote realtime event protocol,
 background daemon, replicated Android database, auto-approval, auto-restore,
 or Device Link access to privileged Core mutation surfaces.
+
+## Approved compatible extension: pending instructions and Agent appearance
+
+The user explicitly approved these independent endpoints and schema20 additions. Existing saved-view and run contracts remain compatible; caller-supplied authority, arbitrary execution arguments and scope overrides remain forbidden.
+
+- GET/POST `/api/v1/works/{work_id}/sessions/{session_id}/pending-instruction`; POST body uses `StartRun` fields plus `predecessor_run_id`. GET returns `{item}` (current active otherwise latest terminal); optional UUID `request_id` retrieves the original enqueue record for ambiguous-response reconciliation.
+- POST `.../pending-instruction/{pending_id}/cancel` accepts its own UUID and `expected_revision` of the pending record. Receipts retain their original result on replay. Pending writes never change the session revision.
+- One active PENDING/HELD record per session. Exact input and requirement/task/context versions, identity/generation/authorization are immutable. Only verified completed predecessor/file finalization may atomically promote it with a fresh baseline; restart, drift, failure or disconnect holds it. Stop atomically cancels pending intent and an already-promoted queued descendant. HELD is manually cancelled/reviewed; no resume or replay endpoint.
+- GET `/api/v1/works/{work_id}/agent-appearances`; POST `/api/v1/works/{work_id}/agents/{agent_id}/appearance` with UUID, independent expected revision (0 when unset), and one of the six existing palette colors or null for default. Only currently linked Agent IDs are editable; reset increments revision without deleting history. No Work/session revision, execution permission or old layout receipt is changed.
+
+All endpoints use existing Core session authentication. Unknown writes keep the same request UUID and immutable payload until their exact receipt is reconciled; a generic success or another client's newer record cannot confirm them. Product tests: `tests/test_pending_instructions.py`, `tests/test_work_appearance.py`, `tests/test_work_extensions_migration.py`; independent browser driver: `scripts/verify_pending_instruction.py` (strict Chromium sandbox; `--http-only` explicitly excludes browser acceptance).

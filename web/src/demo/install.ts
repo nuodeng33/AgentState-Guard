@@ -3,8 +3,11 @@
  * without a Core. Only imported when VITE_ASG_DEMO=1.
  */
 import { createStore, MAIN } from './fixtures';
+import { AGENT_COLOR_OPTIONS } from '../pages/workAppearance';
 
 const store = createStore();
+// Demo-only memory; durable restart behavior is verified against real Core/SQLite.
+const appearances = new Map<string, { color: string | null; revision: number; updated_at: string }>();
 const now = () => new Date().toISOString();
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 const fail = (status: number, reason_code: string) => json({ reason_code }, status);
@@ -106,7 +109,22 @@ async function handle(method: string, url: URL, body: Record<string, unknown>, s
     work.artifacts.push({ id, title: String(body.title), version, requirement_version: work.requirement_version, created_at: now(), body: String(body.body), source: 'MANUAL', source_run_id: null }); touch();
     return json({ work_id: work.id, artifact_id: id, version });
   }
+  if (/^sessions\/[^/]+\/pending-instruction(?:\/.*)?$/.test(rest)) return fail(503, 'DEMO_PENDING_INSTRUCTION_UNAVAILABLE');
   const linked = work.id === MAIN ? store.agents : [];
+  if (rest === 'agent-appearances' && method === 'GET') return json({ work_id: work.id, items: linked.map(agent => ({
+    agent_id: agent.agent_id, color: null, revision: 0, updated_at: null, ...appearances.get(`${work.id}:${agent.agent_id}`),
+  })) });
+  const colorTarget = rest.match(/^agents\/([^/]+)\/appearance$/);
+  if (colorTarget && method === 'POST') {
+    const agentId = decodeURIComponent(colorTarget[1]);
+    if (!linked.some(agent => agent.agent_id === agentId)) return fail(404, 'WORK_AGENT_LINK_NOT_FOUND');
+    if (body.color !== null && !AGENT_COLOR_OPTIONS.some(option => option.tint === body.color)) return fail(422, 'WORK_APPEARANCE_INVALID');
+    const key = `${work.id}:${agentId}`, previous = appearances.get(key);
+    if (body.expected_revision !== (previous?.revision ?? 0)) return fail(409, 'WORK_APPEARANCE_CONFLICT');
+    const saved = { color: body.color as string | null, revision: (previous?.revision ?? 0) + 1, updated_at: now() };
+    appearances.set(key, saved);
+    return json({ work_id: work.id, agent_id: agentId, ...saved });
+  }
   if (rest === 'agents' && method === 'GET') return json({ items: linked });
   if (rest.startsWith('agents') && method === 'POST') {
     const t = rest.match(/^agents\/([^/]+)\/tasks$/);

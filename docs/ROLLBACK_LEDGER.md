@@ -45,3 +45,5 @@ Base405bbd4. Revert phase22 files/generated assets as one validated set; no sche
 2026-10-24 agentcountfix basea096579: revertentrymetadata/projection/source-reason/countcopy/regressions only. Do notrecomputeoldledger, resetsources, restartproviders, deletefailurelogs ormodifyoriginaluserdata. NoDBmigration/APIshapeextension.
 
 2026-10-24 canonicalentryfix base4f4a7ef: revertonlysuccessfulcontainerlocatorcanonicalizationanditsregressions/evidence. NoDBmigration,aliasrowdeletion,ledgerrewrite,sourceenablingorprocessstartup. Preserve4f4freshWindowscatalog2-rowfailureforcomparison.
+
+2026-10-24 phase24 rollbackbase4a8e320. Ordinarycode revert only; preserve schema20 tables, pending/color rows and historical receipts. Never automatically downgrade or delete queued user data. OriginalWindows business6filesrestored beforedevelopment andhashverified; migrationtestedonlyisolatedcopy. NewfeatureCI/packageacceptance pending atcommit.

@@ -9,9 +9,11 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agentguard.execution.models import (
+    CancelPendingInstruction,
     CancelRun,
     ConnectSession,
     CreateSession,
+    QueueInstruction,
     RenameSession,
     RespondRun,
     SessionMutation,
@@ -76,6 +78,18 @@ def execution_router(runtime):
     @router.post('/{session_id}/connect')
     def connect(work_id: UUID, session_id: UUID, command: ConnectSession):
         return invoke('connect', str(work_id), str(session_id), command, write=True)
+
+    @router.get('/{session_id}/pending-instruction')
+    def pending_instruction(work_id: UUID, session_id: UUID, request_id: UUID | None = None):
+        return invoke('pending_instruction', str(work_id), str(session_id), request_id)
+
+    @router.post('/{session_id}/pending-instruction', status_code=201)
+    def enqueue_pending(work_id: UUID, session_id: UUID, command: QueueInstruction):
+        return invoke('enqueue_pending', str(work_id), str(session_id), command, write=True)
+
+    @router.post('/{session_id}/pending-instruction/{pending_id}/cancel')
+    def cancel_pending(work_id: UUID, session_id: UUID, pending_id: UUID, command: CancelPendingInstruction):
+        return invoke('cancel_pending', str(work_id), str(session_id), str(pending_id), command, write=True)
 
     @router.get('/{session_id}/runs')
     def runs(work_id: UUID, session_id: UUID, limit: int = Query(50, ge=1, le=100),

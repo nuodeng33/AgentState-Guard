@@ -1,0 +1,274 @@
+{
+  "product_sha": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+  "ci_runs": [
+    {
+      "id": 40065641753,
+      "name": "Core CI",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+      "html_url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/40065641753"
+    },
+    {
+      "id": 40065641834,
+      "name": "Android Emulator Runtime",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+      "html_url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/40065641834"
+    },
+    {
+      "id": 40065641899,
+      "name": "Android Build",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+      "html_url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/40065641899"
+    },
+    {
+      "id": 40065641806,
+      "name": "Desktop Windows",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+      "html_url": "https://github.com/nuodeng33/AgentState-Guard/actions/runs/40065641806"
+    }
+  ],
+  "msi": {
+    "SourceSha": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+    "Sha256": "326C0FC0FEFC8E691794C36B75BCA286D44EA7A43FCB0DB960558D2EC8FEEDE1",
+    "ProductCode": "{B70ED063-8479-4AFA-AF11-75A8C836C6AE}",
+    "UpgradeCode": "{E3DC1189-5CBA-53BC-BD91-4A515B7531F2}",
+    "ProductName": "AgentState Guard",
+    "Path": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\artifact-12549333538\\bundle\\msi\\AgentState Guard_0.9.0_x64_en-US.msi",
+    "ProductVersion": "0.9.0"
+  },
+  "native_independent_discovery": {
+    "exe_sha256": "C4C78C8DBBA2D9B961F576C0F42DC0148261F002740E6896188954783D9DFB52",
+    "result": "PASS",
+    "artifact_id": 12548908826,
+    "scope": "Actual packaged standalone Windows Core; independent data/port18787; no desktop UI or MSI lifecycle claim",
+    "observed_container_programs": [
+      {
+        "provider": "CCR",
+        "version": "3.0.7",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": false
+      },
+      {
+        "provider": "CODEX",
+        "version": "0.147.0",
+        "source_id": "docker-2f028af5dcca251fd2739b2e",
+        "running": false
+      },
+      {
+        "provider": "KIMI_CODE",
+        "version": "0.29.2",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": false
+      },
+      {
+        "provider": "CLOUDCLI",
+        "version": "1.37.5",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": true
+      },
+      {
+        "provider": "CLAUDE",
+        "version": "2.1.306",
+        "source_id": "docker-2296511e36ada7946faab557",
+        "running": false
+      }
+    ],
+    "checks": {
+      "permission_limited_scan_keeps_partial_reason": true,
+      "container_observation_grants_no_execution": true,
+      "inventory_not_paginated": true,
+      "running_cloudcli_wrapper_instance_identified": true,
+      "both_real_container_process_probes_succeeded": true,
+      "doctor_no_phantom_agent_dev": true,
+      "two_container_runtime_observations": true,
+      "custom_launcher_not_invented_as_claude": true,
+      "both_real_containers_listed": true,
+      "cloudcli_agent_links_to_canonical_program": true,
+      "cloudcli_installation_and_runtime_share_one_program": true,
+      "core_python_detected": true,
+      "expected_container_program_versions": true
+    },
+    "product_sha": "4a8e32046e74ca75824462376fe9d20d5f77673b"
+  },
+  "direct_upgrade": {
+    "exit_code": 0,
+    "windows_restart_requested": false,
+    "new_product_code": "{B70ED063-8479-4AFA-AF11-75A8C836C6AE}",
+    "old_product_code": "{E11C3714-D731-4326-9D98-655E651AC615}",
+    "manual_uninstall_before_upgrade": false,
+    "msi_sha256": "326C0FC0FEFC8E691794C36B75BCA286D44EA7A43FCB0DB960558D2EC8FEEDE1"
+  },
+  "installed_core_checks": {
+    "result": "PASS",
+    "checks": {
+      "work_exactly_preserved": true,
+      "baseline_preserved": true,
+      "successful_operation_preserved": true,
+      "same_request_not_replayed": true,
+      "actual_file_preserved": true,
+      "installed_core_recognizes_running_cloudcli": true,
+      "installed_inventory_has_one_cloudcli_program": true,
+      "installed_cloudcli_agent_links_to_program": true,
+      "installed_permission_limit_is_partial": true
+    },
+    "scope": "Old installed Core seed, direct MSI upgrade, new installed Core reread; no desktop UI claim"
+  },
+  "installed_binary_identity": [
+    {
+      "msi_payload_sha256": "642A9DCC7DC327F0EAB7C90E1FB3515D40AE20546DFC6BC70971289EC04F93F6",
+      "installed_sha256": "642A9DCC7DC327F0EAB7C90E1FB3515D40AE20546DFC6BC70971289EC04F93F6",
+      "name": "agentstate-guard.exe",
+      "matches": true
+    },
+    {
+      "msi_payload_sha256": "C4C78C8DBBA2D9B961F576C0F42DC0148261F002740E6896188954783D9DFB52",
+      "installed_sha256": "C4C78C8DBBA2D9B961F576C0F42DC0148261F002740E6896188954783D9DFB52",
+      "name": "agentguard-sidecar.exe",
+      "matches": true
+    }
+  ],
+  "test_uninstall": {
+    "exit_code": 0,
+    "product_code": "{B70ED063-8479-4AFA-AF11-75A8C836C6AE}",
+    "windows_restart_requested": false
+  },
+  "original_restore": {
+    "result": "PASS",
+    "historical_ledger_rehashed": false,
+    "original_backup_retained": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\original-backup",
+    "original_database_started": false,
+    "restored_files": 6,
+    "checks": [
+      {
+        "bytes": 3162112,
+        "matches": true,
+        "copy": "restored",
+        "sha256": "45CEAA2E04B64272D120800B371EEAD60A36BD65532B486742321D4FB59BC521",
+        "relative": ".agentguard\\state.db"
+      },
+      {
+        "bytes": 32768,
+        "matches": true,
+        "copy": "restored",
+        "sha256": "FD4C9FDA9CD3F9AE7C962B0DDF37232294D55580E1AA165AA06129B8549389EB",
+        "relative": ".agentguard\\state.db-shm"
+      },
+      {
+        "bytes": 0,
+        "matches": true,
+        "copy": "restored",
+        "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "relative": ".agentguard\\state.db-wal"
+      },
+      {
+        "bytes": 1402,
+        "matches": true,
+        "copy": "restored",
+        "sha256": "3E9A24B6B8DA7CF532B7131161E90689ABB58F6D50D095F4080BCF2096AA80BF",
+        "relative": ".agentguard\\device-link\\desktop-identity.json"
+      },
+      {
+        "bytes": 769,
+        "matches": true,
+        "copy": "restored",
+        "sha256": "2184B9D30C24EB72B6E9163ED805685D62DAC4889D17F57146598E28FDF3F7DC",
+        "relative": "config\\agentguard.toml"
+      },
+      {
+        "bytes": 2202,
+        "matches": true,
+        "copy": "restored",
+        "sha256": "12DE4F81A0E8C18776F5363D7E1A42CD04ED039A189C281369788F12E3EBEF1B",
+        "relative": "logs\\sidecar.log"
+      },
+      {
+        "bytes": 3162112,
+        "matches": true,
+        "copy": "original-backup",
+        "sha256": "45CEAA2E04B64272D120800B371EEAD60A36BD65532B486742321D4FB59BC521",
+        "relative": ".agentguard\\state.db"
+      },
+      {
+        "bytes": 32768,
+        "matches": true,
+        "copy": "original-backup",
+        "sha256": "FD4C9FDA9CD3F9AE7C962B0DDF37232294D55580E1AA165AA06129B8549389EB",
+        "relative": ".agentguard\\state.db-shm"
+      },
+      {
+        "bytes": 0,
+        "matches": true,
+        "copy": "original-backup",
+        "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        "relative": ".agentguard\\state.db-wal"
+      },
+      {
+        "bytes": 1402,
+        "matches": true,
+        "copy": "original-backup",
+        "sha256": "3E9A24B6B8DA7CF532B7131161E90689ABB58F6D50D095F4080BCF2096AA80BF",
+        "relative": ".agentguard\\device-link\\desktop-identity.json"
+      },
+      {
+        "bytes": 769,
+        "matches": true,
+        "copy": "original-backup",
+        "sha256": "2184B9D30C24EB72B6E9163ED805685D62DAC4889D17F57146598E28FDF3F7DC",
+        "relative": "config\\agentguard.toml"
+      },
+      {
+        "bytes": 2202,
+        "matches": true,
+        "copy": "original-backup",
+        "sha256": "12DE4F81A0E8C18776F5363D7E1A42CD04ED039A189C281369788F12E3EBEF1B",
+        "relative": "logs\\sidecar.log"
+      }
+    ],
+    "restored_path": "C:\\Users\\Administrator\\AppData\\Local\\AgentState Guard",
+    "pre_uninstall_test_backup": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\final-testdata-before-uninstall",
+    "test_archive": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\mumu-20261023\\final-testdata-archive-4a8"
+  },
+  "post_teardown_ports": [
+    {
+      "port": 8787,
+      "exclusive_bind": true
+    },
+    {
+      "port": 8788,
+      "exclusive_bind": true
+    },
+    {
+      "port": 18787,
+      "exclusive_bind": true
+    },
+    {
+      "port": 18789,
+      "exclusive_bind": true
+    },
+    {
+      "port": 18790,
+      "exclusive_bind": true
+    }
+  ],
+  "native_ui_limit": "Accessibility text was read, input failed coordinate input geometry unavailable; screenshots timed out; renewed user authorization followed by another physical Escape stop. No native full interaction pass claimed.",
+  "mobile_limit": "Fresh MuMu1 ASG a096 testAPK startup verified; QR/SAS/reconnect/revoke acceptance not completed. Physical phone not tested.",
+  "remaining_environment": {
+    "command": "wsl.exe --list --verbose",
+    "exit_code": 0,
+    "stdout": "NAME              STATE           VERSION\r\n* Ubuntu            Stopped         2\r\n  docker-desktop    Running         2",
+    "distro_started_by_check": false,
+    "provider_sandbox_command": "docker exec agent-codex-b codex sandbox linux --help",
+    "provider_sandbox_exit_code": 1,
+    "provider_sandbox_error": "bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces.",
+    "security_settings_changed": false,
+    "standalone_bwrap_probe": "bwrap is not on PATH; this alone is not used as proof. Actual existing codex wrapper also failed with namespace permission refusal."
+  },
+  "new_feature_scope": "Subsequent schema20 queue/appearance extension explicitly approved by user; original Windows database was restored before that work and is not migrated or started."
+}

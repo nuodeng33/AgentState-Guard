@@ -11,6 +11,7 @@ import './WorkSessions.css';
 import ProtectionScopeManager from './ProtectionScopeManager';
 import ProjectConnectionCatalog from './ProjectConnectionCatalog';
 import type { ProtectionScopeCommand } from '../api/protection';
+import WorkPendingInstructionPanel, { pendingContextKey, type PendingInstructionMemory, type PendingInstructionBlock } from './WorkPendingInstructionPanel';
 import WorkRunContext, { type RunContextChoice } from './WorkRunContext';
 import type { ExecutionTarget } from './WorkExecutionStatus';
 
@@ -20,8 +21,9 @@ export type WorkSessionMemory = {
   commands: Map<string, PendingCommand>;
   contexts: Map<string, RunContextChoice[]>;
   requirements: Map<string, number>;
+  pendingInstructions: PendingInstructionMemory;
 };
-export const createWorkSessionMemory = (): WorkSessionMemory => ({ drafts: new Map(), commands: new Map(), contexts: new Map(), requirements: new Map() });
+export const createWorkSessionMemory = (): WorkSessionMemory => ({ drafts: new Map(), commands: new Map(), contexts: new Map(), requirements: new Map(), pendingInstructions: new Map() });
 
 type Props = {
   client: ApiClient; workId: string; revision: number; requirementVersion: number;
@@ -86,6 +88,7 @@ export default function WorkSessions({ client, workId, revision, requirementVers
   const [appMore, setAppMore] = useState(false);
   const [storeMore, setStoreMore] = useState(false);
   const [bindingMore, setBindingMore] = useState(false);
+  const [queueBlock, setQueueBlock] = useState<PendingInstructionBlock>({ occupied: false, uncertain: false, unavailable: true });
   const [input, setInput] = useState(''); const [answers, setAnswers] = useState<Record<string, string>>({});
   const [contexts, setContexts] = useState<RunContextChoice[]>([]);
   const [inputRequirement, setInputRequirement] = useState(requirementVersion);
@@ -392,7 +395,7 @@ export default function WorkSessions({ client, workId, revision, requirementVers
   async function startRun(event: FormEvent) {
     event.preventDefault();
     if (!session || session.status !== 'READY' || !session.capabilities.send || !input.trim() ||
-      inputRequirement !== requirementVersion || runs.some(item => runIsActive(item.status)) || run && runIsActive(run.status)) return;
+      inputRequirement !== requirementVersion || queueBlock.occupied || queueBlock.uncertain || queueBlock.unavailable || runs.some(item => runIsActive(item.status)) || run && runIsActive(run.status)) return;
     const target = session.id;
     await perform(`${workId}:${target}:run`, { expected_revision: session.revision,
       requirement_version: inputRequirement, input, context_refs: contexts.map(choice => choice.ref) },
@@ -406,7 +409,7 @@ export default function WorkSessions({ client, workId, revision, requirementVers
     });
   }
   async function cancelRun() {
-    if (!run || !session?.capabilities.cancel || !runIsActive(run.status) || ['UNCERTAIN', 'FINALIZING'].includes(run.status)) return;
+    if (!run || !session?.capabilities.cancel || !runIsActive(run.status) || run.status === 'UNCERTAIN') return;
     const target = run.id;
     await perform(`${workId}:${target}:cancel`, {}, `${executionBase(workId)}/runs/${encodeURIComponent(target)}/cancel`, () => {
       if (selection.current.runId === target) setRefresh(value => value + 1);
@@ -472,6 +475,8 @@ export default function WorkSessions({ client, workId, revision, requirementVers
     scope && scope.source_id === application.source_id && store.source_id === application.source_id && Boolean(scope.enabled) && scope.status !== 'RETIRED' && creation.control_consent &&
     (creation.mode === 'NEW' || bindings.some(item => item.binding_id === creation.binding_id));
   const active = runs.some(item => runIsActive(item.status)) || Boolean(run && runIsActive(run.status));
+  const predecessor = run && runIsActive(run.status) ? run : runs.find(item => runIsActive(item.status));
+  const queueUncertain = queueBlock.uncertain || Boolean(session && memory.pendingInstructions.has(`${workId}:${session.id}`));
   const pending = run?.pending_responses ?? [];
   const coverage = typeof run?.coverage === 'string' ? displayCode(run.coverage) :
     run?.coverage && typeof run.coverage === 'object' ? displayCode((run.coverage as { status?: unknown }).status) : '';
@@ -550,17 +555,32 @@ export default function WorkSessions({ client, workId, revision, requirementVers
           <div className="work-run-input-heading"><label htmlFor={`run-input-${session.id}`}>{label('Execution input', '本次输入')}</label><button type="button" onClick={() => onOpenRequirement(inputRequirement)}>{label('Requirement', '要求')} v{inputRequirement}</button></div>
           {inputRequirement !== requirementVersion && <div className="work-requirement-warning" role="status">
             {label(`Requirement changed: this draft uses v${inputRequirement}; current is v${requirementVersion}.`, `要求已变更：草稿依据 v${inputRequirement}，当前为 v${requirementVersion}。`)}
-            <button type="button" disabled={busy} onClick={() => { setInputRequirement(requirementVersion); memory.requirements.set(draftKey, requirementVersion); }}>{label('Use current requirement for next execution', '下一次执行采用当前要求')}</button>
+            <button type="button" disabled={busy || queueUncertain} onClick={() => { setInputRequirement(requirementVersion); memory.requirements.set(draftKey, requirementVersion); }}>{label('Use current requirement for next execution', '下一次执行采用当前要求')}</button>
           </div>}
           {run && runIsActive(run.status) && run.requirement_version !== requirementVersion && <p role="status">{label(`The active execution still uses requirement v${run.requirement_version}. Stop and confirm its end before restarting with new requirements.`, `正在执行的运行仍依据要求 v${run.requirement_version}。如需按新要求重做，先请求停止并确认结束。`)}</p>}
           <p className="work-run-send-scope">{session.provider} · {session.source_id} · {tasks.find(task => task.id === session.task_id)?.title || label('Entire work', '整个工作')} · {label('Protected directory', '保护目录')} {session.scope_root || session.scope_id} · {session.read_only ? label('Read only', '只读') : label('Writes within the selected scope', '所选范围内写入')}</p>
-          <WorkRunContext key={draftKey} client={client} workId={workId} artifacts={artifacts} fileResult={run?.file_result} selected={contexts} disabled={busy}
+          <WorkRunContext key={draftKey} client={client} workId={workId} artifacts={artifacts} fileResult={run?.file_result} selected={contexts} disabled={busy || queueUncertain}
             onChange={choices => { setContexts(choices); memory.contexts.set(draftKey, choices); }} />
-          <textarea id={`run-input-${session.id}`} value={input} maxLength={100000} rows={4} onChange={event => { setInput(event.target.value); memory.drafts.set(draftKey, event.target.value); }} />
-          <button disabled={busy || loading || active || inputRequirement !== requirementVersion || session.status !== 'READY' || !session.capabilities.send || !input.trim()}>{label('Start execution', '开始执行')}</button>
+          <textarea id={`run-input-${session.id}`} value={input} disabled={queueUncertain} maxLength={100000} rows={4} onChange={event => { setInput(event.target.value); memory.drafts.set(draftKey, event.target.value); }} />
+          <button disabled={busy || loading || queueBlock.occupied || queueBlock.unavailable || queueUncertain || active || inputRequirement !== requirementVersion || session.status !== 'READY' || !session.capabilities.send || !input.trim()}>{label('Start execution', '开始执行')}</button>
           {active && <small>{label('This draft has not been sent. Send it after the current execution ends, or request a stop and wait for confirmation.', '此草稿尚未发送。当前执行结束后再发送，或请求停止并等待确认。')}</small>}
           {!session.capabilities.send && <small>{label('Input unavailable', '输入不可用')} {displayCode(session.reason_code)}</small>}
         </form>
+        <WorkPendingInstructionPanel key={`${workId}:${session.id}`} client={client} workId={workId} sessionId={session.id}
+          sessionRevision={session.revision} predecessorRunId={predecessor?.id} visible={visible} disabled={busy}
+          canEnqueue={Boolean(predecessor && !['CANCELLING', 'UNCERTAIN'].includes(predecessor.status) &&
+            session.status === 'READY' && session.capabilities.send && inputRequirement === requirementVersion)}
+          draft={{ input, requirement_version: inputRequirement, context_refs: contexts.map(choice => choice.ref) }}
+          memory={memory.pendingInstructions} onBlockChange={setQueueBlock}
+          onEnqueued={snapshot => {
+            const currentKey = `${workId}:${session.id}`;
+            if (memory.drafts.get(currentKey) === snapshot.input &&
+              memory.requirements.get(currentKey) === snapshot.requirement_version &&
+              pendingContextKey((memory.contexts.get(currentKey) ?? []).map(choice => choice.ref)) === pendingContextKey(snapshot.context_refs)) {
+              memory.drafts.delete(currentKey); setInput('');
+            }
+          }}
+          onPromoted={nextRunId => { rememberedRuns.current.set(session.id, nextRunId); setRefresh(value => value + 1); }} />
         <h3>{label('Execution records', '执行记录')}</h3>
         {!runs.length && !loading && <p>{label('No executions', '暂无执行')}</p>}
         <div className="work-run-list">{runs.map(item => <button type="button" key={item.id} aria-pressed={runId === item.id} onClick={() => { rememberedRuns.current.set(session.id, item.id); setRunId(item.id); setRun(null); }}>
@@ -569,7 +589,7 @@ export default function WorkSessions({ client, workId, revision, requirementVers
         {runsMore && <button type="button" disabled={loading} onClick={() => void loadMoreRuns()}>{label('Load more executions', '加载更多执行')}</button>}
         {run && <section className="work-run-detail" aria-label={label('Execution detail', '执行详情')}>
           <header><strong>{statusLabel(run.status)}</strong><span>{streamState === 'DISCONNECTED' ? label('Connection interrupted', '连接中断') : streamState === 'RECONNECTING' ? label('Reconnecting', '正在重连') : streamState === 'UNAVAILABLE' ? label('Live output unavailable', '实时输出不可用') : ''}</span>
-            {runIsActive(run.status) && !['UNCERTAIN', 'FINALIZING'].includes(run.status) && <button type="button" aria-label={label('Stop execution', '停止执行')} title={label('Stop execution', '停止执行')} disabled={busy || !session.capabilities.cancel || run.status === 'CANCELLING'} onClick={() => void cancelRun()}>■</button>}
+            {runIsActive(run.status) && run.status !== 'UNCERTAIN' && <button type="button" aria-label={label('Stop execution', '停止执行')} title={label('Stop execution', '停止执行')} disabled={busy || !session.capabilities.cancel || run.status === 'CANCELLING'} onClick={() => void cancelRun()}>■</button>}
           </header>
           {run.reason_code && <p>{displayCode(run.reason_code)}</p>}
           {run.requirement_version > 0 && <button type="button" onClick={() => onOpenRequirement(run.requirement_version)}>{label('Requirement', '要求')} v{run.requirement_version}</button>}

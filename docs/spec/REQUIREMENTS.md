@@ -96,3 +96,11 @@ Expose existing program/store registration and directory register/configure APIs
 ## ASG-CLOSE-001..005 — All planned capability gaps (2026-10-23)
 
 User explicitly requests all rows of the preceding capability audit. CLOSE-001: real Agent/task child groups, continuous hover/focus, pin/unpin, visible parentward return, dominant Work core, durable user Agent color and usable3D viewer. CLOSE-002: explicit immutable next-instruction queue with safe promotion/hold/stop/restart semantics, separate from unsent drafts. CLOSE-003: Docker/Codex/Kimi/WSL connection with server-owned scope proof, never weaken sandbox or source identity. CLOSE-004: desktop/mobile pairing and existing authorized control integration, exact SAS, durable binding, idempotent confirmation and actual navigation/actions. CLOSE-005: truthful model configuration validation and advisory transport, no key/error echo or event-loop blocking. Required API/DB compatibility approval remains pending; physical devices and unavailable confinement are separate concrete acceptance blockers.
+
+
+## Approved capability closure extensions (2026-10-24)
+
+| ID | Requirement | Acceptance boundary |
+|---|---|---|
+| ASG-CLOSE-002 | Persist selected Agent color per Work with independent revision and exact receipt | Restart, CAS/reset, linked-agent checks, old layout compatibility; display only |
+| ASG-CLOSE-006 | Explicit one-slot next instruction with immutable exact context and atomic promotion | Completion/file proof, fresh baseline, Stop/promotion race, hold on restart/drift/failure, never replay |

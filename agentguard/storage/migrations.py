@@ -663,7 +663,10 @@ class MigrationEngine:
 
         self.register(Migration(15, "Continuous protection and durable recovery", PROTECTION_SQL, PROTECTION_DOWN_SQL))
 
-        from .protection_schema import PROTECTION_OPTIMIZATION_DOWN_SQL, PROTECTION_OPTIMIZATION_SQL
+        from .protection_schema import (
+            PROTECTION_OPTIMIZATION_DOWN_SQL,
+            PROTECTION_OPTIMIZATION_SQL,
+        )
 
         self.register(Migration(16, "Protection summaries and logical retention accounting",
             PROTECTION_OPTIMIZATION_SQL, PROTECTION_OPTIMIZATION_DOWN_SQL))
@@ -682,6 +685,14 @@ class MigrationEngine:
 
         self.register(Migration(19, "Version-bound Work submissions and decisions",
                                 DELIVERY_SQL, DELIVERY_DOWN_SQL))
+
+        from .work_extensions_schema import (
+            WORK_EXTENSIONS_DOWN_SQL,
+            WORK_EXTENSIONS_SQL,
+        )
+
+        self.register(Migration(20, "Pending instructions and Work agent appearance",
+                                WORK_EXTENSIONS_SQL, WORK_EXTENSIONS_DOWN_SQL))
 
     def register(self, migration: Migration) -> None:
         self._migrations[migration.version] = migration

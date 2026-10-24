@@ -1,0 +1,204 @@
+{
+  "base_commit": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+  "user_approval": "Explicit answer: 允许最小兼容扩展，继续实现两项功能",
+  "scope": "Schema20 pending instruction and per-Work linked-Agent appearance; compatible independent APIs; no authority expansion or historical ledger rewrite",
+  "independent_full_regression": {
+    "status": "PASS",
+    "base_commit": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+    "scope": "Combined local Docker regression and source review, schema20 queue+Agentappearance; no native Windows/package/model acceptance",
+    "backend": {
+      "tests": 1544,
+      "passed": 1495,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 49,
+      "xfailed": 0,
+      "xpassed": 0,
+      "sources": [
+        "artifacts/phase24-independent/backend.xml"
+      ]
+    },
+    "frontend": {
+      "tests": 317,
+      "passed": 317,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "sources": [
+        "artifacts/phase24-independent/frontend.xml"
+      ]
+    },
+    "backend_elapsed_seconds": 148.59,
+    "typecheck": "PASS",
+    "production_build": "PASS",
+    "scoped_ruff_15_files": "PASS",
+    "diff_check": "PASS",
+    "first_test_failure": null,
+    "review_findings_remaining": [],
+    "review_notes": [
+      "Queue promotion revalidates immutable input/semantic context, predecessor completed+available finalization event/version and current session identity through existing selection/baseline workflow",
+      "Queue creation+consumption+receipt share transaction; restart/shutdown/error transition activepending toHELD, stopping cancels child dispatch whenpromotionalreadycommitted",
+      "Schema20 additive tables leave historicalrows/ledger/receipts unchanged; downgrade not executed",
+      "Color CAS/receipts independentofworkview/sessionrevisions; linkvalidation and palettebounds remainenforced"
+    ],
+    "warnings": [
+      "49 skipped backend tests remain unverified on this environment",
+      "Existing FastAPI on_event deprecations",
+      "LazyWorkRestScene507.34kB build warning"
+    ],
+    "initial_command_issue": "First frontend launcher started before parallel mkdir completed; no tests executed; sequential mkdirthenfrontend fullcommand reran successfully",
+    "lint_issue_fixed": "Two migration import formatting diagnostics, parent fixed; finalRuff all15filespass",
+    "node_modules_symlink": "Untouched; target /workspace/projects/AgentState-Guard/web/node_modules",
+    "owned_color_summary": "artifacts/appearance/owned-summary.json",
+    "source_sha256": {
+      "agentguard/api/execution.py": "025c1fd2b2940bacab27ac86a7bcec480e734a91c0be2ece2178261c73732074",
+      "agentguard/api/server.py": "5006bf4be0906b56c1561ebf75f9fd474532abcb3eb3657f6a8e7c6efd7477d3",
+      "agentguard/api/work_appearance.py": "9a0a00127bebc8edb6d098daf955b4f90ead618533e715b7a74a394cc19344a3",
+      "agentguard/execution/models.py": "93df2d12c4f94345ebcdba831b709e5af4a4b8026e7f4cf2acbc360ccc7a4cdd",
+      "agentguard/execution/runtime.py": "b9cdc81db1527e4d90c5d24c71a779aa73fa288c9e438e8d4147bfbdedc51935",
+      "agentguard/execution/service.py": "895237ebfb90df736905c3e2d9dc1cfd13e7cea40e0865ee715a0ddd7aad8ce0",
+      "agentguard/execution/pending.py": "36fae994b4b136c08de15009389c5f1a5b75dff594ee415e150516e7e523f7f3",
+      "agentguard/storage/migrations.py": "db09ecd3f70aba21284a7f6b5cb054caadf66d646e1d9e8291ba10d9cb6d4c07",
+      "agentguard/storage/work_extensions_schema.py": "60a021e83fa1d719ce28f0c7811a002e0be0796dac61e224ca370564b81e7ab5",
+      "agentguard/work/appearance.py": "e9adeebf5d89767ee933c4b5debcd34419e9a1cd93c812309b3e9019099f5075",
+      "tests/test_pending_instructions.py": "25a9fe4709149c1a6c59ab602247189c78f2182a2a84c27eaa9687cdaad9c70b",
+      "tests/test_work_appearance.py": "de0aadf5c270dffa931a5f47b1e9a32a93982cff05fae3638d55d3c57b052f50",
+      "tests/test_work_extensions_migration.py": "66d2002de0e7127438240e529a8b5b205fa5875252b758160bc9113ff85e6f96",
+      "web/src/components/useAgentAppearances.ts": "4e709bdbc3cfc8e41360bd615353ee365fd64bd2a10d8f39972b86cbe3eb9563",
+      "web/src/components/AgentAppearancePicker.tsx": "f477303c0e73946a580b0439226d153fa4011b234405fafed6441dde30e68e83",
+      "web/src/components/WorkPendingInstructionPanel.tsx": "e440c394c9525f8d324b96e9d8d60e519a7fc747c3e37fd59dcf2856d35765ef",
+      "web/src/components/WorkSessions.tsx": "bec3b1bab7fe1c5b6fc835932dfad96a08946604da6a3ff40a21398f85031990",
+      "web/src/pages/WorkPage.tsx": "23ac183cef9478dcb48beb1cd9732890fcfe470fd5ac4bfd7ed4a728ae572f28"
+    },
+    "evidence_sha256": {
+      "backend.xml": "c448cbb8c0ffc6bea92281b86c55ec42bfb86af7567c03f32b54fca9a309b8bc",
+      "backend.log": "478100eed53c399caf06a116fc8127d5388ffbcd4a4698a6eb9777e3365b17e2",
+      "frontend.xml": "174db2ba310d18330c514db51f27bb79832f7b191e6ae9c9d658af588cd7b43e",
+      "frontend.log": "cfcb6d15d5a751f5dc08c8f2fccd7508ab710f891e6690175e628f9b1f8e4d00",
+      "typecheck.log": "3af23e1432c918480a1c6754c69ad0cc81f0570f9fa32a3eb66332d6c0ae15fa",
+      "build.log": "3efa179e310010550c6e88122442161fcbf7ea88876fd3c7f44f9978a70e5374",
+      "ruff-final.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    }
+  },
+  "appearance_browser": {
+    "status": "PASS",
+    "checks": [
+      "exact six accessible palette choices",
+      "real API saved selected palette color",
+      "2D film uses saved color",
+      "stale window cannot overwrite server color",
+      "refresh reads another window confirmed choice",
+      "narrow color dialog stays within viewport",
+      "actual Core restart retains color and revision",
+      "reset retains revisioned NULL preference",
+      "color updates never bump Work revision",
+      "browser has no page errors"
+    ],
+    "errors": [],
+    "work": "677c781a-3c89-4e09-a6fd-3bd6c1fd0070",
+    "scope": "Real isolated Core/SQLite, deterministic fixture Agent, browser rendering; no model/provider or native Windows UI",
+    "directory": "/workspace/projects/AgentState-Guard-onboarding/artifacts/appearance-browser-XSLNIz"
+  },
+  "appearance_owned_summary": {
+    "base": "4a8e32046e74ca75824462376fe9d20d5f77673b",
+    "status": "OWN_FEATURE_VERIFIED",
+    "scope": "Persisted by Work+linkedAgent display color with independent revision/receipts; no work/session revision, ledger or execution authority change",
+    "backend_own_cases": 17,
+    "frontend_own_cases": 7,
+    "production_and_demo_build": "PASS",
+    "browser_report": "artifacts/appearance-browser-XSLNIz/report.json",
+    "browser_checks": 10,
+    "browser_scope": "Actual isolated Core+SQLite restart and multiwindow CAS; deterministic Agentmetadata; no provider/model/Windows UI",
+    "browser_failure_retained": "artifacts/appearance-browser-LEw9qO/report.json (test check() demanded immediate controlled state; actual SQLite persisted successfully; corrected wait for authoritative GET)",
+    "parent_owned_dependencies": [
+      "schema20 work_extensions_schema.py/migrations.py",
+      "server.py appearance_router mount"
+    ],
+    "old_work_api_failure_reported": "schema19 hardcoded expectation, parent corrected for schema20; not modified by appearance owner",
+    "files_sha256": {
+      "agentguard/work/appearance.py": "e9adeebf5d89767ee933c4b5debcd34419e9a1cd93c812309b3e9019099f5075",
+      "agentguard/api/work_appearance.py": "9a0a00127bebc8edb6d098daf955b4f90ead618533e715b7a74a394cc19344a3",
+      "tests/test_work_appearance.py": "de0aadf5c270dffa931a5f47b1e9a32a93982cff05fae3638d55d3c57b052f50",
+      "web/src/components/useAgentAppearances.ts": "4e709bdbc3cfc8e41360bd615353ee365fd64bd2a10d8f39972b86cbe3eb9563",
+      "web/src/components/AgentAppearancePicker.tsx": "f477303c0e73946a580b0439226d153fa4011b234405fafed6441dde30e68e83",
+      "web/src/components/AgentAppearancePicker.css": "6d3964f0a5e931283e4a878e3323d3500e32b901c2a23ef8bca135e06ff262e3",
+      "web/src/components/AgentAppearancePicker.test.tsx": "a924df19e3fe9a338acc272958fcdc190d452750da81d2ea11e24f852edd12b7",
+      "web/src/pages/WorkPage.tsx": "23ac183cef9478dcb48beb1cd9732890fcfe470fd5ac4bfd7ed4a728ae572f28",
+      "web/src/pages/WorkPage.appearance.test.tsx": "bcfc0d248a953a1a691e5a89645cf323ee8fbcb506dbfb9462fba6b6ef48e0ea",
+      "web/src/demo/install.ts": "9990d26b5a9fd6a979769d11002ce8e04d8858e08c69d051306ab9788fab4c5e",
+      "scripts/verify_agent_appearance_browser.cjs": "f5c293649b08a6b1e2fec4e8fb7776c52181858f4d037617e010f3b8df77eed9"
+    },
+    "rollback": "ordinary code revert preserving added table rows and receipts; do not downgrade original DB",
+    "limits": [
+      "Browser is container Chromium softwareWebGL, not native Windows UI",
+      "Demo choices in memory only; durable proof uses realCore",
+      "Full combined independent suite recorded separately in artifacts/phase24-independent"
+    ]
+  },
+  "pending_http_repeat": {
+    "result": "PASS",
+    "scope": "actual Core HTTP/SQLite with no-model protocol fixture; NO browser UI",
+    "exclusions": [
+      "real provider execution",
+      "model quality",
+      "Windows host UI",
+      "ADB",
+      "user data",
+      "browser UI"
+    ],
+    "frontend_index_sha256": "54e9542f253105b6b53c575a24a10f346b4c82c862a30d7f7f3381d71c081af7",
+    "exercise": {
+      "result": "PASS",
+      "scope": "real loopback Core HTTP with controlled provider; NO browser",
+      "checks": {
+        "explicit_pending_exact_input_no_early_send": true,
+        "real_completed_file_results_and_exact_child_send_once": true,
+        "stop_cancels_both_without_next_send": true,
+        "pending_saved_before_restart": true
+      }
+    },
+    "reopen": {
+      "result": "PASS",
+      "scope": "actual restarted Core HTTP; NO browser",
+      "checks": {
+        "held_original_text_no_replay": true
+      }
+    },
+    "restart_sent_nothing": true
+  },
+  "pending_http_first_failure": {
+    "result": "FAIL",
+    "scope": "actual Core HTTP/SQLite with no-model protocol fixture; NO browser UI",
+    "exclusions": [
+      "real provider execution",
+      "model quality",
+      "Windows host UI",
+      "ADB",
+      "user data",
+      "browser UI"
+    ],
+    "frontend_index_sha256": "54e9542f253105b6b53c575a24a10f346b4c82c862a30d7f7f3381d71c081af7",
+    "reason": "QUEUE_ACCEPTANCE_TIMEOUT"
+  },
+  "pending_strict_browser": {
+    "result": "FAIL",
+    "scope": "actual production browser/Core/SQLite with no-model provider fixture",
+    "exclusions": [
+      "real provider execution",
+      "model quality",
+      "Windows host UI",
+      "ADB",
+      "user data"
+    ],
+    "frontend_index_sha256": "54e9542f253105b6b53c575a24a10f346b4c82c862a30d7f7f3381d71c081af7",
+    "reason": "BROWSER_SANDBOX_UNAVAILABLE"
+  },
+  "windows_copy_migration": "See SCHEMA20_WINDOWS_ISOLATED_COPY_20261024.json: original backup copy10to20 preserved23oldtables; originalrestored and not migrated",
+  "next_required": [
+    "Exact new commit Core/Windows/Android CI, including strict queue browser and restart gate",
+    "New packaged Windows sidecar migration/API/queue/appearance verification with isolated test copies",
+    "Native desktop and MuMu QR/SAS/reconnect/revoke remain unproven and require renewed interaction authorization after physical Escape"
+  ]
+}

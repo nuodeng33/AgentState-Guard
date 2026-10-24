@@ -11,6 +11,8 @@ import WorkDelivery from '../components/WorkDelivery';
 import WorkRecovery from '../components/WorkRecovery';
 import WorkBubbleGroup from '../components/WorkBubbleGroup';
 import { agentTint } from './workAppearance';
+import { useAgentAppearances } from '../components/useAgentAppearances';
+import { AgentAppearancePicker } from '../components/AgentAppearancePicker';
 import type { ProtectionScopeCommand } from '../api/protection';
 import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExecutionStatus';
 import { AgentFilm, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
@@ -69,6 +71,11 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const [items, setItems] = useState<Summary[]>([]); const [more, setMore] = useState(false);
   const [work, setWork] = useState<Work | null>(null); const workRef = useRef<Work | null>(null);
   const agents = useWorkAgents(client, work?.id, visible);
+  const appearances = useAgentAppearances(client, work?.id, agents.items.map(agent => agent.agent_id).join('\0'));
+  const [appearancePanel, setAppearancePanel] = useState<{ selected?: string } | null>(null);
+  const appearanceOpener = useRef<HTMLElement | null>(null);
+  function closeAppearance() { setAppearancePanel(null); requestAnimationFrame(() => { if (appearanceOpener.current?.isConnected) appearanceOpener.current.focus(); else menuButton.current?.focus(); }); }
+  function openAppearance(selected?: string) { appearanceOpener.current = document.activeElement as HTMLElement | null; setAppearancePanel({ selected }); setAgentPanel(null); setRecoveryPanel(false); setSessionPanel(false); setDeliveryPanel(false); setMenuOpen(false); }
   const [agentPanel, setAgentPanel] = useState<{ selected?: string } | null>(null);
   const [sessionPanel, setSessionPanel] = useState(false);
   const [executionTarget, setExecutionTarget] = useState<ExecutionTarget | null>(null);
@@ -101,7 +108,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     requestAnimationFrame(() => menuButton.current?.focus());
   }
   const agentOpener = useRef<HTMLElement | null>(null);
-  function openAgents(selected?: string) { agentOpener.current = document.activeElement as HTMLElement | null; setRecoveryPanel(false); setAgentPanel({ selected }); }
+  function openAgents(selected?: string) { setAppearancePanel(null); agentOpener.current = document.activeElement as HTMLElement | null; setRecoveryPanel(false); setAgentPanel({ selected }); }
   function closeAgents() { setAgentPanel(null); requestAnimationFrame(() => agentOpener.current?.focus()); }
   const [board, setBoard] = useState<Board | null>(null); const boardRef = useRef<Board | null>(null);
   const [status, setStatus] = useState(''); const [error, setError] = useState('');
@@ -186,7 +193,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
         sessions.current.set(id, session);
       }
       boardRef.current = session.board; setBoard(session.board); setStatus(session.status);
-      setFocus(null); setLibraryOpen(false); setRelationshipsOpen(false); setRelationLimit(12); setMenuOpen(false); setRestOpen(false); setAgentPanel(null); setSessionPanel(false); setDeliveryPanel(false); setDeliveryOutput(null);
+      setAppearancePanel(null); setFocus(null); setLibraryOpen(false); setRelationshipsOpen(false); setRelationLimit(12); setMenuOpen(false); setRestOpen(false); setAgentPanel(null); setSessionPanel(false); setDeliveryPanel(false); setDeliveryOutput(null);
       const url = new URL(location.href); url.searchParams.set('work', id); history.replaceState(null, '', url);
     } catch (err) { if (seq === loadSequence.current) { workRef.current = null; boardRef.current = null; setWork(null); setBoard(null); setError(message(err));
       const url = new URL(location.href); url.searchParams.delete('work'); history.replaceState(null, '', url);
@@ -203,15 +210,15 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   useEffect(() => { if (!board || status !== 'dirty') return; const timer = setTimeout(() => void saveView(), 500); return () => clearTimeout(timer); }, [board, status, saveView]);
   useEffect(() => { if (!visible) setRestOpen(false); }, [visible]);
   useEffect(() => {
-    if (!visible || !restOpen || agentPanel) return;
+    if (!visible || !restOpen || agentPanel || appearancePanel) return;
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); setRestOpen(false); } };
     document.addEventListener('keydown', escape); return () => document.removeEventListener('keydown', escape);
-  }, [visible, restOpen, agentPanel]);
+  }, [visible, restOpen, agentPanel, appearancePanel]);
   useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => { if ([...sessions.current.values()].some(s => s.saved !== s.edits) || form) { e.preventDefault(); e.returnValue = ''; } };
+    const warn = (e: BeforeUnloadEvent) => { if ([...sessions.current.values()].some(s => s.saved !== s.edits) || form || appearances.hasPending) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn);
-  }, [form]);
-  useEffect(() => { onUnsavedChange?.([...sessions.current.values()].some(s => s.saved !== s.edits) || form !== null); }, [status, form, onUnsavedChange]);
+  }, [form, appearances.hasPending]);
+  useEffect(() => { onUnsavedChange?.([...sessions.current.values()].some(s => s.saved !== s.edits) || form !== null || appearances.hasPending); }, [status, form, onUnsavedChange, appearances.hasPending]);
   useEffect(() => {
     if (!visible || (!form && !focus)) return;
     const previous = focus ? readingOpener.current : document.activeElement as HTMLElement | null;
@@ -227,7 +234,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     return () => { document.removeEventListener('keydown', keyboard); previous?.focus(); };
   }, [form, focus, busy, visible]);
   useEffect(() => {
-    if (!visible || !work || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel) return;
+    if (!visible || !work || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel || appearancePanel) return;
     const keyboard = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       e.preventDefault();
@@ -237,7 +244,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       else void back();
     };
     document.addEventListener('keydown', keyboard); return () => document.removeEventListener('keydown', keyboard);
-  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel]);
+  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel, appearancePanel]);
   function addCard(kind: Card['kind'], ref: string, version: number | null) {
     const current = boardRef.current; if (!current) return;
     const existing = current.cards.find(card => card.kind === kind && card.ref_id === ref && card.version === version);
@@ -321,7 +328,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     if (session) void saveView(session);
     ++loadSequence.current;
     workRef.current = null; setWork(null); setBoard(null); boardRef.current = null;
-    setFocus(null); setLibraryOpen(false); setMenuOpen(false); setRelationshipsOpen(false); setRestOpen(false); setAgentPanel(null); setSessionPanel(false); setDeliveryPanel(false); setDeliveryOutput(null);
+    setAppearancePanel(null); setFocus(null); setLibraryOpen(false); setMenuOpen(false); setRelationshipsOpen(false); setRestOpen(false); setAgentPanel(null); setSessionPanel(false); setDeliveryPanel(false); setDeliveryOutput(null);
     const url = new URL(location.href); url.searchParams.delete('work'); history.replaceState(null, '', url);
     setLoading(true); void list().catch(() => setError(t.failed)).finally(() => setLoading(false));
   }
@@ -418,7 +425,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const suppressSpaceClick = useRef(false);
   function spaceEnd(e: PointerEvent) { suppressSpaceClick.current = !!spaceDrag.current?.moved; spaceDrag.current = null; e.stopPropagation(); }
   const renderContent = (card: Card, reading = false) => <CardContent client={client} work={work!} card={card} onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
-  return <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''}`} aria-hidden={!visible}>
+  return <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
     {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button></div>}
     {loading ? <p role="status">{t.load}</p> : !work ? <>
       <TopBar page="work" onNavigate={next => { if (next !== 'work') onNavigate?.(next); }} />
@@ -454,8 +461,9 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
             label={`${locale === 'zh-CN' ? 'Agent 子项' : 'Agent children'} ${agent.agent_id}`} width={150} height={150} style={{ left: x, top: y }} side={x < 0 ? 1 : -1} verticalSide={y < 0 ? -1 : 1}
             forceClosed={!relationshipsOpen} onHover={open => setHover(open ? `agent:${agent.agent_id}` : null)}
             actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
+              { id: 'color', label: locale === 'zh-CN' ? '设置颜色' : 'Choose color', onSelect: () => openAppearance(agent.agent_id) },
               ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null, x: 0, y: 0 }) }))]}
-            renderTrigger={triggerProps => <AgentBubble agent={agent} index={index} size={150} tasks={work.tasks} copy={t} triggerProps={triggerProps}
+            renderTrigger={triggerProps => <AgentBubble agent={agent} selectedTints={appearances.tints} index={index} size={150} tasks={work.tasks} copy={t} triggerProps={triggerProps}
               className={highlighted && !highlighted.has(`agent:${agent.agent_id}`) ? 'dim' : highlighted ? 'lit' : ''} style={{}} onClick={() => openAgents(agent.agent_id)} />} />)}
           {visibleNodes.map(node => { const item = node.kind === 'task' ? work.tasks.find(x => x.id === node.ref_id) : node.kind === 'artifact' ? work.artifacts.find(x => x.id === node.ref_id && x.version === node.version) : null;
             if (node.kind !== 'requirement' && !item) return null;
@@ -480,8 +488,9 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
             return <WorkBubbleGroup key={agent.agent_id} label={`${locale === 'zh-CN' ? 'Agent 子项' : 'Agent children'} ${agent.agent_id}`}
               width={170} height={170} style={{ left: `${x}%`, top: `${y}%` }} side={x < 50 ? 1 : -1} verticalSide={y < 50 ? -1 : 1}
               actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
+              { id: 'color', label: locale === 'zh-CN' ? '设置颜色' : 'Choose color', onSelect: () => openAppearance(agent.agent_id) },
                 ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null, x: 0, y: 0 }) }))]}
-              renderTrigger={triggerProps => <AgentBubble agent={agent} index={index} size={170} tasks={work.tasks} copy={t} style={{}} triggerProps={triggerProps} onClick={() => openAgents(agent.agent_id)} />} />;
+              renderTrigger={triggerProps => <AgentBubble agent={agent} selectedTints={appearances.tints} index={index} size={170} tasks={work.tasks} copy={t} style={{}} triggerProps={triggerProps} onClick={() => openAgents(agent.agent_id)} />} />;
           })}</div></>}</div>}
       {!inSpace && <div className="work-area">{libraryOpen && <aside className="work-library"><div className="work-library-head"><h2>{t.library}</h2><button className="work-icon-button" onClick={() => setLibraryOpen(false)} aria-label={t.close}><Icon name="close" size={16} /></button></div>
         <label>{t.requirement}<input aria-label={t.showRequirement} type="number" min={1} max={work.requirement_version} value={requirementVersion} onChange={e => setRequirementVersion(bound(Number(e.target.value), 1, work.requirement_version))} /></label>
@@ -512,6 +521,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
         </div>
         <div className="work-dock-group">
           <button className="work-quiet" onClick={() => openAgents()}><Icon name="agents" />{t.agents}<span className="work-count">{agents.failed ? '!' : agents.items.length}</span></button>
+          <button className="work-quiet" onClick={() => openAppearance()}>{locale === 'zh-CN' ? 'Agent 颜色' : 'Agent colors'}</button>
           <button className="work-quiet" onClick={() => setRestOpen(true)}><Icon name="orbit" />{t.restScene}</button>
           <button className="work-icon-button" aria-label={t.environment} title={t.environment} onClick={() => onNavigate?.('environment')}><Icon name="environment" /></button>
           <button className="work-icon-button" aria-label={t.settings} title={t.settings} onClick={() => onNavigate?.('settings')}><Icon name="settings" /></button>
@@ -527,10 +537,11 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     }} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision: Math.max(current.revision, revision) }; workRef.current = next; setWork(next); }
     }} />}
-    {restOpen && work && visible && <div className="work-rest-layer"><Suspense fallback={<div className="work-rest-loading"><button autoFocus onClick={() => setRestOpen(false)}>← {t.returnBoard}</button><p role="status">{t.load}</p></div>}><WorkRestScene title={work.title} requirementVersion={work.requirement_version} taskCount={work.tasks.length} artifactCount={work.artifacts.length} updatedAt={work.updated_at} agents={agents.items} tasks={work.tasks.map(task => ({ ...task, assignee_agent_ids: agents.items.filter(agent => agent.task_ids?.includes(task.id)).map(agent => agent.agent_id) }))} onTaskSelect={id => { setRestOpen(false); showOnBoard({ kind: 'task', ref_id: id, version: null, x: 0, y: 0 }); }} onAgentSelect={openAgents} onManageAgents={() => openAgents()} onReturn={() => setRestOpen(false)} /></Suspense></div>}
+    {restOpen && work && visible && <div className="work-rest-layer"><Suspense fallback={<div className="work-rest-loading"><button autoFocus onClick={() => setRestOpen(false)}>← {t.returnBoard}</button><p role="status">{t.load}</p></div>}><WorkRestScene title={work.title} requirementVersion={work.requirement_version} taskCount={work.tasks.length} artifactCount={work.artifacts.length} updatedAt={work.updated_at} agentTints={appearances.tints} agents={agents.items} tasks={work.tasks.map(task => ({ ...task, assignee_agent_ids: agents.items.filter(agent => agent.task_ids?.includes(task.id)).map(agent => agent.agent_id) }))} onTaskSelect={id => { setRestOpen(false); showOnBoard({ kind: 'task', ref_id: id, version: null, x: 0, y: 0 }); }} onAgentSelect={openAgents} onManageAgents={() => openAgents()} onReturn={() => setRestOpen(false)} /></Suspense></div>}
     {agentPanel && work && <WorkAgents key={work.id} client={client} workId={work.id} revision={work.revision} linked={agents.items} tasks={work.tasks} initialAgentId={agentPanel.selected} visible={visible} onClose={closeAgents} onLinkedChanged={agents.replace} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
+    {appearancePanel && work && <AgentAppearancePicker agents={agents.items} state={appearances} selected={appearancePanel.selected} onClose={closeAppearance} />}
     {active && work && <div className="work-overlay work-reading-overlay" role="dialog" aria-modal="true" aria-label={t.focus}><section className="work-reader"><header><button className="work-quiet" autoFocus onClick={() => setFocus(null)}><Icon name="back" />{t.returnBoard}</button><span className="work-card-kind"><Icon name={active.kind} size={16} />{t[active.kind]}{active.version ? <em className="work-version">v{active.version}</em> : null}</span></header>{renderContent(active, true)}</section></div>}
     {form && <div className="work-overlay" role="dialog" aria-modal="true" aria-label={form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}><form className="work-form" onSubmit={submit}>
       <h2>{form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}</h2>
@@ -578,8 +589,8 @@ const AGENT_NAMES: Record<string, string> = { CODEX: 'Codex', CLAUDE_CODE: 'Clau
  * Agent as a replaceable tool: a tinted film with only facts the Core reports.
  * Presence comes from discovery; execution activity stays explicitly unknown.
  */
-function AgentBubble({ agent, index, size, tasks, copy, className = '', style, onClick, onPointerDown, onPointerEnter, onPointerLeave, triggerProps }: {
-  agent: WorkAgent; index: number; size: number; tasks: { id: string; title: string }[]; copy: Copy; className?: string;
+function AgentBubble({ agent, selectedTints, index, size, tasks, copy, className = '', style, onClick, onPointerDown, onPointerEnter, onPointerLeave, triggerProps }: {
+  agent: WorkAgent; selectedTints?: Record<string, string>; index: number; size: number; tasks: { id: string; title: string }[]; copy: Copy; className?: string;
   triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>;
   style: CSSProperties; onClick: () => void; onPointerDown?: (event: PointerEvent) => void; onPointerEnter?: () => void; onPointerLeave?: () => void;
 }) {
@@ -587,7 +598,7 @@ function AgentBubble({ agent, index, size, tasks, copy, className = '', style, o
   const linked = tasks.filter(task => agent.task_ids?.includes(task.id));
   return <button style={{ ...style, width: size, height: size }} onClick={onClick}
     onPointerDown={onPointerDown} onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} {...triggerProps} className={`work-agent-bubble is-${state} ${className} ${triggerProps?.className ?? ''}`}>
-    <AgentFilm seed={agent.agent_id} size={size} tint={agentTint(agent.agent_id)} state={state} />
+    <AgentFilm seed={agent.agent_id} size={size} tint={agentTint(agent.agent_id, selectedTints)} state={state} />
     <span className="work-agent-text">
       <strong>{AGENT_NAMES[agent.detected_identity] ?? agent.detected_identity}</strong>
       <span className="work-agent-state"><i aria-hidden="true" />{state === 'current' ? copy.presentNow : state === 'absent' ? copy.presentAbsent : copy.presentUnknown}</span>

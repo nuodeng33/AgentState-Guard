@@ -59,7 +59,10 @@ def reject_sensitive(value):
             reject_sensitive(item)
 
 
-class ExecutionService:
+from .pending import PendingInstructionMixin
+
+
+class ExecutionService(PendingInstructionMixin):
     def __init__(self, database, domains, catalog=None, protection=None):
         self.db, self.conn, self.domains = database, database._conn, domains
         self.work, self.catalog, self.protection = WorkService(database), catalog, protection
@@ -216,6 +219,9 @@ class ExecutionService:
         with self.db.transaction() as conn:
             conn.execute('UPDATE work_sessions SET state=?,reason_code=?,revision=revision+1,updated_at=? WHERE id=?',
                          (state, reason, now(), session_id))
+            if state != 'READY':
+                for pending_id, in conn.execute("SELECT id FROM work_pending_instructions WHERE session_id=? AND state='PENDING'", (session_id,)).fetchall():
+                    self._pending_transition(conn, self._pending_row(pending_id), 'HELD', reason, now())
 
     def mutate_session(self, work_id, session_id, command, *, archive=False):
         def apply(conn, timestamp):
@@ -224,6 +230,8 @@ class ExecutionService:
                 raise WorkError('SESSION_REVISION_CONFLICT')
             if archive and conn.execute('SELECT 1 FROM work_runs WHERE session_id=? AND state IN (' + ','.join('?' * len(ACTIVE)) + ')', (session_id, *ACTIVE)).fetchone():
                 raise WorkError('SESSION_BUSY')
+            if archive:
+                self._stop_pending_and_descendants(conn, session_id, '', timestamp)
             conn.execute('UPDATE work_sessions SET nickname=?,state=?,revision=revision+1,updated_at=? WHERE id=?',
                          (row['nickname'] if archive else command.nickname, 'ARCHIVED' if archive else row['state'], timestamp, session_id))
             return {'session_id': session_id, 'revision': row['revision'] + 1, 'state': 'ARCHIVED' if archive else row['state']}
@@ -286,7 +294,7 @@ class ExecutionService:
             contexts.append({'ref': ref.model_dump(mode='json'), 'body': content})
         return contexts, versions
 
-    def start_run(self, work_id, session_id, command):
+    def start_run(self, work_id, session_id, command, *, _pending_id=None):
         previous = self.work.receipt('run-start', [work_id, session_id], command)
         if previous is not None:
             return previous
@@ -294,6 +302,10 @@ class ExecutionService:
         if session['state'] != 'READY' or not json.loads(session['capabilities_json']).get('send'):
             raise WorkError('SESSION_NOT_READY')
         self.validate_selection(session['application_id'], session['store_id'], session['scope_id'], expected=json.loads(session['identity_json']))
+        if _pending_id is not None:
+            self._assert_pending_promotion(_pending_id, session, command)
+        elif self.conn.execute("SELECT 1 FROM work_pending_instructions WHERE session_id=? AND state IN ('PENDING','HELD')", (session_id,)).fetchone():
+            raise WorkError('PENDING_INSTRUCTION_SLOT_OCCUPIED')
         with self.protection.lock:
             baseline = self.protection.capture(session['scope_id'], force=True)
             scope = self.protection.scope(session['scope_id'])
@@ -308,6 +320,10 @@ class ExecutionService:
                     raise WorkError('SESSION_REVISION_CONFLICT')
                 if work['requirement_version'] != command.requirement_version:
                     raise WorkError('WORK_REQUIREMENT_CHANGED')
+                if _pending_id is not None:
+                    self._assert_pending_promotion(_pending_id, row, command)
+                elif conn.execute("SELECT 1 FROM work_pending_instructions WHERE session_id=? AND state IN ('PENDING','HELD')", (session_id,)).fetchone():
+                    raise WorkError('PENDING_INSTRUCTION_SLOT_OCCUPIED')
                 if conn.execute("SELECT 1 FROM protection_operations WHERE scope_id=? AND kind='RESTORE' AND state IN ('QUEUED','RUNNING','COMPENSATING','NEEDS_ATTENTION')", (row['scope_id'],)).fetchone():
                     raise WorkError('PROTECTION_RECOVERY_BUSY')
                 requirement = conn.execute('SELECT body FROM work_requirements WHERE work_id=? AND version=?', (work_id, command.requirement_version)).fetchone()[0]
@@ -348,6 +364,10 @@ class ExecutionService:
                 self.append(conn, run_id, 'INPUT', {'input': command.input, 'input_digest': digest(snapshot)})
                 self.ledger(conn, run_id, EventType.USER_APPROVED, 'RUN_AUTHORIZED', work_id=work_id,
                             session_id=session_id, scope_id=row['scope_id'], input_digest=digest(snapshot), baseline_id=scope['latest_id'])
+                if _pending_id is not None:
+                    if conn.execute("UPDATE work_pending_instructions SET state='PROMOTED',reason_code='PENDING_PROMOTED',promoted_run_id=?,revision=revision+1,updated_at=? WHERE id=? AND state='PENDING'", (run_id, timestamp, _pending_id)).rowcount != 1:
+                        raise WorkError('PENDING_INSTRUCTION_NOT_ACTIVE')
+                    conn.execute("DELETE FROM protection_version_dependencies WHERE owner_kind='pending' AND owner_id=?", (_pending_id,))
                 conn.execute('UPDATE work_sessions SET revision=revision+1,updated_at=? WHERE id=?', (timestamp, session_id))
                 return {'run_id': run_id, 'session_id': session_id, 'revision': row['revision'] + 1, 'state': 'QUEUED', 'dispatch_state': 'NOT_SENT'}
             return self.work._command('run-start', [work_id, session_id], command, apply)
@@ -448,6 +468,7 @@ class ExecutionService:
             row = self.run(work_id, session_id, run_id, 'summary')
             if command.expected_revision is not None and row['revision'] != command.expected_revision:
                 raise WorkError('RUN_REVISION_CONFLICT')
+            self._stop_pending_and_descendants(conn, actual_session, run_id, timestamp)
             if row['state'] in TERMINAL or row['state'] == 'FINALIZING':
                 return {'run_id': run_id, 'state': row['state']}
             if row['state'] == 'UNCERTAIN':
