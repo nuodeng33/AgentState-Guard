@@ -10,11 +10,13 @@ import hashlib
 import json
 import secrets
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import uuid4
@@ -78,6 +80,7 @@ class Core:
     def __init__(self, state, owner):
         self.owner, self.providers = owner, []
         core_state = state / 'core'
+        self.db_path = core_state / 'state.db'
         core_state.mkdir(exist_ok=True)
         self.app = create_app(state_db_path=core_state / 'state.db', config={'base_dir': str(core_state)},
                               device_link_controller=UnavailableDeviceLinkController(), discovery_service=Discovery())
@@ -96,8 +99,40 @@ class Core:
         self.server = uvicorn.Server(uvicorn.Config(self.app, log_level='error', access_log=False))
         self.thread = threading.Thread(target=self.server.run, kwargs={'sockets': [self.socket]}, daemon=True)
         self.thread.start()
-        wait(lambda: self.server.started and self.runtime.accepting, bool)
+        try:
+            wait(lambda: self.server.started and self.runtime.accepting, bool)
+        except BaseException as error:
+            if isinstance(error, AcceptanceTimeout):
+                error.diagnostic['core'] = self.startup_snapshot()
+            try:
+                self.__exit__(None, None, None)
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as cleanup_error:
+                if isinstance(error, AcceptanceTimeout):
+                    error.diagnostic['cleanup_error_type'] = type(cleanup_error).__name__
+            if isinstance(error, AcceptanceTimeout):
+                error.diagnostic['after_cleanup'] = self.startup_snapshot()
+            raise
         return self
+
+    def startup_snapshot(self):
+        protection = self.app.state.protection
+        def worker(value):
+            thread = value.thread
+            return {'thread_alive': bool(thread and thread.is_alive()), 'last_error': value.last_error}
+        result = {'server_started': self.server.started, 'server_thread_alive': self.thread.is_alive(),
+                  'execution_accepting': self.runtime.accepting, 'execution': worker(self.runtime),
+                  'protection': worker(protection), 'database_exists': self.db_path.is_file()}
+        if result['database_exists']:
+            try:
+                with closing(sqlite3.connect(self.db_path.as_uri() + '?mode=ro', uri=True, timeout=.1)) as connection:
+                    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                    result['schema'] = {'table_count': len(tables), 'work_runs': 'work_runs' in tables,
+                        'pending_instructions': 'work_pending_instructions' in tables}
+                    if 'schema_migrations' in tables:
+                        result['schema']['versions'] = [row[0] for row in connection.execute('SELECT version FROM schema_migrations ORDER BY version')]
+            except sqlite3.Error as error:
+                result['database_error_type'] = type(error).__name__
+        return result
 
     def __exit__(self, *_args):
         self.server.should_exit = True

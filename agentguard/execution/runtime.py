@@ -546,15 +546,15 @@ class ExecutionRuntime:
         if self.thread:
             self.thread.join(timeout=5)
         with self.lock:
-            channels = list(self.channels.values())
-        for channel in channels:
-            if channel['run_id']:
+            channels = [(channel, channel['run_id']) for channel in self.channels.values()]
+        for channel, run_id in channels:
+            if run_id:
                 with self.journal() as service, service.db.transaction() as conn:
-                    row = service.one('work_runs', channel['run_id'])
+                    row = service.one('work_runs', run_id)
                     if row['state'] in ACTIVE and row['state'] not in {'UNCERTAIN', 'FINALIZING'}:
                         service.append(conn, row['id'], 'CANCEL_REQUESTED', {'reason_code': 'CORE_SHUTDOWN'})
                         conn.execute("UPDATE work_runs SET state='CANCELLING',revision=revision+1 WHERE id=?", (row['id'],))
-                self._cancel(channel['session_id'], channel['run_id'])
-                self._fail_run(channel['run_id'], 'UNCERTAIN', 'CORE_SHUTDOWN_UNCONFIRMED')
+                self._cancel(channel['session_id'], run_id)
+                self._fail_run(run_id, 'UNCERTAIN', 'CORE_SHUTDOWN_UNCONFIRMED')
             self._close_channel(channel)
         self.pool.shutdown(wait=True, cancel_futures=True)

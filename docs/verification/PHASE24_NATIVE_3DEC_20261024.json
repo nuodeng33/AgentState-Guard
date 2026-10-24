@@ -1,0 +1,36 @@
+{
+  "product_sha": "3dec5d957ba7640145e14fddfa9bbedd3efb738a",
+  "result": "PASS",
+  "exercise": {
+    "result": "PASS",
+    "phase": "exercise",
+    "checks": {
+      "linked_agent_default_revision_zero": true,
+      "exact_color_saved_independent_revision": true,
+      "duplicate_receipt_does_not_increment": true,
+      "stale_color_revision_rejected": true,
+      "arbitrary_colors_rejected": true,
+      "unlinked_agent_rejected": true,
+      "old_layout_save_preserves_color": true,
+      "color_does_not_bump_work_revision": true,
+      "pending_routes_exist_and_reject_unmanaged_session": true,
+      "pending_rejects_caller_authority_fields": true
+    },
+    "product_sha": "3dec5d957ba7640145e14fddfa9bbedd3efb738a",
+    "scope": "Actual Windows packaged Core/SQLite API and restart, existing observed linked Agent; no desktop UI or real provider queue execution claim"
+  },
+  "reopen": {
+    "result": "PASS",
+    "phase": "reopen",
+    "checks": {
+      "color_survives_packaged_core_restart": true,
+      "default_reset_preserves_revision_history": true,
+      "reset_does_not_bump_work_revision": true
+    },
+    "product_sha": "3dec5d957ba7640145e14fddfa9bbedd3efb738a",
+    "scope": "Actual Windows packaged Core/SQLite API and restart, existing observed linked Agent; no desktop UI or real provider queue execution claim"
+  },
+  "owned_port18791_exclusive_bind_after_teardown": true,
+  "original_restored_files_and_backup_still_match": true,
+  "scope_limit": "No native UI or positive real-provider queue execution claim"
+}

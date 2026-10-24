@@ -1,5 +1,13 @@
 # Phase 24 — pending instructions and saved agent colors
 
+## 2026-10-24 phase 24 startup and shutdown follow-up
+
+The approved pending instruction and agent color features are implemented in `3dec5d9`. Its Core CI failed before browser launch. Real disposable Core startup reproduced two independent initialization races: stale migration replay and concurrent first WAL initialization. A full regression also exposed shutdown rereading a run ID cleared by the real file finalizer. The final minimal fix serializes Core bootstrap before its workers, rechecks each migration under the write lock without replacing history, and snapshots shutdown run IDs. Expected database failures keep the existing safe HTTP 503/degraded contracts; unexpected errors still propagate. No permissions, schema version, public API or historical ledger values change in this follow-up.
+
+Independent final backend: **1542 passed, 49 skipped, 0 failures/errors** (JUnit 1591 total). Real fresh Core startup **12/12 passed**, all threads stopped after cleanup; real HTTP queue/restart acceptance passed with controlled no-model provider and real file capture. Deterministic shutdown RED became GREEN without cancelling the completed run. Actual Windows SQLite concurrent migration from versions 0, 2 and 19 passed with old migration rows preserved. Frontend remains the separately verified 317-test snapshot; it was unchanged here.
+
+`3dec5d9` Windows and both Android workflows succeeded; its Core failure and intermediate local failures remain recorded. The next exact commit CI, strict browser queue acceptance and new Windows package verification are still required. Existing 4a8 native upgrade/uninstall evidence remains valid for its own scope. The user's six original data files are restored; do not start or migrate them. Computer Use remains stopped by physical Escape; no Windows/Android UI inputs without fresh authorization, and MuMu 2/5 remain protected. No merge, publication, reboot or permanent cleanup. See [source verification](../verification/PHASE24_STARTUP_RECOVERY_20261024.json) and [prior native phase24 checks](../verification/PHASE24_NATIVE_3DEC_20261024.json).
+
 Requirement IDs: ASG-CLOSE-002 (saved agent color), ASG-CLOSE-006 (explicit next instruction). Base product: `4a8e32046e74ca75824462376fe9d20d5f77673b`.
 
 The user explicitly approved: “允许最小兼容扩展，继续实现两项功能”, in response to the question proposing two new tables and independent APIs while preserving compatibility, the historical ledger and permissions. The earlier API/schema freeze is lifted only for this minimum compatible feature scope. Do not ask again for that authorization.

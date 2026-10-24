@@ -1,5 +1,13 @@
 # Rollback Ledger
 
+## 2026-10-24 phase 24 startup and shutdown follow-up
+
+The approved pending instruction and agent color features are implemented in `3dec5d9`. Its Core CI failed before browser launch. Real disposable Core startup reproduced two independent initialization races: stale migration replay and concurrent first WAL initialization. A full regression also exposed shutdown rereading a run ID cleared by the real file finalizer. The final minimal fix serializes Core bootstrap before its workers, rechecks each migration under the write lock without replacing history, and snapshots shutdown run IDs. Expected database failures keep the existing safe HTTP 503/degraded contracts; unexpected errors still propagate. No permissions, schema version, public API or historical ledger values change in this follow-up.
+
+Independent final backend: **1542 passed, 49 skipped, 0 failures/errors** (JUnit 1591 total). Real fresh Core startup **12/12 passed**, all threads stopped after cleanup; real HTTP queue/restart acceptance passed with controlled no-model provider and real file capture. Deterministic shutdown RED became GREEN without cancelling the completed run. Actual Windows SQLite concurrent migration from versions 0, 2 and 19 passed with old migration rows preserved. Frontend remains the separately verified 317-test snapshot; it was unchanged here.
+
+`3dec5d9` Windows and both Android workflows succeeded; its Core failure and intermediate local failures remain recorded. The next exact commit CI, strict browser queue acceptance and new Windows package verification are still required. Existing 4a8 native upgrade/uninstall evidence remains valid for its own scope. The user's six original data files are restored; do not start or migrate them. Computer Use remains stopped by physical Escape; no Windows/Android UI inputs without fresh authorization, and MuMu 2/5 remain protected. No merge, publication, reboot or permanent cleanup. See [source verification](verification/PHASE24_STARTUP_RECOVERY_20261024.json) and [prior native phase24 checks](verification/PHASE24_NATIVE_3DEC_20261024.json).
+
 2026-10-23安装验收：测试前无安装，测试后卸载4378c6e测试包；原数据6文件全部SHA-256还原且备份保留。最终后续提交仅证据文件，回滚仅revert文档，不重复迁移或改写原账本。自动审批拦截清理，未宣称删除或空间回收。
 
 2026-10-23 旧账本兼容：基准c03cfd7，仅补三种历史EventType及负向测试，无schema迁移修改、历史重签或原库写入。回滚仅revert本次代码提交；已验证升级副本和源库备份保留。

@@ -1,0 +1,150 @@
+{
+  "base_product_sha": "3dec5d957ba7640145e14fddfa9bbedd3efb738a",
+  "source_verification": "PASS; exact new commit CI and native package still required",
+  "failures_preserved": [
+    {
+      "ci_run": 40069157571,
+      "job": 120799173477,
+      "reason": "Fresh Core execution worker stopped before browser launch; stale migration list re-executes committed CREATE"
+    },
+    {
+      "evidence": "artifacts/debug/core-start-ci40069157571/fixed-rootcause.json",
+      "reason": "Separate PRAGMA journal_mode=WAL database is locked before migration"
+    },
+    {
+      "evidence": "artifacts/phase24-startup-fix/full.xml",
+      "reason": "Shutdown reads channel.run_id after actual file finalizer clears it; RUN_NOT_FOUND"
+    },
+    {
+      "evidence": "artifacts/phase24-startup-fix/final.xml",
+      "reason": "Initial bootstrap fix aborted HTTP and broke three existing safe degraded diagnostics contracts; final source preserves those contracts"
+    }
+  ],
+  "implementation": [
+    "Recheck exact migration version after BEGIN IMMEDIATE; skip existing row without rewrite, use plain INSERT",
+    "Initialize WAL and schema before concurrent Core workers; expected storage errors retain safe degraded HTTP diagnostics with generic constant log, unexpected errors propagate",
+    "Capture immutable channel/run pairs under lock during shutdown; retain completed evidence and existing cancellation guards",
+    "Always close protection after execution shutdown, including failure; failed acceptance startup retains worker/schema diagnostics and closes its socket"
+  ],
+  "independent_full_backend": {
+    "status": "PASS",
+    "base_commit": "3dec5d957ba7640145e14fddfa9bbedd3efb738a",
+    "scope": "Independent Linux Docker full backend on final startup/migration/shutdown source snapshot; no frontend, nativeWindows, provider/model calls",
+    "counts": {
+      "tests": 1591,
+      "passed": 1542,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 49,
+      "xfailed": 0,
+      "xpassed": 0,
+      "sources": [
+        "artifacts/phase24-final-recovery/full.xml"
+      ]
+    },
+    "elapsed_seconds": 144.83,
+    "first_failure": null,
+    "scoped_ruff": "PASS (8 files)",
+    "diff_check": "PASS",
+    "review_findings": [],
+    "review": [
+      "Storage init runs before workers, expectederrors use fixed genericlog and existingdegradedHTTP path; unexpectederrors propagate,connectionalwaysclosed",
+      "Migration versionrechecked afterBEGINIMMEDIATE and historicalmigrationrowcannotbereplaced",
+      "Shutdown protectionclose guaranteed byfinally; snapshotrun_id underlockused throughoutshutdown to preserveactualcompletedfinalizeroutcome"
+    ],
+    "prior_failures_preserved": [
+      "artifacts/phase24-startup-fix/full.xml/log (shutdownNone race)",
+      "artifacts/phase24-startup-fix/final.xml/log (blockedDBstartup contract regression)"
+    ],
+    "warnings": [
+      "49 skips retainenvironmentlimitations",
+      "ExistingFastAPIon_eventdeprecations; warningsnotcountedaspasses"
+    ],
+    "product_edits_by_verifier": false,
+    "node_modules_symlink": "untouched",
+    "source_sha256": {
+      "agentguard/api/server.py": "4f6871f807f1096ab61980736aa31713937457e96b6adaa37c26b3fe4594ee5a",
+      "agentguard/execution/runtime.py": "96776fa30df0ed342cec828529061b3896cfd963ca002b4a331c8b573fba969f",
+      "agentguard/storage/migrations.py": "ed871731e1a08b634b216d3a0cc8196eaec7b4cbe405ba2bf665e1c6d29c0f5f",
+      "tests/test_core_startup.py": "efffc2caf8a70216aff0578205fe455ad6d21b9e61b077e93889fd5f4d46f584",
+      "tests/test_migration_concurrency.py": "20d16d885288a9ff7a1f83a7fdd8327abe82f991e2d0b1b32ffa2946273ef8f4",
+      "tests/test_execution_shutdown.py": "058c3931176430fa3ec91f4167561aeb011069e0d759e4ad4eec029f2592ab41",
+      "scripts/verify_pending_instruction.py": "311304a717d6c089af72c26a1fc45af9d1eb7a387e545ecec67bc60b279123d3",
+      "tests/test_pending_acceptance.py": "702647e2b12e8f43c02c538f3f183e34e3218f651ed1d1eab6974bc69b3193c4"
+    },
+    "evidence_sha256": {
+      "full.xml": "02f8483f010f67a4217374477fe9c294c89303b90bc3b79968a7e2e067572677",
+      "full.log": "49daac2d74e0bac289ba263d61df1a9ba17b4a3185b0c9cb68466a4c51f86afa",
+      "counts.json": "ba6dd8b5aeed53a2bc90693ed02b1e529fc69ac0bdd1c829182a34c5b9343caf",
+      "ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    }
+  },
+  "independent_fresh_core": {
+    "result": "PASS",
+    "attempts": 12,
+    "all_threads_stopped": true,
+    "evidence": "artifacts/debug/core-start-ci40069157571/final-compatible-twelve-startups.json"
+  },
+  "actual_http_queue": {
+    "result": "PASS",
+    "scope": "actual Core HTTP/SQLite with no-model protocol fixture; NO browser UI",
+    "exclusions": [
+      "real provider execution",
+      "model quality",
+      "Windows host UI",
+      "ADB",
+      "user data",
+      "browser UI"
+    ],
+    "frontend_index_sha256": "54e9542f253105b6b53c575a24a10f346b4c82c862a30d7f7f3381d71c081af7",
+    "exercise": {
+      "result": "PASS",
+      "scope": "real loopback Core HTTP with controlled provider; NO browser",
+      "checks": {
+        "explicit_pending_exact_input_no_early_send": true,
+        "real_completed_file_results_and_exact_child_send_once": true,
+        "stop_cancels_both_without_next_send": true,
+        "pending_saved_before_restart": true
+      }
+    },
+    "reopen": {
+      "result": "PASS",
+      "scope": "actual restarted Core HTTP; NO browser",
+      "checks": {
+        "held_original_text_no_replay": true
+      }
+    },
+    "restart_sent_nothing": true
+  },
+  "focused_runs_not_summed": {
+    "safe_api_startup_shutdown": {
+      "passed": 64
+    },
+    "execution_pending_shutdown": {
+      "passed": 40
+    }
+  },
+  "frontend": {
+    "passed": 317,
+    "files": 44,
+    "snapshot": "3dec5d9",
+    "unchanged_in_this_fix": true,
+    "scope": "Previous separate test/typecheck/production build; not included in final backend count"
+  },
+  "windows_source_migration": "MIGRATION_CONCURRENCY_WINDOWS_20261024.json",
+  "windows_prior_packaged_phase24": "PHASE24_NATIVE_3DEC_20261024.json",
+  "prior_ci": {
+    "Core CI": "FAIL startup race",
+    "Desktop Windows": "SUCCESS",
+    "Android Build": "SUCCESS",
+    "Android Emulator Runtime": "SUCCESS"
+  },
+  "limits": [
+    "No new exact-commit CI/native package acceptance yet",
+    "No local queue browser pass: strict sandbox unavailable, never disabled",
+    "No real provider queue execution/model quality/native Windows input/MuMu pairing/physical phone pass",
+    "No user database opened or migrated; original restored data and backup retained"
+  ],
+  "rollback": "Revert only this startup/migration/shutdown/harness change from base3dec5d9; retain additive schema20 tables, immutable history, failed evidence and original backup; no downgrade/reset/cleanup",
+  "disk_cleanup": "Only read-only artifact inventory added this follow-up. Old manual deletion checkpoint retained, no additional permanent deletion or freed-space claim"
+}

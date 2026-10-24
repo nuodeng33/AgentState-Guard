@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 import sqlite3
@@ -553,13 +554,24 @@ def create_app(
 
     @app.on_event("startup")
     async def startup_protection():
+        # Initialize WAL and schema before concurrent workers open connections.
+        # Keep the existing safe degraded HTTP diagnostics on storage failure.
+        database = StateDB(db_path)
+        try:
+            database.connect()
+        except (OSError, RuntimeError, sqlite3.DatabaseError):
+            logging.getLogger(__name__).warning("CORE_DATABASE_INITIALIZATION_UNAVAILABLE")
+        finally:
+            database.close()
         execution.start()
         protection.start()
 
     @app.on_event("shutdown")
     async def shutdown_protection():
-        await run_in_threadpool(execution.close)
-        await run_in_threadpool(protection.close)
+        try:
+            await run_in_threadpool(execution.close)
+        finally:
+            await run_in_threadpool(protection.close)
 
     if product_startup_discovery:
         try:

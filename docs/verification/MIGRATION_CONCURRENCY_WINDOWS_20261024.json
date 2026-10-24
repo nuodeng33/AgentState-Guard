@@ -1,0 +1,38 @@
+{
+  "result": "PASS",
+  "scope": "Actual Windows SQLite and two native Python threads; patched source module, not packaged Core/UI",
+  "base_source_sha": "3dec5d957ba7640145e14fddfa9bbedd3efb738a",
+  "migration_source_sha256": "ed871731e1a08b634b216d3a0cc8196eaec7b4cbe405ba2bf665e1c6d29c0f5f",
+  "sqlite_version": "3.53.1",
+  "cases": [
+    {
+      "initial_version": 0,
+      "result": "PASS",
+      "versions_applied_once": 20,
+      "history_unchanged": true,
+      "integrity_ok": true
+    },
+    {
+      "initial_version": 2,
+      "result": "PASS",
+      "versions_applied_once": 18,
+      "history_unchanged": true,
+      "integrity_ok": true
+    },
+    {
+      "initial_version": 19,
+      "result": "PASS",
+      "versions_applied_once": 1,
+      "history_unchanged": true,
+      "integrity_ok": true
+    }
+  ],
+  "original_user_data_opened": false,
+  "prior_harness_failure": {
+    "result": "FAIL",
+    "reason": "Windows PermissionError WinError32 during TemporaryDirectory cleanup: sqlite3 connection context commits but does not close",
+    "product_change_for_harness_failure": false,
+    "retained_temp_directory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\asg-native-20261023-migration-z83si59b",
+    "correction": "contextlib.closing for every SQLite connection; disposable databases retained for manual cleanup"
+  }
+}

@@ -726,6 +726,14 @@ class MigrationEngine:
             try:
                 start = datetime.now(UTC)
                 conn.execute("BEGIN IMMEDIATE")
+                # Another connection may have applied this version while we
+                # waited for the write lock. Keep its immutable history intact.
+                if conn.execute(
+                    "SELECT 1 FROM schema_migrations WHERE version = ?",
+                    (migration.version,),
+                ).fetchone() is not None:
+                    conn.rollback()
+                    continue
                 self._execute_script(conn, migration.forward_sql)
                 # Record migration
                 import hashlib
@@ -735,7 +743,7 @@ class MigrationEngine:
                 ]
                 duration = int((datetime.now(UTC) - start).total_seconds() * 1000)
                 conn.execute(
-                    "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at, checksum, duration_ms) "
+                    "INSERT INTO schema_migrations (version, name, applied_at, checksum, duration_ms) "
                     "VALUES (?, ?, ?, ?, ?)",
                     (
                         migration.version,

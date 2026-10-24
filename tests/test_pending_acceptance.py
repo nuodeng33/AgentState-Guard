@@ -1,5 +1,8 @@
 """Verifier report gate rejects incomplete or merely truthy browser evidence."""
+import sqlite3
+import threading
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,3 +63,63 @@ def test_non_object_report_never_passes(report):
 def test_unknown_or_malformed_requested_phase_never_passes(phase):
     with pytest.raises(ValueError, match='QUEUE_BROWSER_REPORT_INVALID'):
         validate_browser_report(complete('exercise'), phase)
+
+
+def diagnostic_core(tmp_path):
+    from scripts.verify_pending_instruction import Core
+    core = Core.__new__(Core)
+    core.db_path = tmp_path / 'state.db'
+    core.runtime = SimpleNamespace(thread=None, last_error='EXECUTION_WORKER_UNAVAILABLE', accepting=False)
+    core.app = SimpleNamespace(state=SimpleNamespace(protection=SimpleNamespace(thread=None, last_error=None)))
+    return core
+
+
+def test_failed_core_enter_retains_worker_and_schema_evidence_and_closes_socket(tmp_path, monkeypatch):
+    from scripts import verify_pending_instruction as verifier
+    core = diagnostic_core(tmp_path)
+    with sqlite3.connect(core.db_path) as connection:
+        connection.executescript('CREATE TABLE schema_migrations(version INTEGER); INSERT INTO schema_migrations VALUES(20); CREATE TABLE work_runs(id TEXT);')
+    entered = threading.Event()
+
+    class Server:
+        started = False
+        should_exit = False
+        def __init__(self, _config):
+            pass
+        def run(self, *, sockets):
+            self.started = True
+            entered.set()
+            while not self.should_exit:
+                threading.Event().wait(.001)
+
+    def fail_wait(*_args, **_kwargs):
+        assert entered.wait(1)
+        raise verifier.AcceptanceTimeout('core_start', False)
+
+    monkeypatch.setattr(verifier.uvicorn, 'Server', Server)
+    monkeypatch.setattr(verifier, 'wait', fail_wait)
+    with pytest.raises(verifier.AcceptanceTimeout) as captured:
+        core.__enter__()
+    diagnostic = captured.value.diagnostic
+    assert diagnostic['core']['server_started'] is True
+    assert diagnostic['core']['execution_accepting'] is False
+    assert diagnostic['core']['execution']['last_error'] == 'EXECUTION_WORKER_UNAVAILABLE'
+    assert diagnostic['core']['schema'] == {
+        'table_count': 2, 'work_runs': True, 'pending_instructions': False, 'versions': [20]}
+    assert diagnostic['after_cleanup']['server_thread_alive'] is False
+    assert core.socket.fileno() == -1
+    assert not core.thread.is_alive()
+
+
+def test_startup_diagnostics_do_not_create_or_migrate_database(tmp_path):
+    core = diagnostic_core(tmp_path)
+    core.server = SimpleNamespace(started=True)
+    core.thread = SimpleNamespace(is_alive=lambda: True)
+    assert core.startup_snapshot()['database_exists'] is False
+    assert not core.db_path.exists()
+    with sqlite3.connect(core.db_path) as connection:
+        connection.executescript('CREATE TABLE schema_migrations(version INTEGER); INSERT INTO schema_migrations VALUES(1);')
+    before = core.db_path.read_bytes()
+    assert core.startup_snapshot()['schema'] == {
+        'table_count': 1, 'work_runs': False, 'pending_instructions': False, 'versions': [1]}
+    assert core.db_path.read_bytes() == before

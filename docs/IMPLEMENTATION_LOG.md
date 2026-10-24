@@ -1,5 +1,13 @@
 # Implementation Log
 
+## 2026-10-24 phase 24 startup and shutdown follow-up
+
+The approved pending instruction and agent color features are implemented in `3dec5d9`. Its Core CI failed before browser launch. Real disposable Core startup reproduced two independent initialization races: stale migration replay and concurrent first WAL initialization. A full regression also exposed shutdown rereading a run ID cleared by the real file finalizer. The final minimal fix serializes Core bootstrap before its workers, rechecks each migration under the write lock without replacing history, and snapshots shutdown run IDs. Expected database failures keep the existing safe HTTP 503/degraded contracts; unexpected errors still propagate. No permissions, schema version, public API or historical ledger values change in this follow-up.
+
+Independent final backend: **1542 passed, 49 skipped, 0 failures/errors** (JUnit 1591 total). Real fresh Core startup **12/12 passed**, all threads stopped after cleanup; real HTTP queue/restart acceptance passed with controlled no-model provider and real file capture. Deterministic shutdown RED became GREEN without cancelling the completed run. Actual Windows SQLite concurrent migration from versions 0, 2 and 19 passed with old migration rows preserved. Frontend remains the separately verified 317-test snapshot; it was unchanged here.
+
+`3dec5d9` Windows and both Android workflows succeeded; its Core failure and intermediate local failures remain recorded. The next exact commit CI, strict browser queue acceptance and new Windows package verification are still required. Existing 4a8 native upgrade/uninstall evidence remains valid for its own scope. The user's six original data files are restored; do not start or migrate them. Computer Use remains stopped by physical Escape; no Windows/Android UI inputs without fresh authorization, and MuMu 2/5 remain protected. No merge, publication, reboot or permanent cleanup. See [source verification](verification/PHASE24_STARTUP_RECOVERY_20261024.json) and [prior native phase24 checks](verification/PHASE24_NATIVE_3DEC_20261024.json).
+
 2026-10-23实际Windows发现失败闭环推进：405安装包漏打4个原始探测脚本，已加精确资源与归档哈希门禁；helper路径采用同文件系统身份并二次校验Shell路径。环境页改为真实来源/库存优先，不再把默认agent-dev及主机PATH当所有环境。组合后端快照1428通过/48跳过；前端290通过，新增loader/资源/helper专项26通过/2Linux跳过，Windows路径正例及构建失败门禁在本机独立执行通过。新包实际发现与设备启用仍须重建安装验证，禁止记为已完成。原始6文件保持备份隔离，测试结束须还原。
 
 2026-10-23 ASG-CLOSE-004配对修复：后端完整1377通过/46跳过、专项17通过，桌面专项25通过；Android扫码/确认/导航/撤销/审批/证据接线完成但未编译，启动CI验证。真实浏览器协议脚本继续，物理手机限制独立保留。全任务仍在推进，不以本项代替队列/颜色/AI闭环。
