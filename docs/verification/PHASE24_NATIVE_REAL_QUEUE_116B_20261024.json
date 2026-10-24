@@ -1,0 +1,169 @@
+{
+  "result": "PASS",
+  "product_sha": "116b0f14b31a90f7c708d862d29f76394d8637eb",
+  "artifact_id": 12550499123,
+  "artifact_zip_sha256": "964b7663216932fb602a28dc5fbbfef6fd5224c205bac495f112f37e7bf62d04",
+  "executable_sha256": "1a998a8f164232f73b678fc528e6056e317fb3ff49d86b75639b76a59fa16247",
+  "real_codex_queue": {
+    "result": "PASS",
+    "scope": "real packaged Windows Core / native Codex / disposable workspace; HTTP acceptance only",
+    "checked_at": "2026-10-24T06:46:39.128666+00:00",
+    "checks": {
+      "real_native_codex_ready": true,
+      "exact_queue_command_duplicate_receipt_stable": true,
+      "immutable_exact_child_input": true,
+      "real_provider_completed_and_files_available": true,
+      "predecessor_completed_before_child_creation": true,
+      "distinct_fresh_baseline": true,
+      "exactly_two_real_turns_one_child_dispatch": true,
+      "postpromotion_duplicate_no_new_child": true,
+      "real_file_bytes_exact": true
+    },
+    "exclusions": [
+      "desktop UI",
+      "MuMu",
+      "original ASG data",
+      "other existing Codex processes",
+      "provider output disclosure"
+    ],
+    "ids": {
+      "work_id": "03a6ff3e-3669-4f83-b8bd-3fd0e04ea5fa",
+      "session_id": "a47fb785-ccfa-4c92-9c9f-ac271dda06d0",
+      "scope_id": "scope-965d8f3f-c776-4b63-8337-d017fffdf29c",
+      "predecessor_run_id": "86a342e8-5f3f-4f3b-8947-dac9d9f4d5d5",
+      "pending_id": "0ff2de47-9c4d-413b-be4a-50921009b1be",
+      "enqueue_request_id": "db3860aa-806c-4550-8d9e-53183f5481cb",
+      "child_run_id": "1d6fa444-c4fc-4a88-a5fa-73f3fa693270"
+    },
+    "files": {
+      "first.txt": {
+        "bytes": 28,
+        "sha256": "084e266fec5a1406fb837a17c3bf5744404e4db12380bb9f0b8f0cab6cea8237"
+      },
+      "second.txt": {
+        "bytes": 29,
+        "sha256": "bab0413ba049eb0acc60d27e985cf96aad796801b8945e4ecc84648b0d0ab39a"
+      }
+    },
+    "runs": [
+      {
+        "run_id": "86a342e8-5f3f-4f3b-8947-dac9d9f4d5d5",
+        "state": "COMPLETED",
+        "dispatch_state": "ACCEPTED",
+        "baseline_id": "version-8b8bc1be-f7ff-403c-b681-a2316a8c1a9c",
+        "file_version_id": "version-7f2a0a56-49f4-4fc0-b3ca-f9fc5c5fb50e",
+        "created_at": "2026-10-24T06:46:40.152952+00:00",
+        "completed_at": "2026-10-24T06:46:55.447967+00:00",
+        "event_counts": {
+          "INPUT": 1,
+          "DISPATCH_INTENT": 1,
+          "DISPATCH_ACCEPTED": 1,
+          "STATUS": 1,
+          "TOOL": 8,
+          "TEXT": 6,
+          "PROVIDER_RESULT": 1,
+          "RUN_COMPLETED": 1
+        },
+        "proof_events": {
+          "INPUT": {
+            "seq": 1,
+            "recorded_at": "2026-10-24T06:46:40.153496+00:00"
+          },
+          "DISPATCH_INTENT": {
+            "seq": 2,
+            "recorded_at": "2026-10-24T06:46:40.226672+00:00"
+          },
+          "DISPATCH_ACCEPTED": {
+            "seq": 3,
+            "recorded_at": "2026-10-24T06:46:40.245205+00:00"
+          },
+          "PROVIDER_RESULT": {
+            "seq": 19,
+            "recorded_at": "2026-10-24T06:46:55.412210+00:00"
+          },
+          "RUN_COMPLETED": {
+            "seq": 20,
+            "recorded_at": "2026-10-24T06:46:55.447967+00:00"
+          }
+        }
+      },
+      {
+        "run_id": "1d6fa444-c4fc-4a88-a5fa-73f3fa693270",
+        "state": "COMPLETED",
+        "dispatch_state": "ACCEPTED",
+        "baseline_id": "version-7f2a0a56-49f4-4fc0-b3ca-f9fc5c5fb50e",
+        "file_version_id": "version-dd91d39a-7bf5-4ee3-b087-b6762ed55766",
+        "created_at": "2026-10-24T06:46:56.224856+00:00",
+        "completed_at": "2026-10-24T06:47:11.396349+00:00",
+        "event_counts": {
+          "INPUT": 1,
+          "DISPATCH_INTENT": 1,
+          "DISPATCH_ACCEPTED": 1,
+          "STATUS": 1,
+          "TOOL": 8,
+          "TEXT": 4,
+          "PROVIDER_RESULT": 1,
+          "RUN_COMPLETED": 1
+        },
+        "proof_events": {
+          "INPUT": {
+            "seq": 1,
+            "recorded_at": "2026-10-24T06:46:56.225418+00:00"
+          },
+          "DISPATCH_INTENT": {
+            "seq": 2,
+            "recorded_at": "2026-10-24T06:46:56.292045+00:00"
+          },
+          "DISPATCH_ACCEPTED": {
+            "seq": 3,
+            "recorded_at": "2026-10-24T06:46:56.446110+00:00"
+          },
+          "PROVIDER_RESULT": {
+            "seq": 17,
+            "recorded_at": "2026-10-24T06:47:11.347925+00:00"
+          },
+          "RUN_COMPLETED": {
+            "seq": 18,
+            "recorded_at": "2026-10-24T06:47:11.396349+00:00"
+          }
+        }
+      }
+    ],
+    "cleanup": {
+      "session_archived_via_api": true
+    }
+  },
+  "appearance_exercise": {
+    "result": "PASS",
+    "phase": "exercise",
+    "checks": {
+      "linked_agent_default_revision_zero": true,
+      "exact_color_saved_independent_revision": true,
+      "duplicate_receipt_does_not_increment": true,
+      "stale_color_revision_rejected": true,
+      "arbitrary_colors_rejected": true,
+      "unlinked_agent_rejected": true,
+      "old_layout_save_preserves_color": true,
+      "color_does_not_bump_work_revision": true,
+      "pending_routes_exist_and_reject_unmanaged_session": true,
+      "pending_rejects_caller_authority_fields": true
+    },
+    "product_sha": "116b0f14b31a90f7c708d862d29f76394d8637eb",
+    "scope": "Actual Windows packaged Core/SQLite API and restart, existing observed linked Agent; no desktop UI or real provider queue execution claim"
+  },
+  "appearance_restart": {
+    "result": "PASS",
+    "phase": "reopen",
+    "checks": {
+      "color_survives_packaged_core_restart": true,
+      "default_reset_preserves_revision_history": true,
+      "reset_does_not_bump_work_revision": true
+    },
+    "product_sha": "116b0f14b31a90f7c708d862d29f76394d8637eb",
+    "scope": "Actual Windows packaged Core/SQLite API and restart, existing observed linked Agent; no desktop UI or real provider queue execution claim"
+  },
+  "port18792_exclusive_bind_after_teardown": true,
+  "six_restored_original_files_and_backup_hashes_unchanged": true,
+  "installation": "No MSI installed during this followup; standalone packaged Core only",
+  "scope_limit": "Actual Windows Core/SQLite/native real Codex HTTP acceptance. No desktop input, mobile pairing, browser sandbox UI or new MSI upgrade pass. CoreCI still strict Linux sandbox launch unavailable; source matrix/frontend passed."
+}

@@ -56,21 +56,49 @@ jobs:
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/asg-playwright/node_modules/playwright
         run: python scripts/verify_local_workflow.py --temp-root "$RUNNER_TEMP"
-      - name: Explicit pending instruction browser and restart acceptance
-        env:
-          PLAYWRIGHT_MODULE: ${{ runner.temp }}/asg-playwright/node_modules/playwright
-        run: python scripts/verify_pending_instruction.py --report-dir artifacts/pending-instruction-browser
       - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         if: always()
         with:
           name: local-workflow-evidence
           path: |
             artifacts/local-workflow/
-            artifacts/pending-instruction-browser/
           if-no-files-found: warn
+  pending-instruction-windows:
+    runs-on: windows-latest
+    needs: [test, frontend]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a
+        with: { node-version: "22", cache: "npm", cache-dependency-path: "web/package-lock.json" }
+      - run: pip install -e ".[dev]"
+      - name: Build production frontend
+        working-directory: web
+        run: npm ci && npm run build
+      - name: Install isolated Windows browser tooling
+        shell: pwsh
+        run: |
+          $toolRoot = Join-Path $env:RUNNER_TEMP "asg-playwright"
+          npm install --prefix $toolRoot --no-save playwright@1.64.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $playwrightCli = Join-Path $toolRoot "node_modules/playwright/cli.js"
+          node $playwrightCli install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $playwrightModule = Join-Path $toolRoot "node_modules/playwright"
+          "PLAYWRIGHT_MODULE=$playwrightModule" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Strict pending instruction browser and restart acceptance
+        run: python scripts/verify_pending_instruction.py --report-dir artifacts/pending-instruction-browser
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: always()
+        with:
+          name: pending-instruction-windows-evidence
+          path: artifacts/pending-instruction-browser/
+          if-no-files-found: error
   wheel:
     runs-on: ubuntu-latest
-    needs: [test, frontend, local-workflow]
+    needs: [test, frontend, local-workflow, pending-instruction-windows]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55

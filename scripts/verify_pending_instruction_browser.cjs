@@ -107,6 +107,11 @@ assert.equal(new URL(fixture.driver_url).hostname, '127.0.0.1');
   assert(Object.values(report.checks).every(value => value === true), 'QUEUE_CHECK_FAILED');
   report.result = 'PASS';
  } catch (error) {
+  if (!browser) {
+   const detail = String(error.stack || error.message || error);
+   const masked = fixture.driver_token ? detail.split(fixture.driver_token).join('[REDACTED]') : detail;
+   fs.writeFileSync(path.join(directory, 'launch-error.log'), masked.slice(0, 16384));
+  }
   report.result = 'FAIL';
   report.reason = /No usable sandbox|Chromium sandboxing failed/.test(error.message ?? '') ? 'BROWSER_SANDBOX_UNAVAILABLE'
     : /^[A-Z0-9_]+$/.test(error.message ?? '') ? error.message : 'QUEUE_BROWSER_FAILED';

@@ -1,0 +1,65 @@
+{
+  "status": "STATIC_VERIFIED_NOT_CI_EXECUTED",
+  "base": "116b0f14b31a90f7c708d862d29f76394d8637eb",
+  "changed_files": [
+    ".github/workflows/core.yml",
+    "scripts/verify_pending_instruction_browser.cjs"
+  ],
+  "gate": "Windows strictqueuebrowser required bywheel; Linux22manualrecoverychecks remainrequired; no continueonerror/http-only/sandboxdisable",
+  "actionlint": "1.7.12 PASS, officialisolatedarchive+checksum verified",
+  "yaml": "actionlint fullGitHubActionsYAMLparse PASS; gatejobblock structural assertions PASS",
+  "javascript_syntax": "node--check PASS",
+  "powershell_syntax": "HostPowerShell AST ParseInput0errors forWindowsinstallscript",
+  "vm_tests": {
+    "result": "PASS",
+    "workflow_gates": "required Windows strict browser, preserved Linux22checks and wheel dependencies, failure artifact mandatory",
+    "vm_cases": [
+      {
+        "message": "No usable sandbox",
+        "reason": "BROWSER_SANDBOX_UNAVAILABLE",
+        "diagnostic_characters": 16384,
+        "token_masked": true,
+        "failure_exit_retained": true
+      },
+      {
+        "message": "Browser launch denied by host policy",
+        "reason": "QUEUE_BROWSER_FAILED",
+        "diagnostic_characters": 16384,
+        "token_masked": true,
+        "failure_exit_retained": true
+      },
+      {
+        "message": "EXACT_LAUNCH_FAILURE",
+        "reason": "EXACT_LAUNCH_FAILURE",
+        "diagnostic_characters": 16384,
+        "token_masked": true,
+        "failure_exit_retained": true
+      }
+    ],
+    "limitations": "Static/YAML/actionlint and mocked launcher failures only; actual windows-latest execution remains CI gate"
+  },
+  "diff_check": "PASS",
+  "full_backend": "Not rerun: no product changes, prior1542pass49skip evidence separate",
+  "first_attempt_tooling_issues": [
+    "PyYAML and js-yaml unavailable; no dependencyinstalled. actionlint parsedYAML; gatechecks inspectvalidatedjobblocks. VM successunchanged"
+  ],
+  "launch_diagnostics": "Onlybeforebrowserexists; replacecontrolleddriver_token, bound16384characters; unchangedreasonregex/status/exitcode/exactchecks",
+  "rollback": "Revertonlytwofiles; old116bfailedCI evidence remains untouched",
+  "limitations": [
+    "ActualWindowsChromiumexecution remainsmandatoryremoteCIgate",
+    "Nohostsecurity/sysctl/browserflags changes",
+    "NoWindowsUI/ADB/provider/model/credentialoperations",
+    "No commit orpush"
+  ],
+  "source_sha256": {
+    ".github/workflows/core.yml": "bf4baa4c5116f4517f9677ff803b9eaa9e984b25c336869fbe4234095aad54eb",
+    "scripts/verify_pending_instruction_browser.cjs": "c132e19c719020206a2cd70ea3963b3a2872b4c4a26bbfa38013d3785ffc1122"
+  },
+  "official_tool_evidence": {
+    "source": "https://github.com/rhysd/actionlint/releases/tag/v1.7.12",
+    "archive_sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
+    "release_checksum_match": true,
+    "expected_release_sha256_match": true,
+    "checksum_file_sha256": "433028cf0ba3c42163ea1a668dedce30fcdbe84fe912b1a5e288c006eab8a4f5"
+  }
+}
