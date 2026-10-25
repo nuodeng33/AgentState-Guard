@@ -19,14 +19,21 @@ def test_saved_disconnect_applies_before_first_startup_discovery(tmp_path):
     events = []
 
     class Domains:
+        def close(self):
+            pass
+
         def disconnect(self, source_id):
             events.append("disconnect")
             return {"source_id": source_id, "connected": False}
+
+    import threading
+    observed = threading.Event()
 
     class Discovery:
         def discover(self):
             events.append("discovery")
             assert events[0] == "disconnect"
+            observed.set()
             raise RuntimeError("fixture has no process records")
 
     state = tmp_path / "state"
@@ -35,9 +42,12 @@ def test_saved_disconnect_applies_before_first_startup_discovery(tmp_path):
         operation = service.source_action("docker-" + "a" * 24, "disconnect", "pause")
         assert service.execute_source(operation["id"])["state"] == "SUCCEEDED"
     events.clear()
-    create_app(state_db_path=state / "state.db", config={"base_dir": str(state)},
+    app = create_app(state_db_path=state / "state.db", config={"base_dir": str(state)},
         discovery_service=Discovery(), product_startup_discovery=True, protection_domains=domains)
-    assert events == ["disconnect", "discovery"]
+    from fastapi.testclient import TestClient
+    with TestClient(app):
+        assert observed.wait(5)
+        assert events[:2] == ["disconnect", "discovery"]
 
 
 def test_replaced_directory_requires_explicit_new_registration(tmp_path):

@@ -1,5 +1,12 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-10-25 authoritative checkpoint — local read/startup closure
+
+Phase28 fixes synchronous startup discovery, event-loop blocking R4 reads, repeated Agent ledger validation, unsafe layout hydration, duplicate panel keys and incomplete request deadlines. Independent frontend421passed; backend1580passed/49skipped; typecheck/build/Ruff/diff green. Actual Windows source Core + sandboxed production browser with34526-event copied DB showed283ms list /175ms click-to-task-body, plus strict15 and delivery/recovery22 checks. Source proof does not replace final MSI/native input acceptance. Cold concurrent heavy Agent read5144ms remains explicit. See [phase28](phases/28-responsive-local-reads.md) and [evidence](verification/READ_PATH_CLOSURE_20261025.json).
+
+Current native state supersedes dated entries below: e311 test binaries installed but no ASG process running; diagnostic app used a copy, closed normally, original6files3199253bytes and immutable backup verified/restored. Do not start/migrate original data during tests. New CI/MSI, final crash recovery, manual-move cleanup and broader capability boundaries remain open. No merge/release/Windows restart/permanent deletion.
+
+
 ### 2026-10-25 latest: work-first shell
 
 User-requested left work list/search/new, central work, top File/Edit/View and avatar-only Settings implemented. Guard/detection surfaces are inside Settings. Independent337frontend/typecheck/build passed; actual production-asset browser with installedCore verified work/task creation, view/save and settings return; menu CSS collision fixed and focused6/build reverified. This is source preview, not newMSI acceptance. See [phase26](phases/26-work-first-shell.md).

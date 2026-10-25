@@ -22,6 +22,10 @@ class ProtectionRuntime:
         self.thread = None
         self.last_error = None
         self.discovery_refresh = None
+        self.initialize_sources = None
+        self.on_initialized = None
+        self.initialization_lock = threading.Lock()
+        self.initial_discovery_complete = threading.Event()
         self.background_discovery = False
         self.discovery_thread = None
         self.started_at = now()
@@ -43,6 +47,7 @@ class ProtectionRuntime:
         if self.thread and self.thread.is_alive():
             return
         self.stop_event.clear()
+        self.initial_discovery_complete.clear()
         self.started_at = now()
         self.thread = threading.Thread(target=self._run, name="asg-protection", daemon=True)
         self.thread.start()
@@ -51,7 +56,8 @@ class ProtectionRuntime:
         self.wake.set()
 
     def close(self):
-        self.stop_event.set()
+        with self.initialization_lock:
+            self.stop_event.set()
         self.wake.set()
         if self.thread:
             self.thread.join(timeout=10)
@@ -97,14 +103,15 @@ class ProtectionRuntime:
                 msvcrt.locking(lease.fileno(), msvcrt.LK_UNLCK, 1)
 
     def _run_owned(self):
-        if self.background_discovery and self.discovery_refresh:
-            self.discovery_thread = threading.Thread(target=self._observe, name="asg-discovery", daemon=True)
-            self.discovery_thread.start()
         first = True
         while not self.stop_event.is_set():
             try:
                 with self.service() as service:
                     if first:
+                        if self.initialize_sources:
+                            self.initialize_sources()
+                        if self.stop_event.is_set():
+                            break
                         service.restore_disconnections()
                         with service.db.transaction() as conn:
                             # Never replay a WSL startup command after a crash.
@@ -113,6 +120,13 @@ class ProtectionRuntime:
                         for op in service._rows("SELECT id FROM protection_operations WHERE kind='RESTORE' AND state IN ('RUNNING','COMPENSATING','NEEDS_ATTENTION')"):
                             service.reconcile(op["id"])
                         first = False
+                        with self.initialization_lock:
+                            if not self.stop_event.is_set():
+                                if self.on_initialized:
+                                    self.on_initialized()
+                                if self.background_discovery and self.discovery_refresh:
+                                    self.discovery_thread = threading.Thread(target=self._observe, name="asg-discovery", daemon=True)
+                                    self.discovery_thread.start()
                     # A journal/storage failure can leave an interrupted operation
                     # without killing the worker. Reconcile it before new work.
                     for op in service._rows("SELECT id FROM protection_operations WHERE kind='RESTORE' AND state IN ('RUNNING','COMPENSATING')"):
@@ -155,11 +169,16 @@ class ProtectionRuntime:
             "full_at": timestamp if result["status"] in {"RECORDED", "UNCHANGED"} else cache.get("full_at", 0)}
 
     def _observe(self):
-        deadline = time.monotonic() + 2
-        while not self.stop_event.wait(max(0.25, deadline - time.monotonic())):
+        deadline = time.monotonic()
+        while not self.stop_event.wait(max(0, deadline - time.monotonic())):
             started = time.monotonic()
             try:
-                self.discovery_refresh()
+                result = self.discovery_refresh()
+                if (not self.stop_event.is_set() and isinstance(result, dict)
+                        and result.get("reason_code") == "DISCOVERY_REFRESHED"
+                        and result.get("status") in {"AVAILABLE", "DEGRADED"}
+                        and isinstance(result.get("snapshot_id"), str) and result["snapshot_id"]):
+                    self.initial_discovery_complete.set()
             except (OSError, RuntimeError, ValueError, sqlite3.DatabaseError):
                 # Discovery failure does not stop independent file recording.
                 pass

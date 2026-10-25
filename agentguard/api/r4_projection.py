@@ -7,10 +7,11 @@ import re
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import wraps
 from typing import Any
 
-from agentguard.evidence.discovery_adapter import resolve_verified_workspace_binding
-from agentguard.evidence.ledger import verify_ledger
+from agentguard.evidence.discovery_adapter import _read_workspace_bindings
+from agentguard.evidence.ledger import verify_ledger_snapshot as verify_ledger
 from agentguard.recovery.coverage import RecoveryCoverageService
 from agentguard.recovery.manifest import validate_snapshot_v3
 from agentguard.storage.db import StateDB
@@ -218,6 +219,24 @@ def _latest_discovery_snapshot_id(connection: sqlite3.Connection) -> str | None:
     return None
 
 
+def _read_snapshot(method):
+    """Pin validation and projection reads without committing an outer transaction."""
+    @wraps(method)
+    def read(self, *args, **kwargs):
+        connection = self._database._conn
+        if connection is None:
+            return method(self, *args, **kwargs)
+        connection.execute("SAVEPOINT r4_read_projection")
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            try:
+                connection.execute("ROLLBACK TO r4_read_projection")
+            finally:
+                connection.execute("RELEASE r4_read_projection")
+    return read
+
+
 class R4ReadProjectionService:
     """Project only verified ledger and durable service facts into safe DTOs."""
 
@@ -248,6 +267,7 @@ class R4ReadProjectionService:
         projection = _base(view, "DEGRADED", "R4_DATABASE_UNREACHABLE", [])
         return _with_empty_recovery(projection) if view == "recovery" else projection
 
+    @_read_snapshot
     def runtime(self) -> dict[str, Any]:
         connection = self._verified_connection("runtime")
         if isinstance(connection, dict):
@@ -345,10 +365,17 @@ class R4ReadProjectionService:
             items,
         )
 
+    @_read_snapshot
     def agents(self) -> dict[str, Any]:
-        connection = self._verified_connection("agents")
-        if isinstance(connection, dict):
-            return connection
+        connection = self._database._conn
+        if connection is None:
+            return self.unavailable("agents")
+        with _read_workspace_bindings(connection) as resolve_workspace:
+            if resolve_workspace is None:
+                return _base("agents", "DEGRADED", "R4_LEDGER_INVALID", [])
+            return self._agents(connection, resolve_workspace)
+
+    def _agents(self, connection: sqlite3.Connection, resolve_workspace) -> dict[str, Any]:
         rows = connection.execute(
             """SELECT sequence, event_id, result, observed_at,
                       execution_domain_id, subject_ref, payload_safe_json
@@ -428,10 +455,7 @@ class R4ReadProjectionService:
             domain = _atom(event_domain)
             if domain is None and payload.get("agent_id") is None:
                 domain = _atom(value.get("execution_domain_id"))
-            workspace = resolve_verified_workspace_binding(
-                connection,
-                agent_event_id=event_id,
-            )
+            workspace = resolve_workspace(agent_event_id=event_id)
             freshness = self._freshness(observed_at)
             current = freshness == "FRESH"
             agent_id = _atom(payload.get("agent_id"))
@@ -506,6 +530,7 @@ class R4ReadProjectionService:
             )
         return projection
 
+    @_read_snapshot
     def supervision(self) -> dict[str, Any]:
         connection = self._verified_connection("supervision")
         if isinstance(connection, dict):
@@ -643,6 +668,7 @@ class R4ReadProjectionService:
         )
         return projection
 
+    @_read_snapshot
     def changes(self) -> dict[str, Any]:
         connection = self._verified_connection("changes")
         if isinstance(connection, dict):
@@ -655,6 +681,7 @@ class R4ReadProjectionService:
             items,
         )
 
+    @_read_snapshot
     def evidence(self, event_id: str) -> dict[str, Any]:
         if not isinstance(event_id, str) or not _SAFE_EVENT_ID.fullmatch(event_id):
             return {
@@ -737,6 +764,7 @@ class R4ReadProjectionService:
             ),
         }
 
+    @_read_snapshot
     def recovery(self) -> dict[str, Any]:
         connection = self._verified_connection("recovery")
         if isinstance(connection, dict):

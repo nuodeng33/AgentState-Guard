@@ -30,10 +30,21 @@ type Viewport = { x: number; y: number; zoom: number };
 export type Board = { schema_version: 1; viewport: Viewport; cards: Card[];
   surface?: 'space' | 'board'; space?: { viewport: Viewport; nodes: SpaceNode[] } };
 type View = { revision: number; state: Board | null };
-type Content = { title?: string; body: string; requirement_version?: number; source?: string; source_run_id?: string | null };
+type Content = { title?: string; body: string; requirement_version?: number; source?: string; source_run_id?: string | null; assignee?: string | null; depends_on?: string[] };
 type SaveCommand = { request_id: string; expected_revision: number; state: Board; edit: number };
-type Session = { id: string; board: Board; revision: number; edits: number; saved: number;
-  pending: SaveCommand | null; saving: Promise<void> | null; status: 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'; blocked: boolean };
+type Session = { id: string; board: Board; revision: number | null; hydrated: boolean; edits: number; saved: number;
+  pending: SaveCommand | null; saving: Promise<void> | null; status: 'loading' | 'unavailable' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'; blocked: boolean };
+// Share only in-flight reads, scoped to the concrete Core client. Responses
+// are still checked against the selected Work before any state is published.
+const workReads = new WeakMap<ApiClient, Map<string, Promise<unknown>>>();
+function readWorkOnce<T>(client: ApiClient, path: string, scope = path): Promise<T> {
+  let pending = workReads.get(client);
+  if (!pending) { pending = new Map(); workReads.set(client, pending); }
+  const existing = pending.get(scope);
+  if (existing) return existing as Promise<T>;
+  const request = client.get<T>(path).finally(() => { if (pending!.get(scope) === request) pending!.delete(scope); });
+  pending.set(scope, request); return request;
+}
 const WorkRestScene = lazy(() => import('./WorkRestScene'));
 const key = (card: Pick<Card, 'kind' | 'ref_id' | 'version'>) => `${card.kind}:${card.ref_id}:${card.version ?? ''}`;
 const bound = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
@@ -68,7 +79,17 @@ const initialBoard = (id: string, version: number): Board => ({ schema_version: 
   viewport: { x: 24, y: 24, zoom: 1 }, cards: [{ kind: 'requirement', ref_id: id, version,
     x: 0, y: 0, width: 400, height: 430, scroll: 0 }] });
 
-export default function WorkPage({ client = apiClient, onUnsavedChange, onNavigate, visible = true }: { client?: ApiClient; onUnsavedChange?: (value: boolean) => void; onNavigate?: (page: PageKey) => void; visible?: boolean }) {
+type WorkPageProps = { client?: ApiClient; onUnsavedChange?: (value: boolean) => void;
+  onNavigate?: (page: PageKey) => void; visible?: boolean };
+const workClientIds = new WeakMap<ApiClient, number>();
+let nextWorkClientId = 0;
+export default function WorkPage(props: WorkPageProps) {
+  const client = props.client ?? apiClient;
+  let id = workClientIds.get(client);
+  if (!id) { id = ++nextWorkClientId; workClientIds.set(client, id); }
+  return <WorkPageBody key={id} {...props} client={client} />;
+}
+function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible = true }: WorkPageProps) {
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [items, setItems] = useState<Summary[]>([]); const [more, setMore] = useState(false);
   const [work, setWork] = useState<Work | null>(null); const workRef = useRef<Work | null>(null);
@@ -145,11 +166,12 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   }, []);
   const saveView = useCallback((session?: Session) => {
     const target = session ?? (workRef.current && sessions.current.get(workRef.current.id));
-    if (!target || target.saving || target.blocked || target.saved === target.edits) return target?.saving ?? Promise.resolve();
+    if (!target || !target.hydrated || target.saving || target.blocked || target.saved === target.edits) return target?.saving ?? Promise.resolve();
     target.status = 'saving'; publishStatus(target);
     const run = async () => {
       try {
         while (target.saved !== target.edits) {
+          if (!target.hydrated || target.revision === null) return;
           const command = target.pending ?? { request_id: crypto.randomUUID(), expected_revision: target.revision,
             state: target.board, edit: target.edits };
           target.pending = command;
@@ -167,7 +189,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   }, [client, publishStatus]);
 
   function changeBoard(next: Board) {
-    const session = workRef.current && sessions.current.get(workRef.current.id); if (!session) return;
+    const session = workRef.current && sessions.current.get(workRef.current.id); if (!session?.hydrated) return;
     session.board = next; session.edits += 1; boardRef.current = next; setBoard(next);
     if (!session.blocked) { session.status = 'dirty'; setStatus('dirty'); }
   }
@@ -184,35 +206,70 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     const previous = workRef.current && sessions.current.get(workRef.current.id);
     if (previous && previous.id !== id) void saveView(previous);
     const seq = ++loadSequence.current; setLoading(true); setError('');
+    if (workRef.current?.id !== id) {
+      setAppearancePanel(null); setFocus(null); setLibraryOpen(false); setRelationshipsOpen(false); setRelationLimit(12);
+      setMenuOpen(false); setRestOpen(false); setAgentPanel(null); setSessionPanel(false); setDeliveryPanel(false);
+      setDeliveryOutput(null); setRecoveryPanel(false); setLinksPanel(false); setEditor(null); setHover(null);
+      setExecutionTarget(null); deliveryReturnsToSession.current = false;
+    }
+    const cached = sessions.current.get(id);
+    const preserve = cached && (cached.edits !== cached.saved || cached.pending || cached.saving || cached.blocked);
+    // Start both reads now. Optional layout latency must not delay Work facts,
+    // and a rejected layout read must not become an unhandled promise meanwhile.
+    const viewRead = preserve ? null : readWorkOnce<View>(client, `/api/v1/works/${id}/view`)
+      .then(value => ({ ok: true as const, value }), () => ({ ok: false as const }));
     try {
-      const detail = await client.get<Work>(`/api/v1/works/${id}`);
+      const detail = await readWorkOnce<Work>(client, `/api/v1/works/${id}`);
       if (seq !== loadSequence.current || !mounted.current) return;
-      const cached = sessions.current.get(id);
-      const preserve = cached && cached.edits !== cached.saved;
+      if (detail.id !== id || !Array.isArray(detail.tasks) || !Array.isArray(detail.artifacts)) throw new Error('WORK_DETAIL_INVALID');
       workRef.current = detail; setWork(detail); setRequirementVersion(detail.requirement_version);
-      let session = preserve ? cached : null;
+      let session = cached;
       if (!session) {
-        const next = withSpace(initialBoard(id, detail.requirement_version), detail);
-        session = { id, board: next, revision: 0, edits: 0, saved: 0,
-          pending: null, saving: null, status: 'saved', blocked: false };
+        session = { id, board: withSpace(initialBoard(id, detail.requirement_version), detail), revision: null, hydrated: false,
+          edits: 0, saved: 0, pending: null, saving: null, status: 'loading', blocked: false };
         sessions.current.set(id, session);
-      }
-      boardRef.current = session.board; setBoard(session.board); setStatus(session.status);
-      setLoading(false);
+      } else if (!session.hydrated) session.status = 'loading';
+      const startingEdits = session.edits;
+      boardRef.current = session.board; setBoard(session.board); setStatus(session.status); setLoading(false);
       const url = new URL(location.href); url.searchParams.set('work', id); history.replaceState(null, '', url);
-      if (preserve) return;
-      try {
-        const view = await client.get<View>(`/api/v1/works/${id}/view`);
-        if (seq !== loadSequence.current || !mounted.current) return;
+      if (!viewRead) return;
+      // The caller may finish a confirmed form once Work facts are available;
+      // layout hydration continues independently and remains generation-fenced.
+      void viewRead.then(result => {
+        if (seq !== loadSequence.current || !mounted.current || workRef.current?.id !== id) return;
         const current = sessions.current.get(id);
-        if (!current || current.edits !== 0) return;
-        const next = withSpace(view.state ?? initialBoard(id, detail.requirement_version), detail);
-        current.board = next; current.revision = view.revision; current.status = view.state ? 'saved' : 'dirty';
-        current.edits = view.state ? 0 : 1; boardRef.current = next; setBoard(next); setStatus(current.status);
-      } catch { if (seq === loadSequence.current && mounted.current) setError(t.failed); }
-    } catch (err) { if (seq === loadSequence.current) { workRef.current = null; boardRef.current = null; setWork(null); setBoard(null); setError(message(err));
+        if (current !== session || current.edits !== startingEdits || current.pending || current.saving || current.blocked) return;
+        if (!result.ok || !Number.isSafeInteger(result.value.revision) || result.value.revision < 0) {
+          if (!current.hydrated) { current.status = 'unavailable'; setStatus(current.status); }
+          setError(t.failed); return;
+        }
+        const view = result.value;
+        let next: Board;
+        try {
+          if (view.state && (!Array.isArray(view.state.cards) || !view.state.viewport ||
+            ![view.state.viewport.x, view.state.viewport.y, view.state.viewport.zoom].every(Number.isFinite) ||
+            view.state.space && !Array.isArray(view.state.space.nodes))) throw new Error('WORK_VIEW_INVALID');
+          next = withSpace(view.state ?? initialBoard(id, workRef.current.requirement_version), workRef.current);
+        } catch {
+          if (!current.hydrated) { current.status = 'unavailable'; setStatus(current.status); }
+          setError(t.failed); return;
+        }
+        // Derived relation nodes are a read projection, not a user edit.
+        // Existing saved layouts must not schedule writes merely on opening.
+        const dirty = !view.state;
+        current.board = next; current.revision = view.revision; current.hydrated = true;
+        current.edits = dirty ? startingEdits + 1 : startingEdits; current.status = dirty ? 'dirty' : 'saved';
+        boardRef.current = next; setBoard(next); setStatus(current.status);
+      }).catch(() => {
+        if (seq !== loadSequence.current || !mounted.current || workRef.current?.id !== id) return;
+        if (!session.hydrated) { session.status = 'unavailable'; setStatus(session.status); }
+        setError(t.failed);
+      });
+    } catch (err) { if (seq === loadSequence.current && mounted.current) {
+      workRef.current = null; boardRef.current = null; setWork(null); setBoard(null); setError(message(err));
       const url = new URL(location.href); url.searchParams.delete('work'); history.replaceState(null, '', url);
-      await list().catch(() => {}); setLoading(false); } }
+      await list().catch(() => {}); setLoading(false);
+    } }
   }
 
   useEffect(() => {
@@ -359,6 +416,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       changeBoard({ ...current, surface: 'board', cards, viewport: { x: 24, y: 24, zoom: 1 } });
     } else changeBoard({ ...current, surface: 'board' });
   }
+  const layoutReady = Boolean(work && sessions.current.get(work.id)?.hydrated);
   const active = board?.cards.find(c => key(c) === focus);
   const space = board?.space; const inSpace = board?.surface !== 'board';
   const relatedNodes = space?.nodes.filter(node => node.kind !== 'requirement') ?? [];
@@ -448,7 +506,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const renderContent = (card: Card, reading = false) => <CardContent client={client} work={work!} card={card} onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
   return <div className="work-layout" aria-hidden={!visible}>
     <WorkMenuBar onNewWork={() => setForm('work')} disabled={busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)}
-      onSave={work && status !== 'conflict' && status !== 'saving' ? () => void saveView() : undefined}
+      onSave={work && layoutReady && status !== 'conflict' && status !== 'saving' ? () => void saveView() : undefined}
       onAllWork={work ? back : undefined}
       onNewTask={work ? () => setForm('task') : undefined} onNewArtifact={work ? () => setForm('artifact') : undefined}
       onEditWork={work ? () => setEditor({ mode: 'work' }) : undefined}
@@ -457,14 +515,14 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       onSessions={work ? () => openSessions() : undefined} onDelivery={work ? () => openDelivery() : undefined}
       onRecovery={work ? openRecovery : undefined} onProtectionLinks={work ? () => setLinksPanel(true) : undefined}
       onAgents={work ? () => openAgents() : undefined} onAppearance={work ? () => openAppearance() : undefined}
-      onBoard={work ? continueBoard : undefined} onSpace={work ? returnToSpace : undefined} on3d={work ? () => setRestOpen(true) : undefined} />
+      onBoard={work && layoutReady ? continueBoard : undefined} onSpace={work && layoutReady ? returnToSpace : undefined} on3d={work ? () => setRestOpen(true) : undefined} />
     <div className="work-layout-content">
     <WorkSidebar page="work" items={items} activeId={work?.id} onOpen={id => { if (id !== work?.id) void openWork(id); }}
       onCreate={() => setForm('work')} onNavigate={next => { if (next === 'work') back(); else onNavigate?.(next); }}
       hasMore={more} onMore={() => void list(true).catch(() => setError(t.failed))}
       navigationLocked={busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)} />
     <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
-    {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button></div>}
+    {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button>{work && !layoutReady && status === 'unavailable' && <button onClick={() => void openWork(work.id)}>{locale === 'zh-CN' ? '重新读取现场' : 'Reload workspace'}</button>}</div>}
     {loading ? <div className="work-loading-state" role="status"><span className="work-loading-spinner" aria-hidden="true" /><p>{t.load}</p></div> : !work ? <>
       <div className="work-overview">
         <header className="work-overview-head"><div><h1>{t.title}</h1><p>{items.length ? t.overviewCount(items.length) : t.intro}</p></div>
@@ -542,15 +600,15 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
           </article>)}
         </div></div></div>}
       <nav className="work-dock" aria-label={t.workspaceControls}>
-        {inSpace && <div className="work-dock-group"><button className="work-primary" onClick={continueBoard}><Icon name="board" />{t.continueBoard}</button><button className={`work-toggle${relationshipsOpen ? ' is-on' : ''}`} onClick={() => { const v = boardRef.current?.space?.viewport; fitOnReveal.current = !relationshipsOpen && !!v && v.x === 0 && v.y === 0 && v.zoom === 1; setRelationshipsOpen(open => !open); }} aria-expanded={relationshipsOpen}><Icon name="link" />{relationshipsOpen ? t.hideRelations : t.showRelations}</button>{relationshipsOpen && relatedNodes.length > relationLimit && <button className="work-quiet" onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}</div>}
+        {inSpace && <div className="work-dock-group"><button className="work-primary" disabled={!layoutReady} onClick={continueBoard}><Icon name="board" />{t.continueBoard}</button><button className={`work-toggle${relationshipsOpen ? ' is-on' : ''}`} onClick={() => { const v = boardRef.current?.space?.viewport; fitOnReveal.current = !relationshipsOpen && !!v && v.x === 0 && v.y === 0 && v.zoom === 1; setRelationshipsOpen(open => !open); }} aria-expanded={relationshipsOpen} disabled={!layoutReady}><Icon name="link" />{relationshipsOpen ? t.hideRelations : t.showRelations}</button>{relationshipsOpen && relatedNodes.length > relationLimit && <button className="work-quiet" onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}</div>}
         {inSpace && relationshipsOpen && <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => spaceZoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((space?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => spaceZoom(1.2)}><Icon name="plus" /></button><button className="work-icon-button" aria-label={t.fit} title={t.fit} onClick={fitSpace}><Icon name="fit" /></button></div>}
         <div className="work-dock-group">
-          <span role="status" className={`work-save is-${status}`} title={status === 'conflict' ? t.viewConflict : undefined}>{status === 'saved' ? t.saved : status === 'saving' ? t.saving : status === 'failed' ? t.saveFailed : status === 'conflict' ? t.viewConflict : t.dirty}</span>
-          <button className="work-icon-button" title={t.saveView} aria-label={t.saveView} disabled={status === 'saving' || status === 'conflict'} onClick={() => void saveView()}><Icon name="save" /></button>
+          <span role="status" className={`work-save is-${status}`} title={status === 'conflict' ? t.viewConflict : undefined}>{status === 'loading' ? t.load : status === 'unavailable' ? (locale === 'zh-CN' ? '现场尚未载入' : 'Workspace not loaded') : status === 'saved' ? t.saved : status === 'saving' ? t.saving : status === 'failed' ? t.saveFailed : status === 'conflict' ? t.viewConflict : t.dirty}</span>
+          <button className="work-icon-button" title={t.saveView} aria-label={t.saveView} disabled={!layoutReady || status === 'saving' || status === 'conflict'} onClick={() => void saveView()}><Icon name="save" /></button>
           {(status === 'failed' || status === 'conflict') && <button className="work-quiet" onClick={() => { sessions.current.delete(work.id); void openWork(work.id); }}>{t.discardView}</button>}
         </div>
         <div className="work-dock-group">
-          <button className="work-quiet work-dock-agents" title={t.agents} aria-label={t.agents} onClick={() => openAgents()}><Icon name="agents" /><span className="work-count">{agents.failed ? '!' : agents.items.length}</span></button>
+          <button className="work-quiet work-dock-agents" title={agents.loading ? (locale === 'zh-CN' ? '正在读取 Agent 记录…' : 'Reading Agent records…') : t.agents} aria-label={t.agents} onClick={() => openAgents()}><Icon name="agents" /><span className="work-count">{agents.failed ? '!' : agents.loading ? '…' : agents.items.length}</span></button>
           <button className="work-icon-button" title={locale === 'zh-CN' ? 'Agent 颜色' : 'Agent colors'} aria-label={locale === 'zh-CN' ? 'Agent 颜色' : 'Agent colors'} onClick={() => openAppearance()}><Icon name="palette" /></button>
           <button className="work-icon-button" title={t.restScene} aria-label={t.restScene} onClick={() => setRestOpen(true)}><Icon name="orbit" /></button>
         </div></nav>
@@ -564,10 +622,10 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
         if (boardRef.current) changeBoard(withSpace(boardRef.current, detail));
         await list();
       }} />}
-    {work && <WorkProtectionLinks key={work.id} client={client} workId={work.id} visible={visible && linksPanel}
+    {work && <WorkProtectionLinks key={`protection-links:${work.id}`} client={client} workId={work.id} visible={visible && linksPanel}
       onClose={() => setLinksPanel(false)} onChanged={() => void refreshDeliveryWork(work.id)} />}
     <WorkRecovery protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
-    {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
+    {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={`sessions:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
     {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowArtifact={(id, version) => {
@@ -577,7 +635,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision: Math.max(current.revision, revision) }; workRef.current = next; setWork(next); }
     }} />}
     {restOpen && work && visible && <div className="work-rest-layer"><Suspense fallback={<div className="work-rest-loading"><button autoFocus onClick={() => setRestOpen(false)}>← {t.returnBoard}</button><p role="status">{t.load}</p></div>}><WorkRestScene title={work.title} requirementVersion={work.requirement_version} taskCount={work.tasks.length} artifactCount={work.artifacts.length} updatedAt={work.updated_at} agentTints={appearances.tints} agents={agents.items} tasks={work.tasks.map(task => ({ ...task, assignee_agent_ids: agents.items.filter(agent => agent.task_ids?.includes(task.id)).map(agent => agent.agent_id) }))} onTaskSelect={id => { setRestOpen(false); showOnBoard({ kind: 'task', ref_id: id, version: null, x: 0, y: 0 }); }} onAgentSelect={openAgents} onManageAgents={() => openAgents()} onReturn={() => setRestOpen(false)} /></Suspense></div>}
-    {agentPanel && work && <WorkAgents key={work.id} client={client} workId={work.id} revision={work.revision} linked={agents.items} tasks={work.tasks} initialAgentId={agentPanel.selected} visible={visible} onClose={closeAgents} onLinkedChanged={agents.replace} onRevision={revision => {
+    {agentPanel && work && <WorkAgents key={`agents:${work.id}`} client={client} workId={work.id} revision={work.revision} linked={agents.items} tasks={work.tasks} initialAgentId={agentPanel.selected} visible={visible} onClose={closeAgents} onLinkedChanged={agents.replace} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
     {appearancePanel && work && <AgentAppearancePicker agents={agents.items} state={appearances} selected={appearancePanel.selected} onClose={closeAppearance} />}
@@ -618,6 +676,20 @@ function TaskPin() {
   </svg></span>;
 }
 
+const contentReads = new WeakMap<ApiClient, Map<string, Promise<Content>>>();
+function readCardContent(client: ApiClient, path: string, scope: string): Promise<Content> {
+  let cache = contentReads.get(client);
+  if (!cache) { cache = new Map(); contentReads.set(client, cache); }
+  const existing = cache.get(scope);
+  if (existing) return existing;
+  const request = readWorkOnce<Content>(client, path, scope).then(value => {
+    if (!value || typeof value.body !== 'string') throw new Error('Invalid content');
+    return value;
+  }).catch(error => { if (cache!.get(scope) === request) cache!.delete(scope); throw error; });
+  cache.set(scope, request);
+  if (cache.size > 64) cache.delete(cache.keys().next().value as string);
+  return request;
+}
 function CardContent({ client, work, card, onScroll }: { client: ApiClient; work: Work; card: Card; onScroll: (scroll: number) => void }) {
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [content, setContent] = useState<Content | null>(null); const [error, setError] = useState<'contentBusy' | 'contentMissing' | 'contentConnection' | 'contentFailed' | null>(null); const [retry, setRetry] = useState(0);
@@ -625,7 +697,9 @@ function CardContent({ client, work, card, onScroll }: { client: ApiClient; work
   useEffect(() => {
     let live = true; setContent(null); setError(null);
     const path = card.kind === 'requirement' ? `requirements/${card.version}` : card.kind === 'task' ? `tasks/${card.ref_id}` : `artifacts/${card.ref_id}/${card.version}`;
-    void client.get<Content>(`/api/v1/works/${work.id}/${path}`).then(value => { if (live) setContent(value); }).catch(err => {
+    const route = `/api/v1/works/${work.id}/${path}`;
+    const scope = `${route}:${card.kind === 'task' ? work.revision : ''}`;
+    void readCardContent(client, route, scope).then(value => { if (live) setContent(value); }).catch(err => {
       if (!live) return;
       setError(err instanceof ApiRequestError && err.status === 503 ? 'contentBusy' :
         err instanceof ApiRequestError && err.status === 404 ? 'contentMissing' :
@@ -639,6 +713,12 @@ function CardContent({ client, work, card, onScroll }: { client: ApiClient; work
       <h2>{content.title ?? `${work.title} · ${t.requirement}`}</h2>
       {content.requirement_version && <small className="work-provenance">{content.source === 'AGENT_RUN' ? t.runOutput : content.source === 'USER_EDITED_RUN_OUTPUT' ? t.editedRunOutput : t.manual} · {t.basedOn} v{content.requirement_version}</small>}
       {content.source_run_id && <code>{content.source_run_id}</code>}
+      {card.kind === 'task' && <dl className="work-provenance">
+        <div><dt>{t.assignee}</dt><dd>{content.assignee === undefined ? (locale === 'zh-CN' ? '未知' : 'Unknown') : content.assignee || (locale === 'zh-CN' ? '尚未指定' : 'Not assigned')}</dd></div>
+        <div><dt>{locale === 'zh-CN' ? '前置任务' : 'Dependencies'}</dt><dd>{Array.isArray(content.depends_on) && content.depends_on.length
+          ? content.depends_on.map(id => work.tasks.find(task => task.id === id)?.title ?? id).join(' · ')
+          : Array.isArray(content.depends_on) ? (locale === 'zh-CN' ? '无' : 'None') : (locale === 'zh-CN' ? '未知' : 'Unknown')}</dd></div>
+      </dl>}
       <div className="work-prose"><Prose text={content.body} /></div>
     </> : <p>{t.load}</p>}
   </div>;

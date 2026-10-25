@@ -1,0 +1,65 @@
+{
+  "phase": "28-read-path-closure",
+  "candidate_parent": "f78d1ae0f16c126bb8ded5dc2929fd4b2cc7c611",
+  "independent": {
+    "frontend": {
+      "tests": 421,
+      "passed": 421,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xfailed": 0,
+      "xpassed": 0,
+      "sources": [
+        "/workspace/projects/AgentState-Guard-onboarding/artifacts/loading-closure-20261025/independent/frontend.xml"
+      ]
+    },
+    "backend": {
+      "tests": 1629,
+      "passed": 1580,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 49,
+      "xfailed": 0,
+      "xpassed": 0,
+      "sources": [
+        "/workspace/projects/AgentState-Guard-onboarding/artifacts/loading-closure-20261025/independent/backend.xml"
+      ]
+    },
+    "backend_duration_seconds": 132.09,
+    "backend_warnings": 1003,
+    "typecheck_exit": 0,
+    "build_exit": 0,
+    "ruff_exit": 0,
+    "diffcheck_exit": 0,
+    "backend_source_drift": [],
+    "frontend_source_drift": [],
+    "review": "Authoritycacheboundaryfindingfixed:publicworkspaceauthorityusesunconditionalfullvalidator; Work.attach_agentwritefullverifybeforeprojection; onlyprivateR4readerusescache. Eachreadhashesall19rawtypedcolumns+snapshot; noTTL/head/countshortcut,onlysuccessLRU64. Savepointskeepverification/projectiongenerationandnevercommitouterwrites. Startupsourceinit/pauseintent/restorereconcilegatesexecution; stoplockedagainstlateinitstart.",
+    "limits": "Fulltestsusetemporaryfixtures; no realnativeWebVieworuserDB/APIaccess byreviewer. ActualWindowscopycapacity/performance/browserandoriginalhistoryhashverificationremainparent-owned. No model/credential/process changes. Existingchunk-sizewarning remains."
+  },
+  "windows_source_browser": {
+    "database_bytes": 54558720,
+    "ledger_events": 34526,
+    "factory_ms": 252.62,
+    "api_started_ms": 326.6,
+    "work_list_visible_ms": 283,
+    "work_heading_visible_ms": 140,
+    "task_body_visible_ms": 175,
+    "agent_panel_visible_ms": 79,
+    "agent_panel_closes_while_observing": true,
+    "archive_unchanged": true
+  },
+  "actual_windows_limits": "Source Core + production assets in sandboxed Chrome, not new installed MSI or native pointer acceptance. Cold concurrent heavy R4 reads 5144/4706ms, warm2436/1776ms; one cold result exceeds the 5s transport budget. Local Work/body are independent and shown above.",
+  "functional_browser": {
+    "strict_work_edits_notes_directory_panel_checks": 15,
+    "manual_delivery_file_recovery_restart_checks": 22,
+    "result": "PASS"
+  },
+  "data_state": "Installed e311 test binaries remain, no ASG process running; original six files and independent backup verified and restored after diagnostic run. No original DB was started/migrated.",
+  "outstanding": [
+    "Exact candidate CI and new MSI upgrade/cold native observation",
+    "Native full pointer evidence: FrameArrived timeout / coordinate input geometry unavailable",
+    "Final packaged external-edit crash recovery remains separate from old 0c88 pass",
+    "Manual-move cleanup, no permanent deletion; provider/physical-hardware boundaries retained"
+  ]
+}

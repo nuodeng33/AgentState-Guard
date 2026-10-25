@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from agentguard.api.r4_projection import R4ReadProjectionService
 from agentguard.core.sanitizer import contains_sensitive_data
+from agentguard.evidence.ledger import verify_ledger
 from agentguard.storage.db import StateDB
 
 from .models import (
@@ -163,6 +164,10 @@ class WorkService:
     def attach_agent(self, work_id: str, command: AttachAgent):
         def apply(conn, now):
             self._work(conn, work_id, command.expected_revision)
+            # Attaching grants a durable relationship: its write transaction must
+            # run the full validator even when read-only projections are warm.
+            if verify_ledger(conn):
+                raise WorkError("WORK_AGENT_EVIDENCE_INVALID", 409)
             projection = self._current_agents()
             if projection["reason_code"] == "R4_LEDGER_INVALID":
                 raise WorkError("WORK_AGENT_EVIDENCE_INVALID", 409)

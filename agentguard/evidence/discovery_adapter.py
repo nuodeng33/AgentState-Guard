@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
@@ -18,7 +19,7 @@ from agentguard.discovery.models import (
 )
 from agentguard.storage.db import StateDB
 
-from .ledger import EvidenceLedger, LedgerReceipt, verify_ledger
+from .ledger import EvidenceLedger, LedgerReceipt, verify_ledger, verify_ledger_snapshot
 from .models import EventFamily, EventType, EvidenceEvent
 
 _FACT_EVENT_TYPES = {
@@ -275,73 +276,109 @@ def record_discovery_snapshot(
     return receipts
 
 
+def _unknown_workspace(reason_code: str) -> dict[str, Any]:
+    return {"status": "UNKNOWN", "workspace_id": None, "binding_ref": None,
+            "reason_code": reason_code}
+
+
+def verified_workspace_bindings(connection: sqlite3.Connection):
+    """Unconditionally validate binding authority, including authorization writers."""
+    return _workspace_bindings_snapshot(connection, verify_ledger)
+
+
+def _read_workspace_bindings(connection: sqlite3.Connection):
+    """Internal R4 read path; share only exact, completely scanned raw validation."""
+    return _workspace_bindings_snapshot(connection, verify_ledger_snapshot)
+
+
+@contextmanager
+def _workspace_bindings_snapshot(connection: sqlite3.Connection, validate):
+    """Verify once and resolve bindings only inside this private read snapshot.
+
+    A savepoint pins verification and all projection reads to the same generation,
+    including when a caller already owns a transaction. Only the private R4 read
+    wrapper selects cached validation. Releasing never commits caller writes.
+    """
+    connection.execute("SAVEPOINT verified_workspace_bindings")
+    active = True
+    try:
+        if validate(connection):
+            yield None
+            return
+        rows = connection.execute(
+            """SELECT sequence, event_id, result, observed_at,
+                      execution_domain_id, subject_ref, payload_safe_json
+               FROM evidence_ledger_events WHERE event_type = 'AGENT_DETECTED'
+               ORDER BY sequence"""
+        ).fetchall()
+        runtime_rows = {
+            row[1]: row
+            for row in connection.execute(
+                """SELECT sequence, event_id, result, observed_at,
+                          execution_domain_id, subject_ref, payload_safe_json
+                   FROM evidence_ledger_events WHERE event_type = 'RUNTIME_DETECTED'"""
+            ).fetchall()
+        }
+        binding_rows = connection.execute(
+            """SELECT sequence, event_id, result, observed_at,
+                      execution_domain_id, subject_ref, payload_safe_json
+               FROM evidence_ledger_events WHERE event_type = 'WORKSPACE_LINKED'
+               ORDER BY sequence"""
+        ).fetchall()
+        latest_rows: dict[str, tuple[Any, ...]] = {}
+        for row in rows:
+            payload = _json_object(row[6])
+            agent_id = _safe_value(payload.get("agent_id")) if payload else None
+            latest_rows[agent_id or row[1]] = row
+
+        def resolve(*, execution_domain_id=None, agent_event_id=None):
+            if not active:
+                raise RuntimeError("WORKSPACE_SNAPSHOT_CLOSED")
+            candidates = [
+                row
+                for row in latest_rows.values()
+                if (agent_event_id is None or row[1] == agent_event_id)
+                and (execution_domain_id is None or _safe_value(row[4]) == execution_domain_id)
+            ]
+            if not candidates:
+                return _unknown_workspace("WORKSPACE_BINDING_MISSING")
+            if len(candidates) != 1:
+                return _unknown_workspace("WORKSPACE_BINDING_CONFLICT")
+            agent = candidates[0]
+            payload = _json_object(agent[6])
+            if payload is None:
+                return _unknown_workspace("WORKSPACE_BINDING_MISSING")
+            return _verified_workspace_binding(
+                agent_sequence=agent[0],
+                agent_event_id=agent[1],
+                agent_observed_at=agent[3],
+                agent_domain=_safe_value(agent[4]),
+                agent_subject=_safe_value(agent[5]),
+                agent_payload=payload,
+                binding_rows=binding_rows,
+                runtime_rows=runtime_rows,
+            )
+
+        yield resolve
+    finally:
+        active = False
+        try:
+            connection.execute("ROLLBACK TO verified_workspace_bindings")
+        finally:
+            connection.execute("RELEASE verified_workspace_bindings")
+
+
 def resolve_verified_workspace_binding(
     connection: sqlite3.Connection,
     *,
     execution_domain_id: str | None = None,
     agent_event_id: str | None = None,
 ) -> dict[str, Any]:
-    """Resolve one current server-owned workspace binding from the verified Ledger."""
-
-    def unknown(reason_code: str) -> dict[str, Any]:
-        return {
-            "status": "UNKNOWN",
-            "workspace_id": None,
-            "binding_ref": None,
-            "reason_code": reason_code,
-        }
-
-    if verify_ledger(connection):
-        return unknown("WORKSPACE_LEDGER_INVALID")
-    rows = connection.execute(
-        """SELECT sequence, event_id, result, observed_at,
-                  execution_domain_id, subject_ref, payload_safe_json
-           FROM evidence_ledger_events WHERE event_type = 'AGENT_DETECTED'
-           ORDER BY sequence"""
-    ).fetchall()
-    latest_rows: dict[str, tuple[Any, ...]] = {}
-    for row in rows:
-        payload = _json_object(row[6])
-        agent_id = _safe_value(payload.get("agent_id")) if payload else None
-        latest_rows[agent_id or row[1]] = row
-    candidates = [
-        row
-        for row in latest_rows.values()
-        if (agent_event_id is None or row[1] == agent_event_id)
-        and (execution_domain_id is None or _safe_value(row[4]) == execution_domain_id)
-    ]
-    if not candidates:
-        return unknown("WORKSPACE_BINDING_MISSING")
-    if len(candidates) != 1:
-        return unknown("WORKSPACE_BINDING_CONFLICT")
-    runtime_rows = {
-        row[1]: row
-        for row in connection.execute(
-            """SELECT sequence, event_id, result, observed_at,
-                      execution_domain_id, subject_ref, payload_safe_json
-               FROM evidence_ledger_events WHERE event_type = 'RUNTIME_DETECTED'"""
-        ).fetchall()
-    }
-    binding_rows = connection.execute(
-        """SELECT sequence, event_id, result, observed_at,
-                  execution_domain_id, subject_ref, payload_safe_json
-           FROM evidence_ledger_events WHERE event_type = 'WORKSPACE_LINKED'
-           ORDER BY sequence"""
-    ).fetchall()
-    agent = candidates[0]
-    payload = _json_object(agent[6])
-    if payload is None:
-        return unknown("WORKSPACE_BINDING_MISSING")
-    return _verified_workspace_binding(
-        agent_sequence=agent[0],
-        agent_event_id=agent[1],
-        agent_observed_at=agent[3],
-        agent_domain=_safe_value(agent[4]),
-        agent_subject=_safe_value(agent[5]),
-        agent_payload=payload,
-        binding_rows=binding_rows,
-        runtime_rows=runtime_rows,
-    )
+    """Resolve one binding with complete verification and unchanged safe outcomes."""
+    with verified_workspace_bindings(connection) as resolve:
+        if resolve is None:
+            return _unknown_workspace("WORKSPACE_LEDGER_INVALID")
+        return resolve(execution_domain_id=execution_domain_id, agent_event_id=agent_event_id)
 
 
 def _safe_value(value: object) -> str | None:

@@ -91,11 +91,16 @@ interface SessionBootstrapRetryPolicy {
 }
 
 const DEFAULT_SESSION_BOOTSTRAP_RETRY: SessionBootstrapRetryPolicy = {
-  // One immediate attempt plus at most 60 bounded one-second waits in a
-  // packaged build. Development fails immediately through the Vite proxy.
+  // Packaged startup retries are additionally bounded by a 12-second total
+  // wall-clock budget. Development fails immediately through the Vite proxy.
   maxAttempts: import.meta.env.DEV ? 1 : 12,
   wait: () => new Promise((resolve) => setTimeout(resolve, 1_000)),
 };
+
+class ConnectionFailure extends ApiRequestError {}
+type JsonResponse = { response: Response; body: unknown };
+const REQUEST_TIMEOUT_MS = 5000;
+const BOOTSTRAP_BUDGET_MS = 12000;
 
 export function createApiClient(
   fetchImpl?: typeof fetch,
@@ -109,44 +114,76 @@ export function createApiClient(
   // injection) work; production uses the global fetch.
   const callFetch: typeof fetch =
     fetchImpl ?? ((input, init) => fetch(input, init));
-  // A packaged sidecar may be starting or restarting. Never let a WebView
-  // fetch leave the whole workspace in an unbounded loading state.
-  async function boundedFetch(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 5000): Promise<Response> {
+  // A deadline must settle independently of fetch/reader AbortSignal support.
+  // The same timer covers headers and body; cleanup never waits on a hung reader.
+  async function deadline<T>(operation: () => Promise<T>, milliseconds: number, abort?: () => void): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([operation(), new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new ApiRequestError('API request timed out', null, 'API_REQUEST_TIMEOUT'));
+          abort?.();
+        }, Math.max(0, milliseconds));
+      })]);
+    } finally { if (timer !== undefined) clearTimeout(timer); }
+  }
+  async function fetchJson(input: RequestInfo | URL, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<JsonResponse> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const cancel = () => controller.abort();
-    init?.signal?.addEventListener('abort', cancel, { once: true });
-    try { return await callFetch(input, { ...init, signal: controller.signal }); }
-    finally { clearTimeout(timer); init?.signal?.removeEventListener('abort', cancel); }
+    let received = false;
+    try {
+      return await deadline(async () => {
+        const response = await callFetch(input, { ...init, signal: controller.signal });
+        received = true;
+        // Authentication refusal needs no body. Never delay the one allowed 401 retry.
+        if (response.status === 401) {
+          void response.body?.cancel().catch(() => {});
+          return { response, body: null };
+        }
+        let body: unknown;
+        try { body = await response.json(); }
+        catch {
+          if (response.ok) throw new ApiRequestError('Invalid API response', response.status);
+          body = null;
+        }
+        return { response, body };
+      }, timeoutMs, () => controller.abort());
+    } catch (error) {
+      if (!received) throw new ConnectionFailure(
+        error instanceof ApiRequestError ? error.message : 'API unreachable', null,
+        error instanceof ApiRequestError ? error.reasonCode : null,
+      );
+      if (error instanceof ApiRequestError) throw error;
+      throw new ApiRequestError('Invalid API response');
+    }
   }
 
   function bootstrapSession(): Promise<string> {
     if (!bootstrapInFlight) {
       bootstrapInFlight = (async () => {
-        let response: Response | null = null;
+        const expires = Date.now() + BOOTSTRAP_BUDGET_MS;
+        let result: JsonResponse | null = null;
         for (let attempt = 1; attempt <= bootstrapRetry.maxAttempts; attempt += 1) {
+          const remaining = expires - Date.now();
+          if (remaining <= 0) throw new ApiRequestError('API request timed out', null, 'API_REQUEST_TIMEOUT');
           try {
-            response = await boundedFetch(urlResolver('/api/session'), {
+            result = await fetchJson(urlResolver('/api/session'), {
               headers: { Accept: 'application/json' },
-            });
+            }, Math.min(REQUEST_TIMEOUT_MS, remaining));
             break;
-          } catch {
-            if (attempt === bootstrapRetry.maxAttempts) {
-              throw new ApiRequestError('API unreachable');
-            }
-            await bootstrapRetry.wait();
+          } catch (error) {
+            // A received/malformed/stalled body is not a sidecar connection retry.
+            if (!(error instanceof ConnectionFailure) || attempt === bootstrapRetry.maxAttempts) throw error;
+            const waitBudget = expires - Date.now();
+            if (waitBudget <= 0) throw error;
+            await deadline(() => bootstrapRetry.wait(), waitBudget);
           }
         }
-        if (!response) {
-          throw new ApiRequestError('API unreachable');
-        }
-        if (!response.ok) {
-          throw new ApiRequestError(`Session bootstrap failed (HTTP ${response.status})`, response.status);
-        }
-        const body = (await response.json()) as SessionResponse;
-        if (typeof body.token !== 'string' || body.token.length === 0) {
-          throw new ApiRequestError('Session bootstrap failed');
-        }
+        if (!result) throw new ApiRequestError('API unreachable');
+        const { response, body: value } = result;
+        if (!response.ok) throw new ApiRequestError(`Session bootstrap failed (HTTP ${response.status})`, response.status);
+        const body = value as SessionResponse | null;
+        if (!body || typeof body.token !== 'string' || body.token.length === 0) throw new ApiRequestError('Session bootstrap failed');
+        if (Date.now() >= expires) throw new ApiRequestError('API request timed out', null, 'API_REQUEST_TIMEOUT');
         token = body.token;
         return body.token;
       })().finally(() => {
@@ -160,42 +197,44 @@ export function createApiClient(
     await bootstrapSession();
   }
 
-  async function request(path: string, sessionToken: string): Promise<Response> {
+  async function request(path: string, sessionToken: string): Promise<JsonResponse> {
     try {
-      return await boundedFetch(urlResolver(path), {
+      return await fetchJson(urlResolver(path), {
         headers: { Accept: 'application/json', 'X-Session-Token': sessionToken },
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiRequestError) throw error;
       throw new ApiRequestError('API unreachable');
     }
   }
 
   async function get<T>(path: string): Promise<T> {
     const sessionToken = token ?? (await bootstrapSession());
-    let response = await request(path, sessionToken);
+    let result = await request(path, sessionToken);
+    let response = result.response;
     if (response.status === 401) {
       // Exactly one re-bootstrap + one retry. No further retries.
       token = null;
       const freshToken = await bootstrapSession();
-      response = await request(path, freshToken);
+      result = await request(path, freshToken); response = result.response;
       if (response.status === 401) {
         throw new SessionUnavailableError();
       }
     }
     if (!response.ok) {
-      const failure = await readFailureBody(response);
+      const failure = { reasonCode: extractReasonCode(result.body) };
       throw new ApiRequestError(
         `API request failed (HTTP ${response.status})`,
         response.status,
         failure.reasonCode,
       );
     }
-    return (await response.json()) as T;
+    return result.body as T;
   }
 
-  async function send(method: 'POST' | 'PATCH' | 'PUT', path: string, sessionToken: string, body: unknown): Promise<Response> {
+  async function send(method: 'POST' | 'PATCH' | 'PUT', path: string, sessionToken: string, body: unknown): Promise<JsonResponse> {
     try {
-      return await boundedFetch(urlResolver(path), {
+      return await fetchJson(urlResolver(path), {
         method,
         headers: {
           Accept: 'application/json',
@@ -204,7 +243,8 @@ export function createApiClient(
         },
         body: JSON.stringify(body),
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiRequestError) throw error;
       throw new ApiRequestError('API unreachable');
     }
   }
@@ -232,21 +272,21 @@ export function createApiClient(
 
   async function mutate<T>(method: 'POST' | 'PATCH' | 'PUT', path: string, body: unknown): Promise<T> {
     const sessionToken = token ?? (await bootstrapSession());
-    let response = await send(method, path, sessionToken, body);
+    let result = await send(method, path, sessionToken, body);
+    let response = result.response;
     if (response.status === 401) {
       // Same bounded policy as reads: one re-bootstrap + one retry, never a loop.
       token = null;
       const freshToken = await bootstrapSession();
-      response = await send(method, path, freshToken, body);
+      result = await send(method, path, freshToken, body); response = result.response;
       if (response.status === 401) {
         throw new SessionUnavailableError();
       }
     }
     if (!response.ok) {
-      const failure = await readFailureBody(response);
-      throw new ApiActionError(response.status, failure.reasonCode, failure.dto);
+      throw new ApiActionError(response.status, extractReasonCode(result.body), result.body);
     }
-    return (await response.json()) as T;
+    return result.body as T;
   }
 
   async function stream(path: string, signal?: AbortSignal): Promise<Response> {

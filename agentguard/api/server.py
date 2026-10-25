@@ -551,6 +551,16 @@ def create_app(
     app.include_router(delivery_router(execution))
     protection.discovery_refresh = _refresh_product_discovery
     protection.background_discovery = product_startup_discovery
+    if product_startup_discovery:
+        def initialize_sources():
+            # Foreign source inspection belongs to the owned worker, after schema
+            # bootstrap and before saved pause intent and any observation/dispatch.
+            if isinstance(_product_discovery, ManagedDiscoveryService):
+                with catalog_context() as catalog:
+                    catalog.reconcile()
+
+        protection.initialize_sources = initialize_sources
+        protection.on_initialized = execution.start
 
     @app.on_event("startup")
     async def startup_protection():
@@ -563,26 +573,19 @@ def create_app(
             logging.getLogger(__name__).warning("CORE_DATABASE_INITIALIZATION_UNAVAILABLE")
         finally:
             database.close()
-        execution.start()
+        if not product_startup_discovery:
+            execution.start()
         protection.start()
 
     @app.on_event("shutdown")
     async def shutdown_protection():
+        # Prevent a slow source initializer from starting execution during shutdown.
+        with protection.initialization_lock:
+            protection.stop_event.set()
         try:
             await run_in_threadpool(execution.close)
         finally:
             await run_in_threadpool(protection.close)
-
-    if product_startup_discovery:
-        try:
-            if isinstance(_product_discovery, ManagedDiscoveryService):
-                with catalog_context() as catalog:
-                    catalog.reconcile()
-            with protection.service() as service:
-                service.restore_disconnections()
-            _refresh_product_discovery()
-        except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
-            pass
 
     @app.get("/api/health")
     async def health():
@@ -686,21 +689,24 @@ def create_app(
         finally:
             current_db.close()
 
+    # These synchronous reads verify the full ledger and may read catalog/files.
+    # FastAPI runs them in its worker pool; each creates and closes its own DB
+    # on that worker so integrity work cannot monopolize the ASGI event loop.
     @app.get("/api/v1/runtime")
-    async def api_r4_runtime():
+    def api_r4_runtime():
         return _r4_projection("runtime")
 
     @app.get("/api/v1/agents")
-    async def api_r4_agents():
+    def api_r4_agents():
         result = _r4_projection("agents")
         return enrich_agents(result) if isinstance(_product_discovery, ManagedDiscoveryService) else result
 
     @app.get("/api/v1/supervision")
-    async def api_r4_supervision():
+    def api_r4_supervision():
         return _r4_projection("supervision")
 
     @app.get("/api/v1/recovery")
-    async def api_r4_recovery():
+    def api_r4_recovery():
         return _r4_projection("recovery")
 
     @app.post("/api/v1/recovery/checkpoints")
@@ -711,6 +717,9 @@ def create_app(
             recovery_failure,
             run_product_recovery,
         )
+
+        if product_startup_discovery and not protection.initial_discovery_complete.is_set():
+            return JSONResponse(recovery_failure("RECOVERY_DISCOVERY_UNAVAILABLE"), status_code=503)
 
         current_db = _get_db()
         try:
@@ -739,6 +748,9 @@ def create_app(
             recovery_failure,
             run_product_recovery,
         )
+
+        if product_startup_discovery and not protection.initial_discovery_complete.is_set():
+            return JSONResponse(recovery_failure("RECOVERY_DISCOVERY_UNAVAILABLE", checkpoint_id), status_code=503)
 
         current_db = _get_db()
         try:
@@ -790,11 +802,11 @@ def create_app(
             current_db.close()
 
     @app.get("/api/v1/changes")
-    async def api_r4_changes():
+    def api_r4_changes():
         return _r4_projection("changes")
 
     @app.get("/api/v1/evidence/{event_id}")
-    async def api_r4_evidence(event_id: str):
+    def api_r4_evidence(event_id: str):
         try:
             current_db = _get_db()
         except (OSError, sqlite3.DatabaseError, RuntimeError):

@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import struct
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -72,13 +75,90 @@ class EvidenceLedger:
 
 def verify_ledger(connection: sqlite3.Connection) -> list[str]:
     """Return stable verification codes for every chain or serialization defect."""
-    rows = connection.execute(
+    return _verify_ledger_rows(_ledger_rows(connection))
+
+
+def _ledger_rows(connection: sqlite3.Connection):
+    return connection.execute(
         """SELECT sequence, event_id, schema_version, recorded_at, observed_at,
                   event_family, event_type, source, result, execution_domain_id,
                   supervision_session_id, transaction_id, checkpoint_id, subject_ref,
                   evidence_refs_json, payload_safe_json, payload_digest, prev_hash, curr_hash
            FROM evidence_ledger_events ORDER BY sequence ASC"""
     ).fetchall()
+
+
+_READ_VALIDATED: OrderedDict[bytes, None] = OrderedDict()
+_READ_VALIDATION_LOCK = threading.Lock()
+_READ_VALIDATION_LIMIT = 64
+
+
+def _ledger_fingerprint(rows) -> bytes | None:
+    """Bind every raw authority value, SQLite type, column and row boundary.
+
+    This digest is a process-local validation key, never a stored ledger hash.
+    Unsupported/custom row values bypass caching instead of granting trust.
+    """
+    digest = hashlib.sha256(b"ASG:ledger-validation:v1:19-columns")
+    for row in rows:
+        if len(row) != 19:
+            return None
+        digest.update(b"R")
+        for value in row:
+            if value is None:
+                tag, data = b"N", b""
+            elif type(value) is int:
+                tag, data = b"I", str(value).encode("ascii")
+            elif type(value) is float:
+                tag, data = b"F", struct.pack(">d", value)
+            elif type(value) is str:
+                tag, data = b"S", value.encode("utf-8")
+            elif type(value) is bytes:
+                tag, data = b"B", value
+            else:
+                return None
+            digest.update(tag)
+            digest.update(len(data).to_bytes(8, "big"))
+            digest.update(data)
+        digest.update(b"E")
+    return digest.digest()
+
+
+def verify_ledger_snapshot(connection: sqlite3.Connection) -> list[str]:
+    """Read all raw rows every time; share only successful identical validation.
+
+    Callers keep their projection in the same SQLite read snapshot. There is no
+    TTL, trusted prefix/head/count or projection cache. The lock coalesces full
+    validation of identical concurrent reads; invalid results are never cached.
+    Writers continue to use verify_ledger's unconditional complete validator.
+    """
+    # Serialize raw scans too: concurrent sqlite fetchall calls repeatedly
+    # contend for the GIL. Each caller still reads/fingerprints its own snapshot.
+    with _READ_VALIDATION_LOCK:
+        rows = _ledger_rows(connection)
+        # Event writers emit UTC-aware ISO times. The legacy validator also accepts
+        # some naive times via local-zone conversion; those are not a pure function
+        # of raw bytes and must keep unconditional validation, never cache reuse.
+        canonical_times = all(
+            isinstance(row[3], str) and row[3].endswith("+00:00")
+            and (row[4] is None or isinstance(row[4], str) and row[4].endswith("+00:00"))
+            for row in rows
+        )
+        key = _ledger_fingerprint(rows) if canonical_times else None
+        if key is None:
+            return _verify_ledger_rows(rows)
+        if key in _READ_VALIDATED:
+            _READ_VALIDATED.move_to_end(key)
+            return []
+        problems = _verify_ledger_rows(rows)
+        if not problems:
+            _READ_VALIDATED[key] = None
+            if len(_READ_VALIDATED) > _READ_VALIDATION_LIMIT:
+                _READ_VALIDATED.popitem(last=False)
+        return problems
+
+
+def _verify_ledger_rows(rows) -> list[str]:
     problems: list[str] = []
     expected_sequence = 1
     expected_prev_hash = _GENESIS_HASH

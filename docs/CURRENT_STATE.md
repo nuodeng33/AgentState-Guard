@@ -1,5 +1,12 @@
 # Current State
 
+### 2026-10-25 authoritative checkpoint — local read/startup closure
+
+Phase28 fixes synchronous startup discovery, event-loop blocking R4 reads, repeated Agent ledger validation, unsafe layout hydration, duplicate panel keys and incomplete request deadlines. Independent frontend421passed; backend1580passed/49skipped; typecheck/build/Ruff/diff green. Actual Windows source Core + sandboxed production browser with34526-event copied DB showed283ms list /175ms click-to-task-body, plus strict15 and delivery/recovery22 checks. Source proof does not replace final MSI/native input acceptance. Cold concurrent heavy Agent read5144ms remains explicit. See [phase28](phases/28-responsive-local-reads.md) and [evidence](verification/READ_PATH_CLOSURE_20261025.json).
+
+Current native state supersedes dated entries below: e311 test binaries installed but no ASG process running; diagnostic app used a copy, closed normally, original6files3199253bytes and immutable backup verified/restored. Do not start/migrate original data during tests. New CI/MSI, final crash recovery, manual-move cleanup and broader capability boundaries remain open. No merge/release/Windows restart/permanent deletion.
+
+
 ### 2026-10-25 latest: capability coverage and central paper notes
 
 The central Workbench requirement/task cards now render as quiet paper notes with realistic decorative pins; relation task nodes stay compact. Existing backend work-edit, requirement revision, task-edit, session rename, protected-directory links and environment source controls are reachable through File/Edit/View or Settings. CORS permits the existing edit verbs only for the frozen local origins. Integrated frontend verification is 388/388 across 51 files with typecheck/build/diff check green. Real isolated Core/browser checks confirmed work edit, requirement history, task edit and directory link/unlink; the final relationship return step retains a UI lifecycle failure from stale directory-panel nodes and is not claimed passed. See [phase27](phases/27-work-capability-coverage.md) and [backend/UI coverage](verification/BACKEND_UI_COVERAGE_20261025.md).

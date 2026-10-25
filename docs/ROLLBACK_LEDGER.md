@@ -1,5 +1,12 @@
 # Rollback Ledger
 
+### 2026-10-25 authoritative checkpoint — local read/startup closure
+
+Phase28 fixes synchronous startup discovery, event-loop blocking R4 reads, repeated Agent ledger validation, unsafe layout hydration, duplicate panel keys and incomplete request deadlines. Independent frontend421passed; backend1580passed/49skipped; typecheck/build/Ruff/diff green. Actual Windows source Core + sandboxed production browser with34526-event copied DB showed283ms list /175ms click-to-task-body, plus strict15 and delivery/recovery22 checks. Source proof does not replace final MSI/native input acceptance. Cold concurrent heavy Agent read5144ms remains explicit. See [phase28](phases/28-responsive-local-reads.md) and [evidence](verification/READ_PATH_CLOSURE_20261025.json).
+
+Current native state supersedes dated entries below: e311 test binaries installed but no ASG process running; diagnostic app used a copy, closed normally, original6files3199253bytes and immutable backup verified/restored. Do not start/migrate original data during tests. New CI/MSI, final crash recovery, manual-move cleanup and broader capability boundaries remain open. No merge/release/Windows restart/permanent deletion.
+
+
 ### 2026-10-24 ASG-CLOSE-006 promotion refresh loop repaired
 
 The required Windows browser job on `00d7f3c` launched its normal sandbox successfully and passed the first two queue checks, then exposed a real UI loop: a promoted instruction refreshed the parent, which unmounted/remounted its child; the new child treated the same PROMOTED receipt as new and refreshed forever. The failure screenshot shows Session management stuck on Loading records. Native headless Chrome reproduced the exact 30-second wait for the promoted status before any fix was overlaid.

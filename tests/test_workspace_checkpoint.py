@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agentguard.api.server import create_app
@@ -22,6 +24,16 @@ from agentguard.recovery.workspace_permissions import (
 )
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
+
+_CLIENTS = []
+
+
+@pytest.fixture(autouse=True)
+def close_clients():
+    yield
+    while _CLIENTS:
+        _CLIENTS.pop().__exit__(None, None, None)
+
 
 NOW = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 
@@ -71,7 +83,9 @@ def _client(tmp_path, *roots):
         discovery_service=_AuthorityDiscovery(*roots),
         product_startup_discovery=True,
     )
-    client = TestClient(app)
+    client = TestClient(app).__enter__()
+    _CLIENTS.append(client)
+    assert app.state.protection.initial_discovery_complete.wait(5), "initial fixture discovery did not finish"
     token = client.get("/api/session").json()["token"]
     return client, {"X-Session-Token": token}, product_state
 
@@ -436,6 +450,16 @@ def test_import_legacy_v3_checkpoint_then_preview_and_restore_native_bytes(tmp_p
         headers=headers,
     )
     assert queued.status_code == 202, queued.text
+    # The owned lifecycle worker executes the queued operation. Reconciliation
+    # must wait for its lease, then remain idempotent on the terminal result.
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        observed = client.get(f"/api/v1/recovery/operations/{queued.json()['id']}", headers=headers)
+        assert observed.status_code == 200, observed.text
+        if observed.json()["state"] not in {"QUEUED", "RUNNING", "COMPENSATING"}:
+            break
+        time.sleep(.01)
+    assert observed.json()["state"] == "SUCCEEDED", observed.text
     executed = client.post(
         f"/api/v1/recovery/operations/{queued.json()['id']}/reconcile",
         json={}, headers=headers,

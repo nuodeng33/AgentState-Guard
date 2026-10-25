@@ -1,5 +1,12 @@
 # Full capability closure — 2026-10-23
 
+### 2026-10-25 authoritative checkpoint — local read/startup closure
+
+Phase28 fixes synchronous startup discovery, event-loop blocking R4 reads, repeated Agent ledger validation, unsafe layout hydration, duplicate panel keys and incomplete request deadlines. Independent frontend421passed; backend1580passed/49skipped; typecheck/build/Ruff/diff green. Actual Windows source Core + sandboxed production browser with34526-event copied DB showed283ms list /175ms click-to-task-body, plus strict15 and delivery/recovery22 checks. Source proof does not replace final MSI/native input acceptance. Cold concurrent heavy Agent read5144ms remains explicit. See [phase28](phases/28-responsive-local-reads.md) and [evidence](verification/READ_PATH_CLOSURE_20261025.json).
+
+Current native state supersedes dated entries below: e311 test binaries installed but no ASG process running; diagnostic app used a copy, closed normally, original6files3199253bytes and immutable backup verified/restored. Do not start/migrate original data during tests. New CI/MSI, final crash recovery, manual-move cleanup and broader capability boundaries remain open. No merge/release/Windows restart/permanent deletion.
+
+
 ### 2026-10-24 latest checkpoint — real MuMu failure reproduced and repaired in source
 
 The tested 0c88 baseline has all four exact-commit CI workflows successful. Actual old4a8→0c88 MSI direct upgrade passed (5 seed / 9 reread checks), actual MSI payload hashes matched, schema19→20 preserved migration/ledger/step-event history, and two actual installed-Core restore interruption cases passed with compensation/external-change preservation and stable replay/restart.

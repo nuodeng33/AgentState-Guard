@@ -531,3 +531,142 @@ describe('existing edit methods', () => {
     });
   }
 });
+
+
+describe('finite API response deadlines', () => {
+  function slowBody(status = 200) {
+    const response = new Response(null, { status });
+    vi.spyOn(response, 'json').mockImplementation(() => new Promise(() => {}));
+    return response;
+  }
+  async function timed(promise: Promise<unknown>, milliseconds = 5000) {
+    const settled = promise.catch(error => error);
+    await vi.advanceTimersByTimeAsync(milliseconds);
+    return settled;
+  }
+  it('bounds stalled headers even when fetch ignores abort and does not replay a mutation', async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | null | undefined;
+      const fetchImpl = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+        if (String(path) === '/api/session') return jsonResponse({ token: 'token-a' });
+        signal = init?.signal; return new Promise<Response>(() => {});
+      });
+      const result = await timed(createApiClient(fetchImpl).post('/mutation', { request_id: 'same-id' }));
+      expect(result).toMatchObject({ name: 'ApiRequestError', reasonCode: 'API_REQUEST_TIMEOUT' });
+      expect(signal?.aborted).toBe(true); expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(['get', 'post', 'patch', 'put'] as const)('bounds %s body consumption after headers arrive', async method => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | null | undefined;
+      const fetchImpl = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+        if (String(path) === '/api/session') return jsonResponse({ token: 'token-a' });
+        signal = init?.signal; return slowBody();
+      });
+      const client = createApiClient(fetchImpl);
+      const result = await timed(method === 'get' ? client.get('/view') : client[method]!('/mutation', { request_id: 'same-id' }));
+      expect(result).toMatchObject({ name: 'ApiRequestError', reasonCode: 'API_REQUEST_TIMEOUT' });
+      expect(signal?.aborted).toBe(true); expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('bounds failure JSON bodies without treating an unknown mutation outcome as rejection', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchImpl, calls } = mockFetch([() => jsonResponse({ token: 'token-a' }), () => slowBody(503)]);
+      expect(await timed(createApiClient(fetchImpl).post('/mutation', {}))).toMatchObject({ name: 'ApiRequestError', reasonCode: 'API_REQUEST_TIMEOUT' });
+      expect(calls).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it('does not startup-retry a received session response with a stalled body; later explicit retry works', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn().mockResolvedValueOnce(slowBody()).mockResolvedValueOnce(jsonResponse({ token: 'fresh' })).mockResolvedValueOnce(jsonResponse({ ok: true }));
+      const wait = vi.fn(async () => {}); const client = createApiClient(fetchImpl, path => path, { maxAttempts: 12, wait });
+      expect(await timed(client.bootstrap())).toMatchObject({ reasonCode: 'API_REQUEST_TIMEOUT' });
+      expect(fetchImpl).toHaveBeenCalledTimes(1); expect(wait).not.toHaveBeenCalled();
+      expect(await client.get('/view')).toEqual({ ok: true }); expect(fetchImpl).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+  it('caps shared startup retries by wall clock and never dispatches callers after timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn((_path: RequestInfo | URL) => new Promise<Response>(() => {}));
+      const wait = vi.fn(() => new Promise<void>(resolve => setTimeout(resolve, 1000)));
+      const client = createApiClient(fetchImpl, path => path, { maxAttempts: 12, wait });
+      const first = client.get('/one').catch(error => error), second = client.post('/two', { request_id: 'id' }).catch(error => error);
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(await first).toMatchObject({ name: 'ApiRequestError' }); expect(await second).toMatchObject({ name: 'ApiRequestError' });
+      expect(fetchImpl.mock.calls.every(([path]) => String(path) === '/api/session')).toBe(true);
+      expect(fetchImpl).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('cannot publish a late bootstrap body after its deadline or overwrite a later explicit bootstrap', async () => {
+    vi.useFakeTimers();
+    try {
+      let complete!: (value: unknown) => void;
+      const response = new Response(null);
+      vi.spyOn(response, 'json').mockImplementation(() => new Promise(done => { complete = done; }));
+      const calls: { path: string; token: string | null }[] = [];
+      let sessions = 0;
+      const fetchImpl = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ path: String(path), token: new Headers(init?.headers).get('X-Session-Token') });
+        if (String(path) === '/api/session') return ++sessions === 1 ? response : jsonResponse({ token: 'fresh-token' });
+        return jsonResponse({ ok: true });
+      });
+      const client = createApiClient(fetchImpl);
+      expect(await timed(client.bootstrap())).toMatchObject({ reasonCode: 'API_REQUEST_TIMEOUT' });
+      await client.bootstrap(); complete({ token: 'late-token' }); await Promise.resolve();
+      await client.get('/view');
+      expect(calls.filter(call => call.path === '/view')).toEqual([{ path: '/view', token: 'fresh-token' }]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('releases successful request deadlines before they can abort a completed body', async () => {
+    vi.useFakeTimers();
+    try {
+      const signals: AbortSignal[] = [];
+      const fetchImpl = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+        signals.push(init!.signal!); return jsonResponse(String(path) === '/api/session' ? { token: 'a' } : { ok: true });
+      });
+      expect(await createApiClient(fetchImpl).get('/view')).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(signals.every(signal => !signal.aborted)).toBe(true); expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('keeps one deadline across header and body phases and clears it on completion', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(async (path: RequestInfo | URL) => {
+        if (String(path) === '/api/session') return jsonResponse({ token: 'a' });
+        await new Promise(resolve => setTimeout(resolve, 3000)); return slowBody();
+      });
+      const pending = createApiClient(fetchImpl).get('/view').catch(error => error);
+      await vi.advanceTimersByTimeAsync(4999);
+      let done = false; void pending.then(() => { done = true; }); await Promise.resolve(); expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1); expect(await pending).toMatchObject({ reasonCode: 'API_REQUEST_TIMEOUT' });
+    } finally { vi.useRealTimers(); }
+  });
+  it('maps malformed success JSON to a safe error and leaves mutation retries to the caller', async () => {
+    const { fetchImpl, calls } = mockFetch([() => jsonResponse({ token: 'a' }), () => new Response('private invalid data')]);
+    await expect(createApiClient(fetchImpl).post('/mutation', {})).rejects.toMatchObject({ name: 'ApiRequestError', message: 'Invalid API response' });
+    expect(calls).toHaveLength(2);
+  });
+  it('leaves SSE fetch and its caller abort signal outside the finite JSON deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController(); let streamSignal: AbortSignal | null | undefined;
+      const fetchImpl = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
+        if (String(path) === '/api/session') return jsonResponse({ token: 'a' });
+        streamSignal = init?.signal; return new Response('event: data\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+      });
+      const response = await createApiClient(fetchImpl).stream!('/events', controller.signal);
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(streamSignal).toBe(controller.signal); expect(controller.signal.aborted).toBe(false); expect(response.status).toBe(200);
+      expect(vi.getTimerCount()).toBe(0); controller.abort(); expect(streamSignal?.aborted).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+});

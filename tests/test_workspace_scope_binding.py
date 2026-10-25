@@ -178,12 +178,16 @@ def test_packaged_startup_persists_exact_authority_report(tmp_path):
     root.mkdir()
     state_path = tmp_path / "product-state" / "state.db"
 
-    create_app(
+    app = create_app(
         state_db_path=state_path,
         config={"base_dir": str(tmp_path / "product-state")},
         discovery_service=_AuthorityDiscovery(root),
         product_startup_discovery=True,
     )
+
+    from fastapi.testclient import TestClient
+    with TestClient(app):
+        assert app.state.protection.initial_discovery_complete.wait(5)
 
     connection = sqlite3.connect(state_path)
     try:

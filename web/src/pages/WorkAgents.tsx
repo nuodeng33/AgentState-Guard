@@ -34,40 +34,91 @@ function enrichLinked(linked: WorkAgent[], detected: WorkAgent[]): WorkAgent[] {
   });
 }
 
+type AgentRead = { generation: number; value?: unknown; pending?: Promise<unknown> };
+const agentReads = new WeakMap<ApiClient, { id: number; reads: Map<string, AgentRead> }>();
+let nextClientId = 0;
+function cacheFor(client: ApiClient) {
+  let cache = agentReads.get(client);
+  if (!cache) { cache = { id: ++nextClientId, reads: new Map() }; agentReads.set(client, cache); }
+  return cache;
+}
+function readEntry(client: ApiClient, path: string) {
+  const reads = cacheFor(client).reads;
+  let entry = reads.get(path);
+  if (!entry) { entry = { generation: 0 }; reads.set(path, entry); }
+  return entry;
+}
+function readAgentsOnce<T>(client: ApiClient, path: string): Promise<T> {
+  const entry = readEntry(client, path);
+  if (entry.pending) return entry.pending as Promise<T>;
+  const generation = ++entry.generation;
+  const request = client.get<T>(path).then(value => {
+    if (generation !== entry.generation) throw new Error('Superseded Agent read');
+    return value;
+  }).finally(() => { if (entry.pending === request) entry.pending = undefined; });
+  entry.pending = request; return request;
+}
+function knownItems<T>(client: ApiClient, path: string): T[] | undefined {
+  const value = readEntry(client, path).value as { items?: T[] } | undefined;
+  return Array.isArray(value?.items) ? value.items : undefined;
+}
+function invalidateRead(client: ApiClient, path: string) {
+  const entry = readEntry(client, path); entry.generation++; entry.pending = undefined;
+}
+
 export function useWorkAgents(client: ApiClient, workId: string | undefined, visible: boolean) {
-  const [result, setResult] = useState<{ id?: string; items: WorkAgent[]; failed: boolean }>({ items: [], failed: false });
+  const [result, setResult] = useState<{ client?: ApiClient; id?: string; items: WorkAgent[]; failed: boolean; loading: boolean }>({ items: [], failed: false, loading: true });
   const sequence = useRef(0);
+  const path = `/api/v1/works/${workId}/agents`;
   const reload = useCallback(async () => {
     if (!workId) return;
     const seq = ++sequence.current;
+    setResult(previous => ({ client, id: workId,
+      items: previous.client === client && previous.id === workId ? previous.items : knownItems<WorkAgent>(client, path) ?? [],
+      failed: false, loading: knownItems<WorkAgent>(client, path) === undefined }));
     try {
-      const value = await client.get<{ items: WorkAgent[] }>(`/api/v1/works/${workId}/agents`);
+      const value = await readAgentsOnce<{ items: WorkAgent[] }>(client, path);
       if (!Array.isArray(value.items)) throw new Error('Missing agent list');
-      if (seq === sequence.current) setResult({ id: workId, items: value.items, failed: false });
+      if (seq === sequence.current) {
+        readEntry(client, path).value = value;
+        setResult({ client, id: workId, items: value.items, failed: false, loading: false });
+      }
     } catch {
-      if (seq === sequence.current) setResult(previous => ({ id: workId, items: previous.id === workId ? previous.items : [], failed: true }));
+      if (seq === sequence.current) setResult(previous => ({ client, id: workId,
+        items: previous.client === client && previous.id === workId ? previous.items : knownItems<WorkAgent>(client, path) ?? [], failed: true, loading: false }));
     }
-  }, [client, workId]);
-  useEffect(() => {
-    if (visible) void reload();
-    return () => { sequence.current += 1; };
-  }, [reload, visible]);
-  return { items: result.id === workId ? result.items : [], failed: result.id === workId && result.failed, reload,
-    replace: (items: WorkAgent[]) => { sequence.current += 1; setResult({ id: workId, items, failed: false }); } };
+  }, [client, workId, path]);
+  useEffect(() => { if (visible) void reload(); return () => { sequence.current++; }; }, [reload, visible]);
+  return { items: result.client === client && result.id === workId ? result.items : knownItems<WorkAgent>(client, path) ?? [],
+    failed: result.client === client && result.id === workId && result.failed,
+    loading: Boolean(workId) && knownItems<WorkAgent>(client, path) === undefined &&
+      (result.client !== client || result.id !== workId || result.loading), reload,
+    replace: (items: WorkAgent[]) => {
+      sequence.current++; invalidateRead(client, path); readEntry(client, path).value = { items };
+      setResult({ client, id: workId, items, failed: false, loading: false });
+    } };
 }
 
-export default function WorkAgents({ client, workId, revision, linked, tasks = [], initialAgentId, visible = true, onClose, onLinkedChanged, onRevision }: {
+type WorkAgentsProps = {
   client: ApiClient; workId: string; revision: number; linked: WorkAgent[]; initialAgentId?: string; visible?: boolean;
   tasks?: { id: string; title: string }[];
   onClose: () => void; onLinkedChanged: (items: WorkAgent[]) => void; onRevision: (revision: number) => void;
-}) {
+};
+export default function WorkAgents(props: WorkAgentsProps) {
+  return <WorkAgentsBody key={`${cacheFor(props.client).id}:${props.workId}`} {...props} />;
+}
+function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialAgentId, visible = true, onClose, onLinkedChanged, onRevision }: WorkAgentsProps) {
   const { locale } = useI18n(); const zh = locale === 'zh-CN';
-  const [items, setItems] = useState(linked); const [candidates, setCandidates] = useState<WorkAgent[]>([]);
+  const linkedPath = `/api/v1/works/${workId}/agents`, workPath = `/api/v1/works/${workId}`;
+  const detectedPath = '/api/v1/agents', sourcesPath = '/api/v1/discovery/sources';
+  const [items, setItems] = useState(() => enrichLinked(knownItems<WorkAgent>(client, linkedPath) ?? linked, knownItems<WorkAgent>(client, detectedPath) ?? []));
+  const [candidates, setCandidates] = useState<WorkAgent[]>(() => knownItems<WorkAgent>(client, detectedPath) ?? []);
+  const [ready, setReady] = useState({ linked: false, work: false, detected: false, sources: false });
   const [selected, setSelected] = useState<string | undefined>(initialAgentId);
   const [currentRevision, setCurrentRevision] = useState(revision);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  const [discoveryState, setDiscoveryState] = useState('');
-  const [sources, setSources] = useState<DiscoverySource[]>([]);
+  const [discoveryState, setDiscoveryState] = useState('UNKNOWN');
+  const [sources, setSources] = useState<DiscoverySource[]>(() => knownItems<DiscoverySource>(client, sourcesPath) ?? []);
   const [inventoryCoverage, setInventoryCoverage] = useState<DiscoveryInventoryCoverage[]>([]);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const [sourceError, setSourceError] = useState('');
@@ -81,54 +132,69 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
   const evidenceSequence = useRef(0);
   const loadInFlight = useRef<Promise<void> | null>(null);
   const linkedSignature = useRef('');
+  const loadSequence = useRef(0);
   const revisionRef = useRef(revision);
   const callbacks = useRef({ onLinkedChanged, onRevision, onClose }); callbacks.current = { onLinkedChanged, onRevision, onClose };
   const pending = useRef<{ agentId: string; detach: boolean; path: string; payload: object } | null>(null);
   const failed = zh ? '未能读取 Agent 记录，请重试。' : 'Could not load Agent records. Retry.';
   useEffect(() => { setCurrentRevision(revision); revisionRef.current = revision; }, [revision]);
-  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
-  async function load(refresh = false, quiet = false) {
-    if (quiet && loadInFlight.current) return;
-    while (loadInFlight.current) {
-      await loadInFlight.current;
+  useEffect(() => { live.current = true; return () => { live.current = false; loadSequence.current++; }; }, []);
+  async function load(refresh = false, quiet = false, force = false) {
+    if (loadInFlight.current && !refresh && !force) return loadInFlight.current;
+    const generation = ++loadSequence.current;
+    const current = () => live.current && generation === loadSequence.current;
+    if (!quiet) { setLoading(true); setError(''); }
+    if (force || refresh) {
+      for (const path of [linkedPath, workPath, detectedPath, sourcesPath]) invalidateRead(client, path);
+      setReady({ linked: false, work: false, detected: false, sources: false });
     }
+    const receive = async <T,>(path: string, apply: (value: T) => void, kind: keyof typeof ready) => {
+      try {
+        const value = await readAgentsOnce<T>(client, path);
+        if (!current()) return;
+        apply(value); readEntry(client, path).value = value;
+        setReady(previous => ({ ...previous, [kind]: true }));
+      } catch {
+        if (!current()) return;
+        setReady(previous => ({ ...previous, [kind]: false }));
+        if (kind === 'sources') setSourceError(zh ? '未能读取观察来源。' : 'Could not load observation sources.');
+        else { if (kind === 'detected') setDiscoveryState('UNAVAILABLE'); setError(failed); }
+      }
+    };
     const request = (async () => {
-      if (!quiet) { setLoading(true); setError(''); }
       try {
         if (refresh) await refreshDiscovery(client);
-        const detected = await Promise.race([
-          client.get<{ items: WorkAgent[]; status: string }>('/api/v1/agents'),
-          new Promise<{ items: WorkAgent[]; status: string }>(resolve => setTimeout(() => resolve({ items: [], status: 'UNAVAILABLE' }), 1200)),
-        ]).catch(() => ({ items: [], status: 'UNAVAILABLE' }));
-        const bounded = <T,>(request: Promise<T>, fallback: T, ms = 1500) => Promise.race([
-          request.catch(() => fallback),
-          new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
+        if (!current()) return;
+        // Optional observations publish independently; no timeout invents an
+        // empty result, and slow sources never hold the linked Work records.
+        void receive<{ items: WorkAgent[]; status: string }>(detectedPath, value => {
+          if (!Array.isArray(value.items) || typeof value.status !== 'string') throw new Error('Missing discovery list');
+          setCandidates(value.items.filter(agent => Boolean(agent.agent_id))); setDiscoveryState(value.status);
+          setItems(previous => enrichLinked(previous, value.items));
+        }, 'detected');
+        void receive<DiscoverySources>(sourcesPath, value => {
+          if (!Array.isArray(value.items)) throw new Error('Missing sources');
+          setSources(value.items); setInventoryCoverage(value.inventory_coverage ?? []); setSourceError('');
+          if (!quiet) setCatalogRefreshKey(previous => previous + 1);
+        }, 'sources');
+        await Promise.all([
+          receive<{ items: WorkAgent[] }>(linkedPath, value => {
+            if (!Array.isArray(value.items)) throw new Error('Missing associations');
+            const linkedItems = enrichLinked(value.items, knownItems<WorkAgent>(client, detectedPath) ?? []);
+            setItems(linkedItems);
+            const signature = JSON.stringify(linkedItems);
+            if (signature !== linkedSignature.current) { linkedSignature.current = signature; callbacks.current.onLinkedChanged(linkedItems); }
+          }, 'linked'),
+          receive<{ revision: number }>(workPath, value => {
+            if (!Number.isSafeInteger(value.revision) || value.revision < 1) throw new Error('Missing work revision');
+            if (value.revision >= revisionRef.current) {
+              setCurrentRevision(value.revision);
+              if (value.revision !== revisionRef.current) { revisionRef.current = value.revision; callbacks.current.onRevision(value.revision); }
+            }
+          }, 'work'),
         ]);
-        const [associated, work, sourceList] = await Promise.all([
-          bounded(client.get<{ items: WorkAgent[] }>(`/api/v1/works/${workId}/agents`), { items: [] }),
-          client.get<{ revision: number }>(`/api/v1/works/${workId}`),
-          bounded(client.get<DiscoverySources>('/api/v1/discovery/sources'), null),
-        ]);
-        if (!live.current) return;
-        if (!Array.isArray(associated.items) || !Array.isArray(detected.items)) throw new Error('Missing agent list');
-        const linkedItems = enrichLinked(associated.items, detected.items);
-        setItems(linkedItems); setCandidates(detected.items.filter(agent => Boolean(agent.agent_id)));
-        setDiscoveryState(detected.status); setCurrentRevision(work.revision);
-        const signature = JSON.stringify(linkedItems);
-        if (signature !== linkedSignature.current) {
-          linkedSignature.current = signature;
-          callbacks.current.onLinkedChanged(linkedItems);
-        }
-        if (work.revision !== revisionRef.current) {
-          revisionRef.current = work.revision;
-          callbacks.current.onRevision(work.revision);
-        }
-        if (sourceList && Array.isArray(sourceList.items)) {
-          setSources(sourceList.items); setInventoryCoverage(sourceList.inventory_coverage ?? []); setSourceError('');
-        } else setSourceError(zh ? '未能读取观察来源。' : 'Could not load observation sources.');
-        if (!quiet) setCatalogRefreshKey(value => value + 1);
-      } catch { if (live.current && !quiet) setError(failed); }
-      finally { if (live.current && !quiet) setLoading(false); }
+      } catch { if (current()) setError(failed); }
+      finally { if (current()) setLoading(false); }
     })();
     loadInFlight.current = request;
     try { await request; } finally { if (loadInFlight.current === request) loadInFlight.current = null; }
@@ -162,6 +228,7 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
   }, [visible, selected, initialAgentId, showEvidence]);
   async function associate(agentId: string, detach: boolean) {
     if (busy) return;
+    if (!ready.linked || !ready.work || !detach && !ready.detected) return;
     if (!detach && !candidates.some(item => item.agent_id === agentId && item.presence === 'CURRENT' && item.lifecycle !== 'UNKNOWN')) return;
     setBusy(true); setError('');
     const previous = pending.current;
@@ -174,8 +241,8 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
     try {
       const value = await client.post<{ revision: number }>(command.path, command.payload);
       if (!live.current) return;
-      pending.current = null; setCurrentRevision(value.revision); callbacks.current.onRevision(value.revision);
-      await load();
+      pending.current = null; setCurrentRevision(value.revision); revisionRef.current = value.revision; callbacks.current.onRevision(value.revision);
+      await load(false, false, true);
     } catch (err) {
       if (!live.current) return;
       const conflict = err instanceof ApiActionError && err.reasonCode === 'WORK_REVISION_CONFLICT';
@@ -195,7 +262,7 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
   const savedTaskIds = agent?.task_ids?.join(',') ?? '';
   useEffect(() => { setTaskIds(savedTaskIds ? savedTaskIds.split(',') : []); }, [selected, savedTaskIds]);
   async function saveTasks() {
-    if (!agent || busy) return;
+    if (!agent || busy || !ready.linked || !ready.work) return;
     setBusy(true); setError('');
     const signature = JSON.stringify([agent.agent_id, [...taskIds].sort()]);
     if (pendingTasks.current?.signature !== signature) pendingTasks.current = { signature,
@@ -203,7 +270,7 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
     try {
       const result = await client.post<{ revision: number }>(`/api/v1/works/${workId}/agents/${encodeURIComponent(agent.agent_id)}/tasks`, pendingTasks.current.payload);
       if (!live.current) return;
-      pendingTasks.current = null; setCurrentRevision(result.revision); callbacks.current.onRevision(result.revision); await load();
+      pendingTasks.current = null; setCurrentRevision(result.revision); revisionRef.current = result.revision; callbacks.current.onRevision(result.revision); await load(false, false, true);
     } catch (err) {
       if (!live.current) return;
       if (err instanceof ApiActionError && err.reasonCode === 'WORK_REVISION_CONFLICT') {
@@ -213,12 +280,12 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
     } finally { if (live.current) setBusy(false); }
   }
   async function configureSource(source: DiscoverySource, enabled: boolean) {
-    if (sourceBusy || !source.configurable) return;
+    if (sourceBusy || !source.configurable || !ready.sources) return;
     setSourceBusy(source.source_id); setSourceError('');
     try {
       await client.post(`/api/v1/discovery/sources/${encodeURIComponent(source.source_id)}/configure`,
         { enabled, expected_revision: source.revision });
-      if (live.current) await load();
+      if (live.current) await load(false, false, true);
     } catch (err) {
       if (!live.current) return;
       const conflict = err instanceof ApiActionError && err.reasonCode === 'DISCOVERY_SOURCE_REVISION_CONFLICT';
@@ -227,9 +294,10 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
     } finally { if (live.current) setSourceBusy(null); }
   }
   const available = candidates.filter(item => !associatedIds.has(item.agent_id));
-  const canLink = (item: WorkAgent) => item.presence === 'CURRENT' && item.lifecycle !== 'UNKNOWN';
+  const canLink = (item: WorkAgent) => ready.detected && item.presence === 'CURRENT' && item.lifecycle !== 'UNKNOWN';
   const name = (item: WorkAgent) => agentIdentityLabel(item, zh);
-  const state = (item: WorkAgent) => item.presence === 'NOT_CURRENT' ? (zh ? '本次未观测到 · 活动未知' : 'Not in current observation · activity unknown') :
+  const state = (item: WorkAgent) => !(associatedIds.has(item.agent_id) ? ready.linked : ready.detected) ?
+    (zh ? '上次已知观测 · 当前正在核对' : 'Last known observation · awaiting refresh') : item.presence === 'NOT_CURRENT' ? (zh ? '本次未观测到 · 活动未知' : 'Not in current observation · activity unknown') :
     item.presence === 'STALE' ? (zh ? '观测已过期 · 活动未知' : 'Observation expired · activity unknown') :
     item.presence === 'UNKNOWN' || item.presence !== 'CURRENT' ? (zh ? '是否仍在运行未知 · 活动未知' : 'Presence unknown · activity unknown') :
     item.lifecycle === 'RUNNING' ? (zh ? '进程已观测 · 工作活动未知' : 'Process observed · work activity unknown') : (zh ? '已发现 · 工作活动未知' : 'Detected · work activity unknown');
@@ -248,7 +316,7 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
       <span className="work-agent-dot" aria-hidden="true" /><span><strong><AgentIdentityLabel item={item} /></strong><small>{state(item)}</small>
       <small>{item.observed_at ? new Date(item.observed_at).toLocaleString(locale) : (zh ? '观测时间未知' : 'Observation time unknown')}</small></span>
     </button>
-    <button disabled={busy || loading || (!associated && !canLink(item))} onClick={() => void associate(item.agent_id, associated)}>{associated ? (zh ? '解除关联' : 'Unlink') : (zh ? '关联到此工作' : 'Link to this work')}</button>
+    <button disabled={busy || loading || !ready.linked || !ready.work || (!associated && !canLink(item))} onClick={() => void associate(item.agent_id, associated)}>{associated ? (zh ? '解除关联' : 'Unlink') : (zh ? '关联到此工作' : 'Link to this work')}</button>
   </article>;
   return <section ref={root} className="work-agents-layer" role="dialog" aria-modal="true" aria-label={zh ? '实际 Agent' : 'Actual Agents'}>
     <header><button autoFocus onClick={leave}>← {zh ? '返回' : 'Back'}</button><h2>{agent ? name(agent) : (zh ? '实际 Agent' : 'Actual Agents')}</h2>
@@ -263,11 +331,11 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
           <div><dt>{zh ? '执行事实' : 'Execution facts'}</dt><dd>{zh ? '尚无执行此工作或子任务的可验证记录。' : 'No verified execution record for this work or its tasks.'}</dd></div>
           <div><dt>{zh ? '最近观测' : 'Last observed'}</dt><dd>{agent.observed_at ? new Date(agent.observed_at).toLocaleString(locale) : '—'}</dd></div>
         </dl>
-        <button disabled={busy || loading || (!associatedIds.has(agent.agent_id) && !canLink(agent))} onClick={() => void associate(agent.agent_id, associatedIds.has(agent.agent_id))}>{associatedIds.has(agent.agent_id) ? (zh ? '解除关联' : 'Unlink') : (zh ? '关联到此工作' : 'Link to this work')}</button>
+        <button disabled={busy || loading || !ready.linked || !ready.work || (!associatedIds.has(agent.agent_id) && !canLink(agent))} onClick={() => void associate(agent.agent_id, associatedIds.has(agent.agent_id))}>{associatedIds.has(agent.agent_id) ? (zh ? '解除关联' : 'Unlink') : (zh ? '关联到此工作' : 'Link to this work')}</button>
         {associatedIds.has(agent.agent_id) && <fieldset className="work-agent-tasks"><legend>{zh ? '关联任务' : 'Linked tasks'}</legend>
           {!tasks.length && <p>{zh ? '这项工作还没有任务。' : 'This work has no tasks yet.'}</p>}
-          {tasks.map(task => <label key={task.id}><input type="checkbox" disabled={busy || loading} checked={taskIds.includes(task.id)} onChange={event => setTaskIds(ids => event.target.checked ? [...ids, task.id] : ids.filter(id => id !== task.id))} />{task.title}</label>)}
-          {!!tasks.length && <button disabled={busy || loading} onClick={() => void saveTasks()}>{zh ? '保存任务关联' : 'Save task links'}</button>}
+          {tasks.map(task => <label key={task.id}><input type="checkbox" disabled={busy || loading || !ready.linked || !ready.work} checked={taskIds.includes(task.id)} onChange={event => setTaskIds(ids => event.target.checked ? [...ids, task.id] : ids.filter(id => id !== task.id))} />{task.title}</label>)}
+          {!!tasks.length && <button disabled={busy || loading || !ready.linked || !ready.work} onClick={() => void saveTasks()}>{zh ? '保存任务关联' : 'Save task links'}</button>}
         </fieldset>}
         <AgentIdentityDetails item={agent}>
           <p>{agent.lifecycle} · {agent.role} · {agent.reason_code}</p>
@@ -277,17 +345,17 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
       </> : <>
         <p className="work-agent-intro">{zh ? '选择当前观测到的 Agent 关联到这项工作。关联本身不会启动执行。' : 'Link a currently observed Agent to this work. Linking does not start execution.'}</p>
         <h3>{zh ? '已关联' : 'Linked'} · {items.length}</h3>
-        {items.length ? items.map(item => row(item, true)) : !loading && <p>{zh ? '这项工作还没有关联实际 Agent。' : 'No actual Agents are linked to this work yet.'}</p>}
+        {items.length ? items.map(item => row(item, true)) : !loading && ready.linked && <p>{zh ? '这项工作还没有关联实际 Agent。' : 'No actual Agents are linked to this work yet.'}</p>}
         <h3>{zh ? '发现的 Agent' : 'Discovered agents'}</h3>
         {available.map(item => row(item, false))}
-        {!loading && !available.length && <p>{zh ? '没有其他可关联的 Agent。可刷新发现。' : 'No other Agents available. Refresh discovery to check again.'}</p>}
-        {(discoveryState === 'UNKNOWN' || discoveryState === 'DEGRADED') && <p>{zh ? '观测不完整，不能据此判断 Agent 不存在。' : 'Observation is incomplete; this does not establish absence.'}</p>}
+        {!loading && ready.detected && !available.length && <p>{zh ? '没有其他可关联的 Agent。可刷新发现。' : 'No other Agents available. Refresh discovery to check again.'}</p>}
+        {(!ready.detected || discoveryState === 'UNKNOWN' || discoveryState === 'DEGRADED' || discoveryState === 'UNAVAILABLE') && <p>{zh ? '观测不完整，不能据此判断 Agent 不存在。' : 'Observation is incomplete; this does not establish absence.'}</p>}
         <details className="work-agent-sources"><summary>{zh ? '观察来源' : 'Observation sources'} · {sources.length}</summary>
           {sourceError && <p role="alert">{sourceError}</p>}
           {sources.map(source => <div className="work-agent-source-row" key={source.source_id}>
             <div><strong>{source.label}{source.short_id && <span className="work-agent-source-id"> · {source.short_id}</span>}</strong>
               <small>{sourceState(source.state)} · {source.agent_count} {zh ? '个 Agent' : 'agents'}</small></div>
-            {source.configurable && <label><input type="checkbox" checked={source.enabled} disabled={loading || Boolean(sourceBusy)}
+            {source.configurable && <label><input type="checkbox" checked={source.enabled} disabled={loading || !ready.sources || Boolean(sourceBusy)}
               onChange={event => void configureSource(source, event.target.checked)} />{zh ? '观察' : 'Observe'}</label>}
             <DiscoveryCatalog client={client} source={source}
               coverage={inventoryCoverage.find(item => item.source_id === source.source_id)}

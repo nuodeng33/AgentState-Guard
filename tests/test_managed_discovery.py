@@ -129,6 +129,7 @@ def test_source_control_is_authenticated_revision_checked_and_survives_restart(t
     app = create_app(state_db_path=tmp_path / "state.db", config={"base_dir": str(tmp_path)},
                      discovery_service=managed, product_startup_discovery=True)
     with TestClient(app) as client:
+        assert app.state.protection.initial_discovery_complete.wait(5)
         assert client.get("/api/v1/discovery/sources").status_code == 401
         client.headers["X-Session-Token"] = client.get("/api/session").json()["token"]
         sources = client.get("/api/v1/discovery/sources").json()["items"]
