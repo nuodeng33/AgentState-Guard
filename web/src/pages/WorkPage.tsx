@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
 import { WorkMenuBar } from '../components/WorkMenuBar';
 import { WorkSidebar, type PageKey } from '../components/AppShell';
@@ -9,6 +9,8 @@ import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
 import WorkRecovery from '../components/WorkRecovery';
+import WorkEditor from '../components/WorkEditor';
+import WorkProtectionLinks from '../components/WorkProtectionLinks';
 import WorkBubbleGroup from '../components/WorkBubbleGroup';
 import { agentTint } from './workAppearance';
 import { useAgentAppearances } from '../components/useAgentAppearances';
@@ -81,6 +83,8 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const [executionTarget, setExecutionTarget] = useState<ExecutionTarget | null>(null);
   const [deliveryPanel, setDeliveryPanel] = useState(false);
   const [recoveryPanel, setRecoveryPanel] = useState(false);
+  const [editor, setEditor] = useState<{ mode: 'work' | 'requirement' | 'task'; taskId?: string } | null>(null);
+  const [linksPanel, setLinksPanel] = useState(false);
   const [deliveryOutput, setDeliveryOutput] = useState<WorkRunOutput | null>(null);
   const deliveryOpener = useRef<HTMLElement | null>(null); const deliveryReturnsToSession = useRef(false);
   const sessionMemory = useRef(createWorkSessionMemory());
@@ -218,10 +222,10 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     document.addEventListener('keydown', escape); return () => document.removeEventListener('keydown', escape);
   }, [visible, restOpen, agentPanel, appearancePanel]);
   useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => { if ([...sessions.current.values()].some(s => s.saved !== s.edits) || form || appearances.hasPending) { e.preventDefault(); e.returnValue = ''; } };
+    const warn = (e: BeforeUnloadEvent) => { if ([...sessions.current.values()].some(s => s.saved !== s.edits) || form || editor || linksPanel || appearances.hasPending) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn);
-  }, [form, appearances.hasPending]);
-  useEffect(() => { onUnsavedChange?.([...sessions.current.values()].some(s => s.saved !== s.edits) || form !== null || appearances.hasPending); }, [status, form, onUnsavedChange, appearances.hasPending]);
+  }, [form, editor, linksPanel, appearances.hasPending]);
+  useEffect(() => { onUnsavedChange?.([...sessions.current.values()].some(s => s.saved !== s.edits) || form !== null || editor !== null || linksPanel || appearances.hasPending); }, [status, form, editor, linksPanel, onUnsavedChange, appearances.hasPending]);
   useEffect(() => {
     if (!visible || (!form && !focus)) return;
     const previous = focus ? readingOpener.current : document.activeElement as HTMLElement | null;
@@ -237,7 +241,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     return () => { document.removeEventListener('keydown', keyboard); previous?.focus(); };
   }, [form, focus, busy, visible]);
   useEffect(() => {
-    if (!visible || !work || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel || appearancePanel) return;
+    if (!visible || !work || editor || linksPanel || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel || appearancePanel) return;
     const keyboard = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       e.preventDefault();
@@ -247,11 +251,11 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       else void back();
     };
     document.addEventListener('keydown', keyboard); return () => document.removeEventListener('keydown', keyboard);
-  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel, appearancePanel]);
+  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel, appearancePanel, editor, linksPanel]);
   function addCard(kind: Card['kind'], ref: string, version: number | null) {
     const current = boardRef.current; if (!current) return;
     const existing = current.cards.find(card => card.kind === kind && card.ref_id === ref && card.version === version);
-    const card = existing ?? { kind, ref_id: ref, version, x: current.cards.length * 430, y: 0, width: 400, height: 430, scroll: 0 };
+    const card = existing ?? { kind, ref_id: ref, version, x: current.cards.length * 430, y: 0, width: kind === 'task' ? 320 : 400, height: kind === 'task' ? 260 : 430, scroll: 0 };
     if (!existing && current.cards.length >= 40) return;
     const rect = canvas.current?.getBoundingClientRect();
     const cardZoom = current.cards.length ? current.viewport.zoom : 1;
@@ -392,10 +396,16 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   }
   function compareRequirement(version: number) { compareOnBoard('requirement', work!.id, version); }
   function fitSpace() { const current = boardRef.current, el = spaceCanvas.current; if (!current?.space?.nodes.length || !el) return;
-    const nodes = [...visibleNodes, ...agentNodes], left = Math.min(...nodes.map(n => n.x)) - 110, right = Math.max(...nodes.map(n => n.x)) + 110;
-    const top = Math.min(...nodes.map(n => n.y)) - 110, bottom = Math.max(...nodes.map(n => n.y)) + 190; // room for the dock
-    const zoom = bound(Math.min(el.clientWidth / (right - left), el.clientHeight / (bottom - top), 1.4), .25, 2);
-    changeBoard({ ...current, space: { ...current.space, viewport: { x: -(left + right) / 2 * zoom, y: -(top + bottom) / 2 * zoom, zoom } } });
+    const bounds = [...visibleNodes, ...agentNodes].map(node => {
+      const kind = 'kind' in node ? node.kind : 'agent';
+      const halfWidth = kind === 'requirement' ? 150 : kind === 'task' ? 115 : kind === 'artifact' ? 130 : 75;
+      const halfHeight = kind === 'requirement' ? 150 : kind === 'task' ? 21 : kind === 'artifact' ? 18 : 75;
+      return { left: node.x - halfWidth, right: node.x + halfWidth, top: node.y - halfHeight, bottom: node.y + halfHeight };
+    });
+    const left = Math.min(...bounds.map(n => n.left)), right = Math.max(...bounds.map(n => n.right));
+    const top = Math.min(...bounds.map(n => n.top)), bottom = Math.max(...bounds.map(n => n.bottom));
+    const zoom = bound(Math.min(Math.max(1, el.clientWidth - 32) / (right - left), Math.max(1, el.clientHeight - 32 - 80) / (bottom - top), 1.4), .25, 2);
+    changeBoard({ ...current, space: { ...current.space, viewport: { x: -(left + right) / 2 * zoom, y: -(top + bottom) / 2 * zoom - 40, zoom } } });
   }
   function spaceZoom(factor: number) { const current = boardRef.current; if (!current?.space) return;
     changeBoard({ ...current, space: { ...current.space, viewport: { ...current.space.viewport, zoom: bound(current.space.viewport.zoom * factor, .25, 2) } } }); }
@@ -429,16 +439,22 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   function spaceEnd(e: PointerEvent) { suppressSpaceClick.current = !!spaceDrag.current?.moved; spaceDrag.current = null; e.stopPropagation(); }
   const renderContent = (card: Card, reading = false) => <CardContent client={client} work={work!} card={card} onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
   return <div className="work-layout" aria-hidden={!visible}>
-    <WorkMenuBar onNewWork={() => setForm('work')} disabled={busy || Boolean(form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)}
+    <WorkMenuBar onNewWork={() => setForm('work')} disabled={busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)}
       onSave={work && status !== 'conflict' && status !== 'saving' ? () => void saveView() : undefined}
       onAllWork={work ? back : undefined}
       onNewTask={work ? () => setForm('task') : undefined} onNewArtifact={work ? () => setForm('artifact') : undefined}
+      onEditWork={work ? () => setEditor({ mode: 'work' }) : undefined}
+      onReviseRequirement={work ? () => setEditor({ mode: 'requirement' }) : undefined}
+      onEditTask={work?.tasks.length ? () => setEditor({ mode: 'task' }) : undefined}
+      onSessions={work ? () => openSessions() : undefined} onDelivery={work ? () => openDelivery() : undefined}
+      onRecovery={work ? openRecovery : undefined} onProtectionLinks={work ? () => setLinksPanel(true) : undefined}
+      onAgents={work ? () => openAgents() : undefined} onAppearance={work ? () => openAppearance() : undefined}
       onBoard={work ? continueBoard : undefined} onSpace={work ? returnToSpace : undefined} on3d={work ? () => setRestOpen(true) : undefined} />
     <div className="work-layout-content">
     <WorkSidebar page="work" items={items} activeId={work?.id} onOpen={id => { if (id !== work?.id) void openWork(id); }}
       onCreate={() => setForm('work')} onNavigate={next => { if (next === 'work') back(); else onNavigate?.(next); }}
       hasMore={more} onMore={() => void list(true).catch(() => setError(t.failed))}
-      navigationLocked={busy || Boolean(form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)} />
+      navigationLocked={busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)} />
     <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
     {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button></div>}
     {loading ? <p role="status">{t.load}</p> : !work ? <>
@@ -512,8 +528,8 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
             const from = board.cards.find(c => c.kind === 'requirement' && c.version === version);
             return from ? <path key={key(a)} d={`M${from.x + from.width},${from.y + 80} C${from.x + from.width + 50},${from.y + 80} ${a.x - 50},${a.y + 80} ${a.x},${a.y + 80}`} /> : null;
           })}</svg>
-          {board?.cards.map(card => <article className="work-card" key={key(card)} data-card={key(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
-            <header onPointerDown={e => startDrag(e, card)}><span className="work-card-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</span><button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}><Icon name="expand" size={16} /></button><button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`} onClick={() => changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) })}><Icon name="close" size={16} /></button></header>
+          {board?.cards.map(card => <article className={`work-card${card.kind === 'task' ? ' work-paper-note work-card-task' : card.kind === 'requirement' ? ' work-paper-note work-card-requirement' : ''}`} key={key(card)} data-card={key(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
+            <header onPointerDown={e => startDrag(e, card)}>{card.kind !== 'artifact' && <TaskPin />}<span className="work-card-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</span><button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}><Icon name="expand" size={16} /></button><button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`} onClick={() => changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) })}><Icon name="close" size={16} /></button></header>
             {renderContent(card)}<button className="work-resize" aria-label={t.resize(t[card.kind])} onPointerDown={e => startDrag(e, card, true)} />
           </article>)}
         </div></div></div>}
@@ -522,15 +538,26 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
         {inSpace && relationshipsOpen && <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => spaceZoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((space?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => spaceZoom(1.2)}><Icon name="plus" /></button><button className="work-icon-button" aria-label={t.fit} title={t.fit} onClick={fitSpace}><Icon name="fit" /></button></div>}
         <div className="work-dock-group">
           <span role="status" className={`work-save is-${status}`} title={status === 'conflict' ? t.viewConflict : undefined}>{status === 'saved' ? t.saved : status === 'saving' ? t.saving : status === 'failed' ? t.saveFailed : status === 'conflict' ? t.viewConflict : t.dirty}</span>
-          <button className="work-quiet" disabled={status === 'saving' || status === 'conflict'} onClick={() => void saveView()}><Icon name="save" />{t.saveView}</button>
+          <button className="work-icon-button" title={t.saveView} aria-label={t.saveView} disabled={status === 'saving' || status === 'conflict'} onClick={() => void saveView()}><Icon name="save" /></button>
           {(status === 'failed' || status === 'conflict') && <button className="work-quiet" onClick={() => { sessions.current.delete(work.id); void openWork(work.id); }}>{t.discardView}</button>}
         </div>
         <div className="work-dock-group">
-          <button className="work-quiet" onClick={() => openAgents()}><Icon name="agents" />{t.agents}<span className="work-count">{agents.failed ? '!' : agents.items.length}</span></button>
-          <button className="work-quiet" onClick={() => openAppearance()}>{locale === 'zh-CN' ? 'Agent 颜色' : 'Agent colors'}</button>
-          <button className="work-quiet" onClick={() => setRestOpen(true)}><Icon name="orbit" />{t.restScene}</button>
+          <button className="work-quiet work-dock-agents" title={t.agents} aria-label={t.agents} onClick={() => openAgents()}><Icon name="agents" /><span className="work-count">{agents.failed ? '!' : agents.items.length}</span></button>
+          <button className="work-icon-button" title={locale === 'zh-CN' ? 'Agent 颜色' : 'Agent colors'} aria-label={locale === 'zh-CN' ? 'Agent 颜色' : 'Agent colors'} onClick={() => openAppearance()}><Icon name="palette" /></button>
+          <button className="work-icon-button" title={t.restScene} aria-label={t.restScene} onClick={() => setRestOpen(true)}><Icon name="orbit" /></button>
         </div></nav>
     </>}
+    {work && visible && editor && <WorkEditor key={`${work.id}:${editor.mode}:${editor.taskId ?? ''}`} client={client} work={work} mode={editor.mode} taskId={editor.taskId}
+      onClose={() => setEditor(null)} onChanged={async () => {
+        const id = work.id;
+        const detail = await client.get<Work>(`/api/v1/works/${id}`);
+        if (workRef.current?.id !== id) return;
+        workRef.current = detail; setWork(detail);
+        if (boardRef.current) changeBoard(withSpace(boardRef.current, detail));
+        await list();
+      }} />}
+    {work && linksPanel && <WorkProtectionLinks key={work.id} client={client} workId={work.id} visible={visible}
+      onClose={() => setLinksPanel(false)} onChanged={() => void refreshDeliveryWork(work.id)} />}
     <WorkRecovery protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
     {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
@@ -560,6 +587,29 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   </section></div></div>;
 }
 
+/** Decorative plastic cap and steel needle; never changes layout/pinning state. */
+function TaskPin() {
+  const id = useId().replace(/:/g, '');
+  return <span className="work-task-pin" aria-hidden="true"><svg viewBox="0 0 54 64" width="42" height="52" focusable="false">
+    <defs>
+      <radialGradient id={`${id}cap`} cx="30%" cy="20%" r="85%"><stop stopColor="#ef9083" /><stop offset=".42" stopColor="#bf5044" /><stop offset="1" stopColor="#7c2b26" /></radialGradient>
+      <linearGradient id={`${id}body`}><stop stopColor="#7b2c27" /><stop offset=".35" stopColor="#d56857" /><stop offset=".72" stopColor="#a33c32" /><stop offset="1" stopColor="#61221f" /></linearGradient>
+      <linearGradient id={`${id}steel`}><stop stopColor="#59615e" /><stop offset=".45" stopColor="#f6f8f2" /><stop offset="1" stopColor="#777f7b" /></linearGradient>
+      <filter id={`${id}shadow`} x="-50%" y="-100%" width="200%" height="300%"><feGaussianBlur stdDeviation="2" /></filter>
+    </defs>
+    <ellipse cx="32" cy="49" rx="14" ry="4" fill="#312d24" opacity=".22" filter={`url(#${id}shadow)`} />
+    <g transform="rotate(-20 26 29)">
+      <path d="M26 34v21l1.4-3V34Z" fill={`url(#${id}steel)`} />
+      <ellipse cx="26" cy="33" rx="12" ry="5" fill="#692720" />
+      <path d="M17 17c2 4 3 9 0 13 4 5 14 5 18 0-3-4-2-9 0-13Z" fill={`url(#${id}body)`} />
+      <ellipse cx="26" cy="17" rx="15" ry="7" fill="#752820" />
+      <ellipse cx="26" cy="13" rx="15" ry="7" fill={`url(#${id}cap)`} />
+      <ellipse cx="21" cy="10" rx="6" ry="2" fill="#fff4e8" opacity=".35" transform="rotate(-12 21 10)" />
+      <path d="M19 23c.5 2 .4 4-.3 6" fill="none" stroke="#f3aa91" strokeOpacity=".45" strokeWidth="1.2" strokeLinecap="round" />
+    </g>
+  </svg></span>;
+}
+
 function CardContent({ client, work, card, onScroll }: { client: ApiClient; work: Work; card: Card; onScroll: (scroll: number) => void }) {
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [content, setContent] = useState<Content | null>(null); const [error, setError] = useState<'contentBusy' | 'contentMissing' | 'contentConnection' | 'contentFailed' | null>(null); const [retry, setRetry] = useState(0);
@@ -574,7 +624,7 @@ function CardContent({ client, work, card, onScroll }: { client: ApiClient; work
           err instanceof SessionUnavailableError || err instanceof ApiRequestError && (err.status === null || err.status === 401) ? 'contentConnection' : 'contentFailed');
     });
     return () => { live = false; };
-  }, [client, work.id, card.kind, card.ref_id, card.version, retry]);
+  }, [client, work.id, card.kind, card.ref_id, card.version, retry, card.kind === 'task' ? work.revision : 0]);
   useEffect(() => { if (body.current && content && Math.abs(body.current.scrollTop - card.scroll) > 1) body.current.scrollTop = card.scroll; }, [content, card.scroll]);
   return <div className="work-card-body" ref={body} onScroll={e => { if (content && Math.abs(e.currentTarget.scrollTop - card.scroll) > 1) onScroll(e.currentTarget.scrollTop); }}>
     {error ? <p role="alert">{t[error]} <button onClick={() => setRetry(n => n + 1)}>{t.retry}</button></p> : content ? <>

@@ -30,6 +30,7 @@ import { useI18n, useT, type Translate } from '../i18n/I18nProvider';
 import { AgentsViewBody } from './AgentsPage';
 import { RuntimeViewBody } from './RuntimePage';
 import { DoctorSection, StatusSection } from './EnvironmentSections';
+import EnvironmentSourceControls from './EnvironmentSourceControls';
 
 type RefreshPhase =
   | { kind: 'idle' }
@@ -126,7 +127,7 @@ export default function EnvironmentPage({ client = apiClient }: { client?: ApiCl
       <SectionHeader title={zh ? '发现的环境与程序' : 'Discovered environments and programs'} />
       <p className="muted">{zh ? '运行状态、进程探测与已安装程序分别记录；运行中的容器不代表已连接或允许受管执行。' : 'Running state, process probes and installed programs are separate observations. A running container does not imply a connected or authorized executor.'}</p>
       <ViewGate state={sources} label={zh ? '环境来源' : 'Environment sources'}>
-        {data => <EnvironmentSources data={data} applications={applications.data?.items ?? []} zh={zh} />}
+        {data => <EnvironmentSources data={data} applications={applications.data?.items ?? []} zh={zh} client={client} onChanged={reloadAll} disabled={sources.refreshing} />}
       </ViewGate>
       {applications.phase === 'api-error' && <p role="alert">{zh ? '程序库存读取失败；未将其视为空。' : 'Program inventory could not be read; it is not treated as empty.'}</p>}
       {applications.data?.has_more && <p>{zh ? '此处显示前100条程序记录；其余记录可在程序与会话库中查看。' : 'The first 100 program records are shown here; additional records remain available in Programs and session stores.'}</p>}
@@ -189,7 +190,7 @@ function RefreshSummary({
 
 type EnvironmentSource = DiscoverySource & { running?: boolean; connected?: boolean;
   protection?: { running?: boolean; connected?: boolean } };
-function EnvironmentSources({ data, applications, zh }: { data: DiscoverySources; applications: DiscoveryApplication[]; zh: boolean }) {
+function EnvironmentSources({ data, applications, zh, client, onChanged, disabled }: { data: DiscoverySources; applications: DiscoveryApplication[]; zh: boolean; client: ApiClient; onChanged: () => void; disabled: boolean }) {
   if (!data.items.length) return <p>{zh ? '尚无环境观测，请刷新发现。' : 'No environment observations yet. Refresh discovery.'}</p>;
   return <>{data.items.map(raw => {
     const source = raw as EnvironmentSource;
@@ -205,6 +206,7 @@ function EnvironmentSources({ data, applications, zh }: { data: DiscoverySources
       <p>{runLabel} · {probeLabel}</p>
       {connected !== undefined && <p>{zh ? '目录连接' : 'Directory connection'}: {connected ? (zh ? '已连接' : 'Connected') : (zh ? '未连接' : 'Disconnected')}</p>}
       <p>{source.freshness} · <code>{source.reason_code}</code></p>
+      <EnvironmentSourceControls client={client} source={source} onChanged={onChanged} disabled={disabled} />
       {coverage && <p>{zh ? '程序库存' : 'Program inventory'}: {coverage.status} · <code>{coverage.reason_code}</code></p>}
       {programs.map(item => <div key={item.id}>
         <strong>{item.label || item.provider} · {item.version || (zh ? '版本未观测' : 'Version unobserved')}</strong>

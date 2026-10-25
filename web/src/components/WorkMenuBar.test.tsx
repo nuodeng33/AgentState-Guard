@@ -31,7 +31,7 @@ describe('WorkMenuBar', () => {
   });
 
   it('dispatches every enabled action once, closes and preserves callback focus', () => {
-    const names = ['onSave', 'onAllWork', 'onNewTask', 'onNewArtifact', 'onBoard', 'onSpace', 'on3d'] as const;
+    const names = ['onSave', 'onAllWork', 'onNewTask', 'onNewArtifact', 'onBoard', 'onSpace', 'on3d', 'onEditWork', 'onReviseRequirement', 'onEditTask', 'onSessions', 'onDelivery', 'onRecovery', 'onProtectionLinks', 'onAgents', 'onAppearance'] as const;
     const callbacks = Object.fromEntries(names.map(name => [name, vi.fn()]));
     const { rerender } = setup(callbacks);
     const pairs = [
@@ -39,6 +39,10 @@ describe('WorkMenuBar', () => {
       ['Edit', 'Add task', 'onNewTask'], ['Edit', 'Save artifact', 'onNewArtifact'],
       ['View', 'Workbench', 'onBoard'], ['View', 'Relationship space', 'onSpace'],
       ['View', '3D view', 'on3d'],
+      ['File', 'Delivery', 'onDelivery'], ['File', 'File recovery', 'onRecovery'],
+      ['File', 'Protected directories', 'onProtectionLinks'],
+      ['Edit', 'Work information', 'onEditWork'], ['Edit', 'Revise requirement', 'onReviseRequirement'], ['Edit', 'Edit task', 'onEditTask'],
+      ['View', 'Session management', 'onSessions'], ['View', 'Linked agents', 'onAgents'], ['View', 'Agent colors', 'onAppearance'],
     ];
     for (const [menu, action, callback] of pairs) {
       fireEvent.click(screen.getByRole('button', { name: menu }));

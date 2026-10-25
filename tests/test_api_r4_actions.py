@@ -438,7 +438,7 @@ def test_allowed_browser_origins_can_preflight_protected_actions(tmp_path, origi
 
     assert status == 200
     assert headers["access-control-allow-origin"] == origin
-    assert set(headers["access-control-allow-methods"].split(", ")) == {"GET", "POST"}
+    assert set(headers["access-control-allow-methods"].split(", ")) == {"GET", "POST", "PATCH", "PUT"}
     allowed_headers = headers["access-control-allow-headers"].casefold()
     assert "content-type" in allowed_headers
     assert "x-session-token" in allowed_headers
@@ -908,3 +908,18 @@ def test_database_failure_response_does_not_leak_path_or_exception(tmp_path):
     assert str(tmp_path) not in encoded
     assert "private-state.db" not in encoded
     assert "sqlite" not in encoded.casefold()
+
+
+@pytest.mark.parametrize("method", ["PATCH", "PUT"])
+def test_existing_edit_verbs_use_frozen_origins_and_token_boundary(tmp_path, method):
+    from fastapi.testclient import TestClient
+    from agentguard.api.server import create_app
+
+    app = create_app(state_db_path=tmp_path / "state.db", config={"base_dir": str(tmp_path)})
+    with TestClient(app) as client:
+        headers = {"Origin": "http://tauri.localhost", "Access-Control-Request-Method": method,
+                   "Access-Control-Request-Headers": "content-type,x-session-token"}
+        assert client.options("/api/v1/works/example", headers=headers).status_code == 200
+        assert client.options("/api/v1/works/example", headers={**headers, "Origin": "https://untrusted.invalid"}).status_code == 400
+        assert client.options("/api/v1/works/example", headers={**headers, "Access-Control-Request-Method": "DELETE"}).status_code == 400
+        assert client.request(method, "/api/v1/works/example", json={}).status_code == 401

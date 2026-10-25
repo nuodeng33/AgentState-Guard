@@ -1,5 +1,9 @@
 # Current State
 
+### 2026-10-25 latest: capability coverage and central paper notes
+
+The central Workbench requirement/task cards now render as quiet paper notes with realistic decorative pins; relation task nodes stay compact. Existing backend work-edit, requirement revision, task-edit, session rename, protected-directory links and environment source controls are reachable through File/Edit/View or Settings. CORS permits the existing edit verbs only for the frozen local origins. Integrated frontend verification is 388/388 across 51 files with typecheck/build/diff check green. Real isolated Core/browser checks confirmed work edit, requirement history, task edit and directory link/unlink; the final relationship return step retains a UI lifecycle failure from stale directory-panel nodes and is not claimed passed. See [phase27](phases/27-work-capability-coverage.md) and [backend/UI coverage](verification/BACKEND_UI_COVERAGE_20261025.md).
+
 ### 2026-10-25 latest: work-first shell
 
 User-requested left work list/search/new, central work, top File/Edit/View and avatar-only Settings implemented. Guard/detection surfaces are inside Settings. Independent337frontend/typecheck/build passed; actual production-asset browser with installedCore verified work/task creation, view/save and settings return; menu CSS collision fixed and focused6/build reverified. This is source preview, not newMSI acceptance. See [phase26](phases/26-work-first-shell.md).

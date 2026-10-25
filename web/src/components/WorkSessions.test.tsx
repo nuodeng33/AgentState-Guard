@@ -46,11 +46,12 @@ function fixture(initialRun?: ExecutionRun) {
 function promotionFixture() {
   const f = fixture(execution('RUNNING'));
   const original = f.get.getMockImplementation()!;
-  let promotedRunId: string | null = null, reads = 0, allowedReads = 2;
+  let promotedRunId: string | null = null, reads = 0, allowedReads = 4;
   const promotedRuns = new Map<string, ExecutionRun>();
   f.get.mockImplementation(async path => {
     if (path.endsWith('/sessions/a')) {
       reads++;
+      // Each mounted selection reads both its detail and its nickname.
       // Bound an erroneous refresh loop so the causal regression fails rather
       // than hanging the test process in an unbounded microtask chain.
       if (reads > allowedReads) return new Promise(() => {});
@@ -456,7 +457,7 @@ describe('work session management', () => {
     await screen.findByRole('button', { name: 'Refresh next instruction' });
     f.promote('run-next');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
-    expect(f.sessionReads()).toBe(2);
+    expect(f.sessionReads()).toBe(4);
     expect(screen.getByLabelText('Execution input')).toBeTruthy();
     expect(screen.getByText('Started as an execution')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Execution ended.*Queued run-next/ }).getAttribute('aria-pressed')).toBe('true');
@@ -470,9 +471,9 @@ describe('work session management', () => {
     f.promote('run-next');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Execution ended.*Fix the issue/ })); });
-    f.allowReads(3);
+    f.allowReads(6);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reload sessions' })); });
-    expect(f.sessionReads()).toBe(3);
+    expect(f.sessionReads()).toBe(6);
     expect(screen.getByRole('button', { name: /Execution ended.*Fix the issue/ }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: /Execution ended.*Queued run-next/ }).getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByLabelText('Execution input')).toBeTruthy();
@@ -485,9 +486,9 @@ describe('work session management', () => {
     await screen.findByRole('button', { name: 'Refresh next instruction' });
     f.promote('run-next');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
-    f.allowReads(3); f.promote('run-later');
+    f.allowReads(6); f.promote('run-later');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh next instruction' })); });
-    expect(f.sessionReads()).toBe(3);
+    expect(f.sessionReads()).toBe(6);
     expect(screen.getByRole('button', { name: /Execution ended.*Queued run-later/ }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: /Execution ended.*Queued run-next/ }).getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByLabelText('Execution input')).toBeTruthy();

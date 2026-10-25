@@ -1,10 +1,9 @@
 /* Work surfaces: overview → relation space → workbench → focus reading.
-   Tokens live in styles/tokens.css; no raw palette values below unless they
-   are translucent mixes of a token color. */
+   Tokens live in styles/tokens.css; task paper has its own restrained palette. */
 
 .work-page { --work-gold: var(--work); --work-teal: var(--agent); position: relative; height: 100dvh; min-height: 440px; display: flex; flex-direction: column; overflow: hidden;
   color: var(--text-1); font-family: var(--font-ui);
-  background: radial-gradient(90% 70% at 50% 46%, #252a2e 0%, var(--bg-space) 58%, var(--bg-space-edge) 100%); }
+  background: var(--bg-space); }
 .work-page.is-resting > :not(.work-rest-layer):not(.work-agents-layer) { visibility: hidden; pointer-events: none; }
 .work-page.is-agents > :not(.work-agents-layer) { visibility: hidden; pointer-events: none; }
 .work-page.is-reading > :not(.work-reading-overlay) { visibility: hidden; pointer-events: none; }
@@ -48,7 +47,7 @@
 
 /* ---- Work header ---- */
 .work-toolbar { display: flex; gap: 14px; align-items: center; height: 64px; padding: 0 20px; position: relative; flex-shrink: 0; z-index: 6; }
-.work-heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding-left: 14px; border-left: 1px solid var(--border-2); }
+.work-heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding-left: 4px; }
 .work-heading strong { font-size: 18px; line-height: 26px; font-weight: 620; letter-spacing: -.005em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-menu { position: absolute; right: 16px; top: 56px; z-index: 30; display: grid; gap: 2px; width: 200px; padding: 6px; border: 1px solid var(--border-2); border-radius: var(--r-card); background: var(--bg-surface-2); box-shadow: var(--e-3); }
 .work-page .work-menu button { justify-content: flex-start; border-color: transparent; color: var(--text-1); }
@@ -64,7 +63,7 @@
 
 /* ---- Floating dock ---- */
 .work-dock { position: absolute; z-index: 8; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; max-width: calc(100% - 24px); padding: 6px;
-  border: 1px solid var(--border-2); border-radius: 16px; background: rgba(35, 40, 43, .9); backdrop-filter: blur(12px); box-shadow: var(--e-2); }
+  border: 1px solid var(--border-1); border-radius: 12px; background: var(--bg-space); box-shadow: none; }
 .work-dock-group { display: flex; align-items: center; gap: 2px; }
 .work-dock-group + .work-dock-group, .work-dock > .work-zoom + .work-dock-group, .work-dock-group + .work-zoom { border-left: 1px solid var(--border-2); margin-left: 6px; padding-left: 8px; }
 .work-save { padding: 0 8px; color: var(--text-3); font-size: 13px; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
@@ -129,8 +128,8 @@
 /* ---- Workbench ---- */
 .work-tools { display: flex; align-items: center; gap: 6px; padding: 0 16px 10px; flex-shrink: 0; }
 .work-tools .work-zoom { margin-left: auto; }
-.work-area { position: relative; flex: 1; min-height: 0; margin: 0 16px 16px; border: 1px solid var(--border-1); border-radius: var(--r-panel); overflow: hidden; }
-.work-canvas { position: relative; overflow: hidden; height: 100%; min-height: 0; background-color: var(--bg-inset); background-image: radial-gradient(rgba(236, 231, 220, .07) 1px, transparent 1px); background-size: 24px 24px; touch-action: none; }
+.work-area { position: relative; flex: 1; min-height: 0; margin: 0 16px 16px; border: 0; border-radius: 8px; overflow: hidden; }
+.work-canvas { position: relative; overflow: hidden; height: 100%; min-height: 0; background-color: var(--bg-inset); background-image: radial-gradient(rgba(236, 231, 220, .035) 1px, transparent 1px); background-size: 32px 32px; touch-action: none; }
 .work-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .work-links { position: absolute; overflow: visible; pointer-events: none; }
 .work-links path { stroke: var(--work-line); stroke-width: 1.4; fill: none; stroke-dasharray: 5 6; }
@@ -146,6 +145,29 @@
   background: linear-gradient(135deg, transparent 50%, var(--text-3) 52%, transparent 57%, transparent 68%, var(--text-3) 70%, transparent 75%); }
 .work-canvas-empty { position: absolute; z-index: 2; left: 50%; top: 45%; transform: translate(-50%, -50%); display: flex; align-items: center; flex-direction: column; gap: 8px; width: min(360px, 94%); }
 .work-canvas-empty p { margin: 0 0 8px; }
+
+/* Only the central content cards become pinned paper. Relation nodes stay compact. */
+.work-paper-note { --task-paper: #e9dfb5; --task-ink: #34382f; --task-muted: #60634f; }
+.work-paper-note.work-card-requirement { --task-paper: #e7e4db; --task-ink: #323832; --task-muted: #596155; }
+.work-task-pin { position: absolute; top: 2px; left: calc(50% - 21px); width: 42px; height: 52px; pointer-events: none; }
+.work-paper-note { border: 1px solid rgba(52, 56, 47, .12); border-radius: 3px 3px 16px 3px; background: var(--task-paper); color: var(--task-ink); box-shadow: 0 8px 20px rgba(0, 0, 0, .12); }
+.work-paper-note > header { position: relative; height: 88px; border-bottom: 0; padding: 52px 6px 0 20px; }
+.work-paper-note .work-card-kind { color: var(--task-muted); font-size: 11px; gap: 5px; }
+.work-page .work-paper-note > header button.work-icon-button { color: var(--task-muted); }
+.work-page .work-paper-note > header button.work-icon-button:hover { background: rgba(52, 56, 47, .08); color: var(--task-ink); }
+.work-paper-note .work-card-body { padding: 4px 22px 24px; }
+.work-paper-note .work-prose, .work-paper-note .work-prose td, .work-paper-note .work-prose strong, .work-paper-note .work-prose h3, .work-paper-note .work-prose h4, .work-paper-note .work-prose h5 { color: var(--task-ink); }
+.work-paper-note .work-prose th, .work-paper-note .work-provenance, .work-paper-note .work-prose li::marker { color: var(--task-muted); }
+.work-paper-note .work-prose code { background: rgba(52, 56, 47, .08); color: var(--task-ink); }
+.work-paper-note .work-prose pre { background: rgba(52, 56, 47, .06); }
+.work-paper-note .work-prose pre code { background: transparent; }
+.work-paper-note .work-prose th, .work-paper-note .work-prose td { border-color: rgba(52, 56, 47, .15); }
+.work-page .work-paper-note button.work-resize { background: linear-gradient(135deg, transparent 50%, var(--task-muted) 52%, transparent 57%, transparent 68%, var(--task-muted) 70%, transparent 75%); }
+
+.work-paper-note .work-version { color: var(--task-muted); background: rgba(52, 56, 47, .07); }
+.work-paper-note .work-card-body > code { color: var(--task-muted); }
+.work-page .work-paper-note .work-card-body button { color: var(--task-ink); border-color: var(--task-muted); }
+.work-page .work-paper-note button:focus-visible { box-shadow: 0 0 0 2px var(--task-paper), 0 0 0 4px #73513e; }
 
 /* Prose: reading typography shared by cards and focus reading. */
 .work-prose { margin-top: 14px; overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.8; color: var(--text-2); }

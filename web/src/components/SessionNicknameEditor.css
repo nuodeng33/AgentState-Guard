@@ -1,0 +1,6 @@
+.session-nickname-editor { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; width: 100%; }
+.session-nickname-editor form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; width: 100%; }
+.session-nickname-editor label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 160px; min-width: 0; font-size: 12px; }
+.session-nickname-editor input { width: 100%; min-width: 0; padding: 7px 9px; color: var(--text-1); background: var(--bg-inset); border: 1px solid var(--border-2); border-radius: var(--r-control); font: inherit; }
+.session-nickname-editor input:focus-visible { outline: 2px solid var(--focus-color); outline-offset: 2px; }
+.session-nickname-editor [role=alert] { flex-basis: 100%; color: var(--st-failed); font-size: 12px; overflow-wrap: anywhere; }

@@ -13,6 +13,15 @@ export interface WorkMenuBarProps {
   onBoard?: () => void;
   onSpace?: () => void;
   on3d?: () => void;
+  onEditWork?: () => void;
+  onReviseRequirement?: () => void;
+  onEditTask?: () => void;
+  onSessions?: () => void;
+  onDelivery?: () => void;
+  onRecovery?: () => void;
+  onProtectionLinks?: () => void;
+  onAgents?: () => void;
+  onAppearance?: () => void;
   disabled?: boolean;
 }
 
@@ -20,7 +29,7 @@ type MenuName = 'file' | 'edit' | 'view';
 
 export function WorkMenuBar({
   onNewWork, onSave, onAllWork, onNewTask, onNewArtifact,
-  onBoard, onSpace, on3d, disabled = false,
+  onBoard, onSpace, on3d, onEditWork, onReviseRequirement, onEditTask, onSessions, onDelivery, onRecovery, onProtectionLinks, onAgents, onAppearance, disabled = false,
 }: WorkMenuBarProps) {
   const { locale } = useI18n();
   const copy = workspaceCopy[locale];
@@ -34,16 +43,25 @@ export function WorkMenuBar({
     { name: 'file' as const, label: zh ? '文件' : 'File', items: [
       { label: copy.create, action: onNewWork },
       { label: copy.saveView, action: onSave },
+      { label: copy.delivery, action: onDelivery },
+      { label: copy.recovery, action: onRecovery },
+      { label: zh ? '保护目录' : 'Protected directories', action: onProtectionLinks },
       { label: copy.back, action: onAllWork },
     ] },
     { name: 'edit' as const, label: zh ? '编辑' : 'Edit', items: [
+      { label: zh ? '工作信息' : 'Work information', action: onEditWork },
+      { label: zh ? '修订要求' : 'Revise requirement', action: onReviseRequirement },
       { label: copy.newTask, action: onNewTask },
+      { label: zh ? '编辑任务' : 'Edit task', action: onEditTask },
       { label: copy.newArtifact, action: onNewArtifact },
     ] },
     { name: 'view' as const, label: zh ? '视图' : 'View', items: [
       { label: zh ? '工作台' : 'Workbench', action: onBoard },
       { label: zh ? '关系空间' : 'Relationship space', action: onSpace },
       { label: copy.restScene, action: on3d },
+      { label: copy.sessions, action: onSessions },
+      { label: copy.agents, action: onAgents },
+      { label: zh ? '智能体颜色' : 'Agent colors', action: onAppearance },
     ] },
   ];
 

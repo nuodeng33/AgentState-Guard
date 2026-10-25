@@ -279,8 +279,7 @@ describe('api client error safety', () => {
   });
 });
 
-describe('api client mutation POST', () => {
-  type PostCall = { path: string; method: string; token: string | null; body: unknown; contentType: string | null };
+type PostCall = { path: string; method: string; token: string | null; body: unknown; contentType: string | null };
 
   function mockPostFetch(handlers: Array<() => Response | Promise<Response>>) {
     const calls: PostCall[] = [];
@@ -300,6 +299,7 @@ describe('api client mutation POST', () => {
     return { calls, fetchImpl: fetchImpl as unknown as typeof fetch };
   }
 
+describe('api client mutation POST', () => {
   const ACTION_OK = {
     schema_version: 'r4-p8-action-1',
     action: 'APPROVE_ONCE',
@@ -500,4 +500,34 @@ describe('api client mutation POST', () => {
       client.post('/api/v1/supervision/ssn-1/reject', { action_ref: 'b'.repeat(64) }),
     ).rejects.toMatchObject({ name: 'ApiRequestError', message: 'API unreachable' });
   });
+});
+
+
+describe('existing edit methods', () => {
+  for (const method of ['patch', 'put'] as const) {
+    it(`${method} keeps its method, exact body and authority across one 401 retry`, async () => {
+      const { calls, fetchImpl } = mockPostFetch([
+        () => jsonResponse({ token: 'token-a' }),
+        () => jsonResponse({}, 401),
+        () => jsonResponse({ token: 'token-b' }),
+        () => jsonResponse({ revision: 3 }),
+      ]);
+      const client = createApiClient(fetchImpl, packagedApiUrl);
+      const body = { request_id: 'edit-id', expected_revision: 2, title: 'Original title' };
+      await client[method]!('/api/v1/works/work-id', body);
+      expect(calls.map(call => call.method)).toEqual(['GET', method.toUpperCase(), 'GET', method.toUpperCase()]);
+      expect(calls[1].body).toEqual(body);
+      expect(calls[3].body).toEqual(body);
+      expect(calls[3].token).toBe('token-b');
+      expect(calls[3].path).toBe('http://127.0.0.1:8787/api/v1/works/work-id');
+    });
+    it(`${method} never replays an uncertain mutation automatically`, async () => {
+      const { calls, fetchImpl } = mockPostFetch([
+        () => jsonResponse({ token: 'token-a' }),
+        () => { throw new Error('network'); },
+      ]);
+      await expect(createApiClient(fetchImpl)[method]!('/api/v1/works/work-id', {})).rejects.toBeInstanceOf(ApiRequestError);
+      expect(calls).toHaveLength(2);
+    });
+  }
 });

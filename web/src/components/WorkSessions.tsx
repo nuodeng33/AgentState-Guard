@@ -12,6 +12,7 @@ import ProtectionScopeManager from './ProtectionScopeManager';
 import ProjectConnectionCatalog from './ProjectConnectionCatalog';
 import type { ProtectionScopeCommand } from '../api/protection';
 import WorkPendingInstructionPanel, { pendingContextKey, type PendingInstructionMemory, type PendingInstructionBlock } from './WorkPendingInstructionPanel';
+import SessionNicknameEditor from './SessionNicknameEditor';
 import WorkRunContext, { type RunContextChoice } from './WorkRunContext';
 import type { ExecutionTarget } from './WorkExecutionStatus';
 
@@ -540,13 +541,13 @@ export default function WorkSessions({ client, workId, revision, requirementVers
         {createOpen && <ProjectConnectionCatalog client={client} disabled={busy || Boolean(scopeCommand)} onRegistered={() => setRefresh(value => value + 1)} />}
         {!loading && !items.length && <p>{label('No managed sessions', '暂无受管会话')}</p>}
         <div className="work-session-list">{items.map(item => <button type="button" key={item.id} onClick={() => { setSelected(item.id); setCreateOpen(false); setRunId(null); }}>
-          <strong>{item.provider} · {item.native_session_id || item.id}</strong><span>{statusLabel(item.status)}{item.read_only ? ` · ${label('Read only', '只读')}` : ''}</span>
+          <strong>{item.nickname || `${item.provider} · ${item.native_session_id || item.id}`}</strong><span>{statusLabel(item.status)}{item.read_only ? ` · ${label('Read only', '只读')}` : ''}</span>
           {item.reason_code && <small>{displayCode(item.reason_code)}</small>}
         </button>)}</div>
         {hasMore && <button type="button" disabled={loading} onClick={() => void loadSessions(true)}>{label('Load more sessions', '加载更多会话')}</button>}
       </>}
       {selected && session && <>
-        <div className="work-session-meta"><strong>{session.provider}</strong><span>{statusLabel(session.status)}</span><span>{session.read_only ? label('Read only', '只读') : session.capabilities.write ? label('Writes allowed by policy', '写入受策略控制') : label('Writes unavailable', '写入不可用')}</span>
+        <div className="work-session-meta"><SessionNicknameEditor client={client} workId={workId} sessionId={session.id} disabled={busy} onChanged={() => { setRefresh(value => value + 1); }} /><strong>{session.provider}</strong><span>{statusLabel(session.status)}</span><span>{session.read_only ? label('Read only', '只读') : session.capabilities.write ? label('Writes allowed by policy', '写入受策略控制') : label('Writes unavailable', '写入不可用')}</span>
           {session.connection_state && <span>{displayCode(session.connection_state)}</span>}
           <code>{session.native_session_id || session.id}</code>{session.reason_code && <small>{displayCode(session.reason_code)}</small>}
           {session.status === 'DISCONNECTED' && <button type="button" disabled={busy} onClick={() => void perform(`${workId}:${session.id}:connect`, { expected_revision: session.revision, control_consent: true }, `${executionBase(workId)}/sessions/${encodeURIComponent(session.id)}/connect`, () => { setRefresh(value => value + 1); })}>{label('Connect session', '连接会话')}</button>}

@@ -110,3 +110,9 @@ describe('execution DTO boundaries', () => {
     expect(runIsActive('INTERRUPTED')).toBe(false);
   });
 });
+
+
+it('keeps the saved session nickname available to the list without inventing one', () => {
+  expect(normalizeSession({ id: 's', nickname: 'Delivery check' }).nickname).toBe('Delivery check');
+  expect(normalizeSession({ id: 's' }).nickname).toBe('');
+});

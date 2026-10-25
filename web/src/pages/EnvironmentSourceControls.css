@@ -1,0 +1,8 @@
+.environment-source-controls { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-1); }
+.environment-source-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.environment-source-controls button { min-height: 32px; padding: 4px 10px; border: 1px solid var(--border-2); border-radius: var(--r-control); background: var(--bg-surface-2); color: var(--text-1); font: inherit; cursor: pointer; }
+.environment-source-controls button:disabled { color: var(--text-disabled); cursor: default; }
+.environment-source-controls button:focus-visible { outline: 2px solid var(--focus-color); outline-offset: 2px; }
+.environment-source-confirm { margin-top: 10px; padding: 10px; border: 1px solid var(--border-2); border-radius: var(--r-control); }
+.environment-source-controls code, .environment-source-controls p { overflow-wrap: anywhere; }
+.environment-source-controls [role="status"] > button + button, .environment-source-confirm button + button { margin-inline-start: 8px; }

@@ -74,6 +74,9 @@ export interface ApiClient {
    * per call; the only retry is the shared single 401 re-bootstrap.
    */
   post<T>(path: string, body: unknown): Promise<T>;
+  /** Existing edit endpoints; same token and bounded 401 policy as POST. */
+  patch?<T>(path: string, body: unknown): Promise<T>;
+  put?<T>(path: string, body: unknown): Promise<T>;
   /** Authenticated event stream. Closing the reader never cancels execution. */
   stream?(path: string, signal?: AbortSignal): Promise<Response>;
 }
@@ -180,10 +183,10 @@ export function createApiClient(
     return (await response.json()) as T;
   }
 
-  async function send(path: string, sessionToken: string, body: unknown): Promise<Response> {
+  async function send(method: 'POST' | 'PATCH' | 'PUT', path: string, sessionToken: string, body: unknown): Promise<Response> {
     try {
       return await callFetch(urlResolver(path), {
-        method: 'POST',
+        method,
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
@@ -217,14 +220,14 @@ export function createApiClient(
     return typeof code === 'string' && STABLE_REASON_CODE.test(code) ? code : null;
   }
 
-  async function post<T>(path: string, body: unknown): Promise<T> {
+  async function mutate<T>(method: 'POST' | 'PATCH' | 'PUT', path: string, body: unknown): Promise<T> {
     const sessionToken = token ?? (await bootstrapSession());
-    let response = await send(path, sessionToken, body);
+    let response = await send(method, path, sessionToken, body);
     if (response.status === 401) {
       // Same bounded policy as reads: one re-bootstrap + one retry, never a loop.
       token = null;
       const freshToken = await bootstrapSession();
-      response = await send(path, freshToken, body);
+      response = await send(method, path, freshToken, body);
       if (response.status === 401) {
         throw new SessionUnavailableError();
       }
@@ -266,7 +269,11 @@ export function createApiClient(
     return response;
   }
 
-  return { bootstrap, get, post, stream };
+  return { bootstrap, get, stream,
+    post: <T>(path: string, body: unknown) => mutate<T>('POST', path, body),
+    patch: <T>(path: string, body: unknown) => mutate<T>('PATCH', path, body),
+    put: <T>(path: string, body: unknown) => mutate<T>('PUT', path, body),
+  };
 }
 
 /** Shared singleton for the running app. Tests build isolated clients via createApiClient. */

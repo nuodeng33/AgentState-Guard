@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { changeLanguageViaSettings } = require('./work_settings_browser.cjs');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const directory = path.resolve('artifacts/spatial-viewer');
 const dist = path.resolve(process.env.ASG_SPATIAL_DIST || 'artifacts/demo-dist');
@@ -26,7 +27,7 @@ fs.mkdirSync(directory, { recursive: true });
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(`http://127.0.0.1:${server.address().port}/?work=7d1c9b52-4a3e-4f0b-9c61-2f8e5a1d3b70`);
-    await page.getByRole('combobox', { name: /Language|语言/ }).selectOption('en-US');
+    await changeLanguageViaSettings(page, 'en-US');
     const viewport = await page.locator('.work-space-world').getAttribute('style');
     await page.getByRole('button', { name: '3D view', exact: true }).click();
     await page.locator('.work-rest-stage canvas').waitFor();

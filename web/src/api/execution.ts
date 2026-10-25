@@ -6,7 +6,7 @@ export interface ManagedCapabilities {
 }
 
 export interface WorkSession {
-  id: string; work_id: string; provider: string; source_id: string;
+  id: string; work_id: string; provider: string; source_id: string; nickname?: string;
   application_id: string; store_id: string; scope_id: string; scope_root?: string; task_id: string | null;
   status: 'CREATING' | 'CONNECTING' | 'READY' | 'DISCONNECTED' | 'UNCERTAIN' | 'UNAVAILABLE' | 'ARCHIVED';
   connection_state: string; native_session_id: string | null; read_only: boolean;
@@ -87,7 +87,7 @@ export function normalizeSession(value: unknown): WorkSession {
   const id = text(item.id ?? item.session_id);
   if (!id) throw new ApiRequestError('Invalid session record');
   const status = text(item.status ?? item.state);
-  return { id, work_id: text(item.work_id), provider: text(item.provider), source_id: text(item.source_id),
+  return { id, work_id: text(item.work_id), nickname: text(item.nickname).slice(0, 120), provider: text(item.provider), source_id: text(item.source_id),
     application_id: text(item.application_id), store_id: text(item.store_id), scope_id: text(item.scope_id),
     scope_root: text(item.scope_root), task_id: text(item.task_id) || null, native_session_id: text(item.native_session_id) || null,
     status: ['CREATING', 'CONNECTING', 'READY', 'DISCONNECTED', 'UNCERTAIN', 'UNAVAILABLE', 'ARCHIVED'].includes(status) ? status as WorkSession['status'] : 'UNAVAILABLE',

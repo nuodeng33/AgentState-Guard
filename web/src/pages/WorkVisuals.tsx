@@ -90,6 +90,7 @@ const ICONS: Record<string, ReactNode> = {
   save: <><path d="M5 4h8l3 3v9H5z" /><path d="M7.5 4v3.5h4V4M7.5 16v-4.5h5V16" /></>,
   agents: <><circle cx="7.5" cy="8" r="3.5" /><circle cx="13.5" cy="12" r="3" /></>,
   orbit: <><circle cx="10" cy="10" r="2.5" /><ellipse cx="10" cy="10" rx="7.5" ry="3.5" transform="rotate(-20 10 10)" /></>,
+  palette: <><path d="M10 3.5a6.5 6.5 0 1 0 0 13h1a1.8 1.8 0 0 0 1.5-2.8c-.5-.8-.1-1.7.8-1.7h1.2A2.5 2.5 0 0 0 17 9.5a6.4 6.4 0 0 0-7-6Z" /><circle cx="6.5" cy="9" r=".7" /><circle cx="9" cy="6.7" r=".7" /><circle cx="12.5" cy="7" r=".7" /></>,
   environment: <><rect x="4" y="4.5" width="12" height="9" rx="1.5" /><path d="M7.5 16h5" /></>,
   settings: <><circle cx="10" cy="10" r="2.5" /><path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2M5.4 5.4l1.4 1.4M13.2 13.2l1.4 1.4M5.4 14.6l1.4-1.4M13.2 6.8l1.4-1.4" /></>,
   expand: <path d="M11.5 4H16v4.5M16 4l-5.5 5.5M8.5 16H4v-4.5M4 16l5.5-5.5" />,

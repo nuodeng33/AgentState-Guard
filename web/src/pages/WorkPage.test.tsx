@@ -30,6 +30,75 @@ function fixture(state: Board = board) {
 afterEach(() => { cleanup(); history.replaceState(null, '', '/'); });
 
 describe('persistent workbench', () => {
+  it('fits the complete task note and work core within a narrow visible canvas', async () => {
+    const task = '33333333-3333-4333-8333-333333333333';
+    const state: Board = { ...board, surface: 'space', space: { viewport: { x: 0, y: 0, zoom: 1 }, nodes: [
+      { kind: 'requirement', ref_id: id, version: 1, x: 0, y: 0 },
+      { kind: 'task', ref_id: task, version: null, x: -390, y: 0 },
+    ] } };
+    const { client, post } = fixture(state);
+    const originalGet = vi.mocked(client.get).getMockImplementation()!;
+    vi.mocked(client.get).mockImplementation(async (path: string) => {
+      const value = await originalGet(path) as Record<string, unknown>;
+      return path === '/api/v1/works/' + id ? { ...value, tasks: [{ id: task, title: 'Narrow task' }], artifacts: [] } : value;
+    });
+    const { container } = render(<WorkPage client={client} />);
+    await screen.findByRole('button', { name: 'Show relationships' });
+    const canvas = container.querySelector('.work-space')!;
+    Object.defineProperties(canvas, { clientWidth: { value: 252 }, clientHeight: { value: 745 } });
+    fireEvent.click(screen.getByRole('button', { name: 'Show relationships' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Fit canvas' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save workspace' }));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const viewport = post.mock.calls[post.mock.calls.length - 1][1].state.space.viewport;
+    const project = (x: number) => 126 + viewport.x + x * viewport.zoom;
+    expect(project(-390 - 115)).toBeGreaterThanOrEqual(16);
+    expect(project(150)).toBeLessThanOrEqual(236);
+  });
+
+  it('opens a task from the compact relation node into a pinned content note with real content and closes only its board reference', async () => {
+    const task = '33333333-3333-4333-8333-333333333333';
+    const state: Board = { ...board, surface: 'space', space: { viewport: { x: 0, y: 0, zoom: 1 }, nodes: [
+      { kind: 'requirement', ref_id: id, version: 1, x: 0, y: 0 },
+      { kind: 'task', ref_id: task, version: null, x: -390, y: 0 },
+    ] } };
+    const { client, post } = fixture(state);
+    const originalGet = vi.mocked(client.get).getMockImplementation()!;
+    vi.mocked(client.get).mockImplementation(async (path: string) => {
+      if (path.endsWith('/tasks/' + task)) return { title: 'Verify delivery', body: 'Read the original file before delivery.' };
+      const value = await originalGet(path) as Record<string, unknown>;
+      return path === '/api/v1/works/' + id ? { ...value, tasks: [{ id: task, title: 'Verify delivery' }] } : value;
+    });
+    const { container } = render(<WorkPage client={client} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Show relationships' }));
+    const note = await screen.findByRole('button', { name: 'Open Verify delivery' });
+    expect(note.querySelector('.work-task-pin')).toBeNull();
+    expect(note.querySelectorAll('button')).toHaveLength(0);
+    expect(container.querySelector('.work-space-node.requirement .work-task-pin')).toBeNull();
+    fireEvent.click(note);
+    await screen.findByText('Read the original file before delivery.');
+    const card = container.querySelector('[data-card="task:' + task + ':"]')!;
+    expect(card.classList.contains('work-card-task')).toBe(true);
+    expect(card.querySelector('header .work-task-pin')?.getAttribute('aria-hidden')).toBe('true');
+    const requirement = container.querySelector('.work-card-requirement')!;
+    expect(requirement.classList.contains('work-paper-note')).toBe(true);
+    expect(requirement.querySelector('.work-task-pin')).toBeTruthy();
+    const ids = Array.from(container.querySelectorAll('.work-task-pin [id]')).map(element => element.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(container.querySelector('[data-card^="artifact:"] .work-task-pin')).toBeNull();
+    expect((card as HTMLElement).style.width).toBe('320px');
+    fireEvent.click(within(card as HTMLElement).getByRole('button', { name: 'Focus reading Task' }));
+    const dialog = screen.getByRole('dialog');
+    expect(await within(dialog).findByText('Read the original file before delivery.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Back to workbench/ }));
+    fireEvent.click(within(card as HTMLElement).getByRole('button', { name: 'Close card Task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save workspace' }));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(post.mock.calls[post.mock.calls.length - 1][1].state.cards.some((item: { ref_id: string }) => item.ref_id === task)).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Add related content' }));
+    expect(screen.getByRole('button', { name: 'Verify delivery' })).toBeTruthy();
+  });
+
   it('opens a real node through the space and returns through each layer without losing position', async () => {
     const { client } = fixture({ ...board, surface: 'space', space: { viewport: { x: 47, y: -20, zoom: 1.2 }, nodes: [
       { kind: 'requirement', ref_id: id, version: 1, x: 0, y: 0 },
