@@ -208,6 +208,10 @@
 .work-reader { display: flex; flex-direction: column; width: min(980px, 100%); height: 90vh; background: var(--bg-surface-1); border: 1px solid var(--border-2); border-radius: var(--r-panel); }
 .work-reader > header { height: 64px; padding: 0 20px; border-bottom: 1px solid var(--border-1); display: flex; justify-content: space-between; align-items: center; flex: none; }
 .work-reader > header .work-card-kind { flex: none; }
+.work-reader-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.work-reader-context { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; width: min(780px, 100%); margin: 18px auto 0; padding: 10px 32px; border-top: 1px solid var(--border-1); border-bottom: 1px solid var(--border-1); color: var(--text-2); font-size: 13px; }
+.work-reader-context .work-quiet { min-height: 28px; padding: 0 8px; color: var(--agent); }
+.work-reader-muted { color: var(--text-3); }
 .work-reader .work-card-body { width: 100%; max-width: 780px; margin: 0 auto; padding: 48px 32px 96px; }
 .work-reader .work-card-body h2 { font-size: 30px; line-height: 40px; margin-bottom: 10px; letter-spacing: -.014em; }
 .work-reader .work-prose { font-size: 16.5px; line-height: 1.9; margin-top: 24px; }

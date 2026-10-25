@@ -137,6 +137,25 @@ describe('persistent workbench', () => {
     await waitFor(() => expect(post).toHaveBeenCalled());
     expect(post.mock.calls[post.mock.calls.length - 1][1].state.viewport.zoom).toBeGreaterThan(.8);
   });
+  it('makes focused task reading actionable with edit and linked Agent entry', async () => {
+    const task = '33333333-3333-4333-8333-333333333333';
+    const state: Board = { ...board, cards: [{ kind: 'task', ref_id: task, version: null, x: 20, y: 20, width: 320, height: 260, scroll: 0 }] };
+    const { client } = fixture(state); const originalGet = vi.mocked(client.get).getMockImplementation()!;
+    vi.mocked(client.get).mockImplementation(async (path: string) => {
+      if (path.endsWith('/tasks/' + task)) return { id: task, work_id: id, title: 'Verify delivery', body: 'Task body', assignee: null, depends_on: [] };
+      if (path.endsWith('/agents')) return { items: [{ agent_id: 'agent-1', detected_identity: 'Codex', task_ids: [task] }] };
+      const value = await originalGet(path) as Record<string, unknown>;
+      return path === '/api/v1/works/' + id ? { ...value, tasks: [{ id: task, title: 'Verify delivery' }] } : value;
+    });
+    render(<WorkPage client={client} />);
+    await screen.findByText('Task body');
+    fireEvent.click(screen.getByRole('button', { name: 'Focus reading Task' }));
+    expect(screen.getByRole('button', { name: 'Edit task' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Codex' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit task' }));
+    expect(await screen.findByRole('dialog', { name: 'Edit task' })).toBeTruthy();
+  });
+
   it('reads full real content and preserves the board across focused reading', async () => {
     const { client } = fixture(); const { container } = render(<WorkPage client={client} />);
     await screen.findByText('Saved content');
