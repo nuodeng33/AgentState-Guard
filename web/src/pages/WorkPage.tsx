@@ -556,7 +556,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
         if (boardRef.current) changeBoard(withSpace(boardRef.current, detail));
         await list();
       }} />}
-    {work && linksPanel && <WorkProtectionLinks key={work.id} client={client} workId={work.id} visible={visible}
+    {work && <WorkProtectionLinks key={work.id} client={client} workId={work.id} visible={visible && linksPanel}
       onClose={() => setLinksPanel(false)} onChanged={() => void refreshDeliveryWork(work.id)} />}
     <WorkRecovery protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
     {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={work.id} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
