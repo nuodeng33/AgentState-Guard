@@ -1,0 +1,54 @@
+{
+  "head": "7060895f260b2e325447cc7462243fb4e25d955e",
+  "reviewed_fixture_sha256": "ea2bfbf468e9aba2cab914222659d35850fb538477070a91d35cc39e865fc838",
+  "focused": {
+    "tests": 24,
+    "passed": 24,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "/workspace/projects/AgentState-Guard-onboarding/artifacts/loading-closure-20261025/independent-fixture/focused.xml"
+    ]
+  },
+  "separate_ordering_rerun": {
+    "tests": 3,
+    "passed": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "/workspace/projects/AgentState-Guard-onboarding/artifacts/loading-closure-20261025/independent-fixture/ordering.xml"
+    ]
+  },
+  "review": "Only testfile changed: successfixture waits real initial_discovery_complete; failurefixture callback setsprivatepublicationevent only afteractualrefreshreturns nonemptycommittedsnapshotrefs. Failedobservationneverfakesinitial_discovery_complete. Newtestholdsactualrecord_discovery_snapshot toproveHTTPreadydoesnotyielduncommittedprojection; releaseusesrealrecorder. ExistingDEGRADED/UNREACHABLE/reason/privacy/HTTP503/refs assertions unchanged. Boundedwaits+finallyreleasesandjoinsownedthreads. No productchangesbyreviewer.",
+  "ruff_exit": 0,
+  "diffcheck_exit": 0,
+  "risks": [
+    "RecordedWindowscoldheavyR4read5144msstillabove5000msclientdeadline; localcontentlatencyisolatedbutheavyreadSLOnotclosed.",
+    "OnlysourceCore+productionassets inChrome actualDBcopyproof; exact706MSI/nativeWebViewcoldcontentawaitmeasurement.",
+    "12sbootstrapbudgetcanlegitimatelyexpireonslowonefilecoldunpack; explicitretryUI+no mutationreplaymustbeverifiednative.",
+    "Globalreadvalidationlock+workerpoolmayqueueconcurrentcachemissesafterledgerappend;measurebackgrounddiscovery/appendandmulti-viewburstswithhealth/work/taskbodylatencies.",
+    "Healthreadyisnotinitialdiscoveryauthoritycomplete;measurepause-intentrestore/firstpublishedsnapshot/recoverywritegateunderunavailableforeignsourceandretry."
+  ],
+  "source_evidence": "docs/verification/READ_PATH_CLOSURE_20261025.json; fixture source diff; noWindowsAPI/nativeUI/process/credentialactions.",
+  "failed_ci": {
+    "commit": "7060895f260b2e325447cc7462243fb4e25d955e",
+    "run_id": 40195068931,
+    "job_id": 121174028387,
+    "python": "3.12",
+    "test": "test_discovery_failure_is_ledgered_as_degraded_without_leaking_exception",
+    "observed": "EMPTY before first discovery evidence publication; expected DEGRADED",
+    "log_sha256": "f9e3e895f7b8736d11dec9f863b433be812a4ea0febde2c294dd1cad49544427"
+  },
+  "causal_red_evidence": [
+    "artifacts/r4-read-latency/startup-failure-publication-red.log",
+    "artifacts/r4-read-latency/startup-publication-fixture-red.log"
+  ],
+  "product_source_changed": false,
+  "remote_followup_ci": "Required on the new test-only commit; not claimed passed"
+}

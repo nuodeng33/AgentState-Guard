@@ -295,6 +295,7 @@ def _running_api(root: Path):
     base_url = f"http://127.0.0.1:{port}"
     token = _request(base_url, "/api/session")[1]["token"]
     try:
+        assert app.state.protection.initial_discovery_complete.wait(5), "startup discovery did not publish"
         yield base_url, token
     finally:
         server.should_exit = True
@@ -310,6 +311,18 @@ def _running_failing_api(root: Path):
         discovery_service=_FailingDiscovery(),
         product_startup_discovery=True,
     )
+    published = threading.Event()
+    refresh = app.state.protection.discovery_refresh
+
+    def observe_failure_publication():
+        result = refresh()
+        # The callback returns only after its snapshot receipts commit. A failed
+        # observation intentionally never sets initial_discovery_complete.
+        if result.get("snapshot_id") and result.get("evidence_refs"):
+            published.set()
+        return result
+
+    app.state.protection.discovery_refresh = observe_failure_publication
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
     )
@@ -322,6 +335,7 @@ def _running_failing_api(root: Path):
     base_url = f"http://127.0.0.1:{port}"
     token = _request(base_url, "/api/session")[1]["token"]
     try:
+        assert published.wait(5), "startup failure evidence did not publish"
         yield base_url, token
     finally:
         server.should_exit = True
@@ -412,3 +426,53 @@ def test_run_server_enables_startup_discovery_and_disables_access_log(
     assert captured["create_app"]["product_startup_discovery"] is True
     assert captured["uvicorn"]["access_log"] is False
     assert captured["uvicorn"]["host"] == "127.0.0.1"
+
+
+def test_failing_api_fixture_waits_for_committed_startup_evidence(tmp_path, monkeypatch):
+    from agentguard.evidence import discovery_adapter
+
+    before_publish, release, listener_ready, yielded, finish = (threading.Event() for _ in range(5))
+    failures = []
+    original_record = discovery_adapter.record_discovery_snapshot
+    original_request = _request
+
+    def gated_record(*args, **kwargs):
+        if threading.current_thread().name == "asg-discovery" and not release.is_set():
+            before_publish.set()
+            assert release.wait(4), "controlled publication was not released"
+        return original_record(*args, **kwargs)
+
+    def request(base_url, path, *args, **kwargs):
+        result = original_request(base_url, path, *args, **kwargs)
+        if path == "/api/session":
+            listener_ready.set()
+        return result
+
+    monkeypatch.setattr(discovery_adapter, "record_discovery_snapshot", gated_record)
+    monkeypatch.setitem(globals(), "_request", request)
+
+    def consume():
+        try:
+            with _running_failing_api(tmp_path) as (base_url, token):
+                yielded.set()
+                result = _request(base_url, "/api/v1/runtime", token)[1]
+                assert result["status"] == "DEGRADED"
+                assert result["evidence_refs"]
+                assert finish.wait(3)
+        except Exception as error:  # noqa: BLE001 -- propagate every owned thread failure to the test
+            failures.append(error)
+
+    thread = threading.Thread(target=consume)
+    thread.start()
+    try:
+        assert before_publish.wait(2)
+        assert listener_ready.wait(2)
+        assert not yielded.wait(.1), "fixture yielded while startup evidence was uncommitted"
+        release.set()
+        assert yielded.wait(3), "fixture did not yield after real publication"
+    finally:
+        release.set()
+        finish.set()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert failures == []

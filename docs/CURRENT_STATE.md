@@ -1,5 +1,9 @@
 # Current State
 
+### 2026-10-25 startup fixture CI follow-up
+
+7060895 Core CI failed one Python 3.12 case because the fixture read before the first background discovery receipt committed. A test-only publication wait and controlled regression preserve all original authority and privacy assertions. Independent focused24 passed; ordering3 passed separately; Ruff/diff passed. Product source and assets remain identical to 7060895. New exact-source CI and packaged cold-start measurements are required; no CI pass or final MSI acceptance is inferred. See [evidence](verification/STARTUP_PUBLICATION_FIXTURE_20261025.json).
+
 ### 2026-10-25 authoritative checkpoint — local read/startup closure
 
 Phase28 fixes synchronous startup discovery, event-loop blocking R4 reads, repeated Agent ledger validation, unsafe layout hydration, duplicate panel keys and incomplete request deadlines. Independent frontend421passed; backend1580passed/49skipped; typecheck/build/Ruff/diff green. Actual Windows source Core + sandboxed production browser with34526-event copied DB showed283ms list /175ms click-to-task-body, plus strict15 and delivery/recovery22 checks. Source proof does not replace final MSI/native input acceptance. Cold concurrent heavy Agent read5144ms remains explicit. See [phase28](phases/28-responsive-local-reads.md) and [evidence](verification/READ_PATH_CLOSURE_20261025.json).

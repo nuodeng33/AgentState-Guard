@@ -26,3 +26,11 @@ Single-snapshot source Agent projection on the same immutable Windows archive de
 No API schema, DB migration, old ledger hash, permission, provider/model call, global system setting or user browser profile change. Test diagnostic app closed normally; six original business files3199253bytes restored against immutable backup, DB not started. Current installed program is e311 test payload, no ASG process running. A new exact-source CI/package and native cold observation are required. Full native pointer control remains tool-limited; final packaged external-edit recovery and broader provider/physical scopes remain explicit.
 
 Rollback: revert phase28 source/components/assets as a unit to f78d1ae; never downgrade or rewrite business data/history. Exit requires actual source gates plus final exact-package verification; whole goal is not marked complete.
+
+## Startup publication fixture follow-up
+
+7060895 Core CI exposed one Python 3.12 test race: its failure fixture treated an available HTTP listener as proof the background discovery receipt was already committed. The original assertion saw EMPTY before the real failure snapshot. The failure log and two controlled RED reproductions are retained.
+
+Only tests/test_product_discovery.py changes: successful fixtures wait for the existing successful publication event; failed-discovery fixtures wait for their real refresh callback to return committed snapshot ID and evidence references. No successful-discovery event is fabricated. A gated regression proves a ready listener cannot make the fixture yield before publication. All original DEGRADED, reason, privacy, evidence-reference and 503 assertions remain.
+
+Independent focused verification: 24 passed; a separate three-case ordering rerun passed and is not added to the count. Ruff and diff check passed. Product code and built assets remain identical to 7060895. New exact-commit CI and final packaged verification remain required. See [fixture evidence](../verification/STARTUP_PUBLICATION_FIXTURE_20261025.json).
