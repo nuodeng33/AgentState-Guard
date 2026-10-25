@@ -457,7 +457,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       navigationLocked={busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)} />
     <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
     {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button></div>}
-    {loading ? <p role="status">{t.load}</p> : !work ? <>
+    {loading ? <div className="work-loading-state" role="status"><span className="work-loading-spinner" aria-hidden="true" /><p>{t.load}</p></div> : !work ? <>
       <div className="work-overview">
         <header className="work-overview-head"><div><h1>{t.title}</h1><p>{items.length ? t.overviewCount(items.length) : t.intro}</p></div>
           </header>

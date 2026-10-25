@@ -52,3 +52,6 @@
 .work-page .work-agent-bubble { position: absolute; width: 152px; min-height: 104px; transform: translate(-50%, -50%); pointer-events: auto; border: 0; background: transparent; display: grid; justify-items: center; gap: 5px; }
 .work-agent-bubble .work-agent-dot { width: 52px; height: 52px; }.work-agent-bubble strong { font-size: 12px; font-weight: 500; }.work-agent-bubble small { font-size: 10px; color: var(--text-2); }
 @media(max-width:600px) { .work-agents-layer > header { padding: 14px; gap: 8px; }.work-agents-layer h2 { font-size: 15px; }.work-agent-row { flex-wrap: wrap; }.work-agent-row > button:last-child { margin-left: 50px; }.work-agents-content { padding: 18px; }.work-agent-catalog-form { grid-template-columns: minmax(0, 1fr); } }
+
+.work-agent-loading { display: flex; align-items: center; gap: 10px; margin: 0 0 24px; padding: 12px 0; color: var(--text-2); font-size: 13px; }
+.work-agent-loading .work-loading-spinner { width: 16px; height: 16px; }

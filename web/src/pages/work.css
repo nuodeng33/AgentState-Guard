@@ -29,6 +29,12 @@
 .work-count { min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--bg-surface-3); color: var(--text-1); font-size: 12px; font-weight: 620; display: inline-grid; place-items: center; }
 .work-version { font-style: normal; font-size: 12px; font-weight: 640; color: var(--work); padding: 1px 6px; border-radius: 5px; background: var(--work-tint); line-height: 18px; }
 
+.work-loading-state { position: absolute; inset: 64px 0 0; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--text-2); }
+.work-loading-state p { margin: 0; font-size: 14px; }
+.work-loading-spinner { width: 24px; height: 24px; border: 2px solid var(--border-2); border-top-color: var(--work); border-radius: 50%; animation: work-loading-spin .8s linear infinite; }
+@keyframes work-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .work-loading-spinner { animation: none; } }
+
 /* ---- Overview ---- */
 .work-overview { flex: 1; overflow: auto; width: 100%; max-width: 1180px; margin: 0 auto; padding: 44px 32px 64px; }
 .work-overview-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }

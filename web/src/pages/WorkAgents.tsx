@@ -96,9 +96,12 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
       if (!quiet) { setLoading(true); setError(''); }
       try {
         if (refresh) await refreshDiscovery(client);
-        const [associated, detected, work, sourceList] = await Promise.all([
-          client.get<{ items: WorkAgent[] }>(`/api/v1/works/${workId}/agents`),
+        const detected = await Promise.race([
           client.get<{ items: WorkAgent[]; status: string }>('/api/v1/agents'),
+          new Promise<{ items: WorkAgent[]; status: string }>(resolve => setTimeout(() => resolve({ items: [], status: 'UNAVAILABLE' }), 1200)),
+        ]).catch(() => ({ items: [], status: 'UNAVAILABLE' }));
+        const [associated, work, sourceList] = await Promise.all([
+          client.get<{ items: WorkAgent[] }>(`/api/v1/works/${workId}/agents`),
           client.get<{ revision: number }>(`/api/v1/works/${workId}`),
           client.get<DiscoverySources>('/api/v1/discovery/sources').catch(() => null),
         ]);
@@ -245,9 +248,10 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
   </article>;
   return <section ref={root} className="work-agents-layer" role="dialog" aria-modal="true" aria-label={zh ? '实际 Agent' : 'Actual Agents'}>
     <header><button autoFocus onClick={leave}>← {zh ? '返回' : 'Back'}</button><h2>{agent ? name(agent) : (zh ? '实际 Agent' : 'Actual Agents')}</h2>
-      {!showEvidence && <button disabled={busy || loading || Boolean(sourceBusy)} onClick={() => void load(true)}>{loading ? (zh ? '读取中…' : 'Loading…') : (zh ? '刷新发现' : 'Refresh discovery')}</button>}
+      {!showEvidence && <button disabled={busy || loading || Boolean(sourceBusy)} onClick={() => void load(true)}>{zh ? '刷新发现' : 'Refresh discovery'}</button>}
     </header>
     <div className="work-agents-content">
+      {loading && <div className="work-agent-loading" role="status"><span className="work-loading-spinner" aria-hidden="true" />{zh ? '正在读取 Agent 记录…' : 'Reading Agent records…'}</div>}
       {error && <p role="alert">{error} <button disabled={busy || loading} onClick={() => void load()}>{zh ? '刷新记录' : 'Reload records'}</button></p>}
       {showEvidence ? <EvidenceDetailPanel detail={evidence} phase={evidencePhase} /> : agent ? <>
         <p className="work-agent-state">{state(agent)}</p>
