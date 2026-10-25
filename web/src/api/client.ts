@@ -253,7 +253,7 @@ export function createApiClient(
     const fetchStream = async (sessionToken: string) => {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       try {
-        return await boundedFetch(urlResolver(path), {
+        return await callFetch(urlResolver(path), {
           headers: { Accept: 'text/event-stream', 'X-Session-Token': sessionToken },
           signal,
         });
