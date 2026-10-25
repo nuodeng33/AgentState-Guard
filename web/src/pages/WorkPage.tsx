@@ -185,28 +185,36 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     if (previous && previous.id !== id) void saveView(previous);
     const seq = ++loadSequence.current; setLoading(true); setError('');
     try {
+      const detail = await client.get<Work>(`/api/v1/works/${id}`);
+      if (seq !== loadSequence.current || !mounted.current) return;
       const cached = sessions.current.get(id);
       const preserve = cached && cached.edits !== cached.saved;
-      const [detail, view] = await Promise.all([client.get<Work>(`/api/v1/works/${id}`),
-        preserve ? Promise.resolve(null) : client.get<View>(`/api/v1/works/${id}/view`)]);
-      if (seq !== loadSequence.current || !mounted.current) return;
       workRef.current = detail; setWork(detail); setRequirementVersion(detail.requirement_version);
       let session = preserve ? cached : null;
       if (!session) {
-        const next = withSpace(view!.state ?? initialBoard(id, detail.requirement_version), detail);
-        const dirty = !view!.state || JSON.stringify(next) !== JSON.stringify(view!.state);
-        session = { id, board: next, revision: view!.revision, edits: dirty ? 1 : 0, saved: 0,
-          pending: null, saving: null, status: dirty ? 'dirty' : 'saved', blocked: false };
+        const next = withSpace(initialBoard(id, detail.requirement_version), detail);
+        session = { id, board: next, revision: 0, edits: 0, saved: 0,
+          pending: null, saving: null, status: 'saved', blocked: false };
         sessions.current.set(id, session);
       }
       boardRef.current = session.board; setBoard(session.board); setStatus(session.status);
-      setAppearancePanel(null); setFocus(null); setLibraryOpen(false); setRelationshipsOpen(false); setRelationLimit(12); setMenuOpen(false); setRestOpen(false); setAgentPanel(null); setSessionPanel(false); setDeliveryPanel(false); setDeliveryOutput(null);
+      setLoading(false);
       const url = new URL(location.href); url.searchParams.set('work', id); history.replaceState(null, '', url);
+      if (preserve) return;
+      try {
+        const view = await client.get<View>(`/api/v1/works/${id}/view`);
+        if (seq !== loadSequence.current || !mounted.current) return;
+        const current = sessions.current.get(id);
+        if (!current || current.edits !== 0) return;
+        const next = withSpace(view.state ?? initialBoard(id, detail.requirement_version), detail);
+        current.board = next; current.revision = view.revision; current.status = view.state ? 'saved' : 'dirty';
+        current.edits = view.state ? 0 : 1; boardRef.current = next; setBoard(next); setStatus(current.status);
+      } catch { if (seq === loadSequence.current && mounted.current) setError(t.failed); }
     } catch (err) { if (seq === loadSequence.current) { workRef.current = null; boardRef.current = null; setWork(null); setBoard(null); setError(message(err));
       const url = new URL(location.href); url.searchParams.delete('work'); history.replaceState(null, '', url);
-      await list().catch(() => {}); } }
-    finally { if (seq === loadSequence.current) setLoading(false); }
+      await list().catch(() => {}); setLoading(false); } }
   }
+
   useEffect(() => {
     mounted.current = true;
     const selected = new URLSearchParams(location.search).get('work');
