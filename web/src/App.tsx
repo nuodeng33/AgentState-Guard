@@ -30,7 +30,7 @@ const TITLE_KEYS: Record<PageKey, MessageKey> = {
  * navigation and authoritative backend semantics outside that shell.
  */
 export default function App() {
-  const [page, setPage] = useState<PageKey>(new URLSearchParams(location.search).has('work') || new URLSearchParams(location.search).has('workspace') ? 'work' : 'home');
+  const [page, setPage] = useState<PageKey>('work');
   const [workVisited, setWorkVisited] = useState(page === 'work');
   const t = useT();
   const navigate = (next: PageKey) => { if (next === 'work') setWorkVisited(true); setPage(next); };

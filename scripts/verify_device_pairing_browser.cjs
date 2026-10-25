@@ -52,6 +52,8 @@ assert.equal(new URL(fixture.driver_url).hostname, '127.0.0.1');
    page.on('request', request => { if (request.method() === 'POST') posts.push(new URL(request.url()).pathname); });
    stage = 'PAGE_LOAD';
    await page.goto(url);
+   await page.getByRole('button', { name: 'Workspace account', exact: true }).click();
+   await page.getByRole('button', { name: 'Settings', exact: true }).click();
    await page.getByRole('button', { name: 'Devices', exact: true }).click();
    stage = 'LINK_ENABLE';
    await postAction('/device-link/enable', () => page.getByRole('button', { name: 'Enable Mobile Link', exact: true }).click());

@@ -1,0 +1,38 @@
+{
+  "result": "PASS_WITH_EXPLICIT_LIMITS",
+  "baseline_core": "17f8751a07885715b158b2bcb6defb77a52f6405",
+  "scope": "Actual rebuilt production frontend overlaid for isolated sandboxedChrome; normal APIs and testdata from installedCore. Not installed newMSI/nativepointer evidence.",
+  "test_work_id": "731f75ab-1d3e-4547-93f4-9a49d6fcf78d",
+  "checks": {
+    "default_my_work_no_guard_dashboard": true,
+    "left_work_list": true,
+    "avatar_only_settings": true,
+    "guard_inside_settings": true,
+    "file_create_actual201": true,
+    "edit_task_actual_persisted": true,
+    "view_workbench": true,
+    "file_save": true,
+    "settings_return_same_transform": true,
+    "escape_keeps_work": true,
+    "menu_buttons_at_top_nonoverlap": true,
+    "narrow1024_no_document_horizontal_overflow": true,
+    "no_page_errors": true
+  },
+  "not_completed": [
+    "search and list-return final browser pass interrupted by actualCore shutdown request; unit search rendering and directswitch/failedsave tests passed"
+  ],
+  "failures_retained": [
+    "Initial menu group collided with oldglobal.work-menu, fixed uniqueclass and actualbrowserpositions verified",
+    "Initial zero-sized work-world locator visibility assertion was wrong; actualcanvas/content and same transformverified",
+    "Initial fittextselector wrong beforeaction; corrected actual适应画布",
+    "Core normalclose delayed; late list request remainsloading during shutdown, not accepted as working final browser list-return"
+  ],
+  "screenshots": [
+    "02-work-landing-fixed.png",
+    "04-settings-environment.png",
+    "06-workspace-fit.png",
+    "07-narrow-workspace.png"
+  ],
+  "no_model_calls": true,
+  "original_business_database_not_used": true
+}

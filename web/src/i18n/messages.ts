@@ -12,6 +12,14 @@
 import type { Locale } from './locale';
 
 export type MessageKey =
+  | 'sidebar.searchWork'
+  | 'sidebar.noMatches'
+  | 'sidebar.profile'
+  | 'sidebar.newWork'
+  | 'sidebar.moreWorks'
+  | 'sidebar.localWorkspace'
+  | 'sidebar.localInitial'
+  | 'sidebar.settingsSections'
   | 'nav.work'
   | 'app.brand.name'
   | 'app.brand.sub'
@@ -326,6 +334,14 @@ export type MessageKey =
 export type Messages = Record<MessageKey, string>;
 
 const enUS: Messages = {
+  'sidebar.searchWork': 'Search work',
+  'sidebar.noMatches': 'No matching loaded work',
+  'sidebar.profile': 'Workspace account',
+  'sidebar.newWork': 'New work',
+  'sidebar.moreWorks': 'More work',
+  'sidebar.localWorkspace': 'Local workspace',
+  'sidebar.localInitial': 'L',
+  'sidebar.settingsSections': 'Settings sections',
   'app.brand.name': 'AgentState Guard',
   'app.brand.sub': 'R4 Operations Console',
   'app.nav.primary': 'Primary',
@@ -652,6 +668,14 @@ const enUS: Messages = {
 };
 
 const zhCN: Messages = {
+  'sidebar.searchWork': '查找工作',
+  'sidebar.noMatches': '已加载工作中没有匹配项',
+  'sidebar.profile': '工作区头像',
+  'sidebar.newWork': '新建工作',
+  'sidebar.moreWorks': '更多工作',
+  'sidebar.localWorkspace': '本机工作区',
+  'sidebar.localInitial': '本',
+  'sidebar.settingsSections': '设置分区',
   'app.brand.name': 'AgentState Guard',
   'app.brand.sub': 'R4 运营控制台',
   'app.nav.primary': '主导航',

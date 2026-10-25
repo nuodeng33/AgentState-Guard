@@ -114,3 +114,8 @@ Independent final backend: **1542 passed, 49 skipped, 0 failures/errors** (JUnit
 ## 2026-10-24 ASG-CLOSE-004 dense QR follow-up
 
 Actual MuMu image-import failure traced with same-payload Java detector RED/GREEN; render-only integer grid/quiet-zone fix and stale UI clock sampling fix implemented. Independent frontend326/typecheck/build and12 actual-component raster cases passed. New exact CI and installed final repeat remain required. See phase25 and verification/DEVICE_QR_NATIVE_20261024.json; diagnostic mobile success is not final-package signoff.
+
+
+## 2026-10-25 WS-007/008 work-first shell
+
+Implemented user-directed leftworksidebar, avatar→Settings and File/Edit/View calling existingactions.337frontend/typecheck/build, focused6 after real CSSfix and actualCore browser verified. NewMSI/exactnewCI remains required; no fullproductcompletion claim.

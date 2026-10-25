@@ -1,0 +1,25 @@
+{
+  "result": "PASS",
+  "head": "17f8751a07885715b158b2bcb6defb77a52f6405",
+  "scope": "Independent complete frontend test/typecheck/normal production build on frozen work-first UI source; no backend/native/UI/ADB/process acceptance",
+  "frontend": {
+    "tests": 337,
+    "passed": 337,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "xfailed": 0,
+    "xpassed": 0,
+    "sources": [
+      "artifacts/work-first-20261025/independent/frontend.xml"
+    ]
+  },
+  "typecheck_exit": 0,
+  "production_build_exit": 0,
+  "diff_check_exit": 0,
+  "source_before_after_equal": true,
+  "known_build_warning": "Existing rest-scene chunk exceeds500kB",
+  "source_sha256_file": "artifacts/work-first-20261025/independent/source-after.sha256",
+  "build_sha256_file": "artifacts/work-first-20261025/independent/build-assets.sha256",
+  "demo_build": "not run; parent production Core browser preview uses normal assets"
+}

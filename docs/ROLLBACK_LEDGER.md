@@ -74,3 +74,8 @@ Base405bbd4. Revert phase22 files/generated assets as one validated set; no sche
 ## 2026-10-24 ASG-CLOSE-004 dense QR follow-up
 
 Baseline0c88. Ordinary revert of QrCodeCard/app.css, App.kt presentation-clock sampling, corresponding tests/raster resources and generated assets only. No API/schema/permissions or historical ledger changes. Preserve original six-file isolation/backup and all failure evidence; test package teardown and exact restore still required.
+
+
+## 2026-10-25 WS-007/008 work-first shell
+
+Rollback17f8751: ordinary revert of phase26 UI/components/copy/tests/generatedassets; no API/schema/permission changes. Preserve restoredoriginalsixfiles, immutablebackup, pendingreceipt/history and failureevidence.

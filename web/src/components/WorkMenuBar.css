@@ -1,0 +1,74 @@
+.work-menu-bar {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  padding: 2px 12px;
+  border-bottom: 1px solid var(--border-1);
+  background: var(--bg-surface-1);
+  color: var(--text-2);
+  font-family: var(--font-ui);
+}
+
+.work-menu-folder { position: relative; }
+
+.work-menu-bar button.work-menu-trigger,
+.work-menu-bar button.work-menu-action {
+  display: block;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.work-menu-bar button.work-menu-trigger:hover:not(:disabled),
+.work-menu-bar button.work-menu-trigger[aria-expanded="true"],
+.work-menu-bar button.work-menu-action:hover:not(:disabled) {
+  background: var(--bg-surface-3);
+  color: var(--text-1);
+}
+
+.work-menu-bar button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.work-menu-bar button:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.work-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  width: max-content;
+  min-width: 190px;
+  max-width: min(280px, calc(100vw - 120px));
+  padding: 4px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-control);
+  background: var(--bg-surface-2);
+  color: var(--text-1);
+  box-shadow: var(--e-2);
+}
+
+.work-menu-bar button.work-menu-action {
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 400px) {
+  .work-menu-bar { padding-inline: 4px; }
+  .work-menu-dropdown { min-width: 160px; }
+}

@@ -1,5 +1,11 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-10-25 latest: work-first shell
+
+User-requested left work list/search/new, central work, top File/Edit/View and avatar-only Settings implemented. Guard/detection surfaces are inside Settings. Independent337frontend/typecheck/build passed; actual production-asset browser with installedCore verified work/task creation, view/save and settings return; menu CSS collision fixed and focused6/build reverified. This is source preview, not newMSI acceptance. See [phase26](phases/26-work-first-shell.md).
+
+Native17f testMSI is now uninstalled and six originalfiles restoredexactSHA against immutablebackup. Formal mobile12checks and compensation16checks passed; final external-editcase remains FAIL(PROCESS_PATH_UNAVAILABLE). No permanent deletion, security bypass, merge/release or Windows restart. Wholegoal remains active.
+
 ### Android fixture compile follow-up
 
 `211ae68` Core CI succeeded. Both Android workflows failed before unit execution because the new raster test imported Java desktop ImageIO, absent from Android Kotlin compilation; product Kotlin/lint had passed. The test-only loader now reads losslessly serialized original ARGB values using existing java.io/java.util.zip, verifies PNG/gzip/raw-stream hashes and bounded header/dimensions/EOF, then invokes the identical product decoder. Independent twelve-resource/hash review and native Java pixel-for-pixel equality plus decode passed. No product code/dependency/permission changes or assertion weakening. New exact-source CI and real JUnit remain required; previous failures are retained. See `verification/DEVICE_QR_FIXTURE_CI_20261024.json`.

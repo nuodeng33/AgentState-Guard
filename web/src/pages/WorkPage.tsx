@@ -1,8 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
-import { TopBar, type PageKey } from '../components/AppShell';
+import { WorkMenuBar } from '../components/WorkMenuBar';
+import { WorkSidebar, type PageKey } from '../components/AppShell';
 import { useI18n } from '../i18n/I18nProvider';
-import { LanguageSelector } from '../components/LanguageSelector';
 import { formatDateTime } from '../i18n/format';
 import { workspaceCopy } from './workspaceCopy';
 import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
@@ -173,9 +173,12 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   }
   async function list(append = false) {
     const result = await client.get<{ items: Summary[] }>(`/api/v1/works?limit=50&offset=${append ? items.length : 0}`);
+    if (!Array.isArray(result.items)) throw new Error('WORK_LIST_INVALID');
     setItems(old => append ? [...old, ...result.items] : result.items); setMore(result.items.length === 50);
   }
   async function openWork(id: string) {
+    const previous = workRef.current && sessions.current.get(workRef.current.id);
+    if (previous && previous.id !== id) void saveView(previous);
     const seq = ++loadSequence.current; setLoading(true); setError('');
     try {
       const cached = sessions.current.get(id);
@@ -203,7 +206,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   useEffect(() => {
     mounted.current = true;
     const selected = new URLSearchParams(location.search).get('work');
-    if (selected) void openWork(selected);
+    if (selected) { void openWork(selected); void list().catch(() => {}); }
     else void list().catch(() => setError(t.failed)).finally(() => setLoading(false));
     return () => { mounted.current = false; loadSequence.current += 1; for (const session of sessions.current.values()) void saveView(session); };
   }, [client]); // Locale changes do not discard an active editing session.
@@ -309,7 +312,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
     if (request.current?.signature !== signature) request.current = { signature, id: crypto.randomUUID() };
     try {
       const result = await client.post<{ work_id: string; artifact_id?: string; task_id?: string; version?: number }>(path, { ...fields, request_id: request.current.id });
-      if (form === 'work') await openWork(result.work_id);
+      if (form === 'work') { await openWork(result.work_id); void list().catch(() => {}); }
       else {
         const detail = await client.get<Work>(`/api/v1/works/${result.work_id}`);
         if (workRef.current?.id === submittedWorkId) {
@@ -425,27 +428,30 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
   const suppressSpaceClick = useRef(false);
   function spaceEnd(e: PointerEvent) { suppressSpaceClick.current = !!spaceDrag.current?.moved; spaceDrag.current = null; e.stopPropagation(); }
   const renderContent = (card: Card, reading = false) => <CardContent client={client} work={work!} card={card} onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
-  return <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
+  return <div className="work-layout" aria-hidden={!visible}>
+    <WorkMenuBar onNewWork={() => setForm('work')} disabled={busy || Boolean(form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)}
+      onSave={work && status !== 'conflict' && status !== 'saving' ? () => void saveView() : undefined}
+      onAllWork={work ? back : undefined}
+      onNewTask={work ? () => setForm('task') : undefined} onNewArtifact={work ? () => setForm('artifact') : undefined}
+      onBoard={work ? continueBoard : undefined} onSpace={work ? returnToSpace : undefined} on3d={work ? () => setRestOpen(true) : undefined} />
+    <div className="work-layout-content">
+    <WorkSidebar page="work" items={items} activeId={work?.id} onOpen={id => { if (id !== work?.id) void openWork(id); }}
+      onCreate={() => setForm('work')} onNavigate={next => { if (next === 'work') back(); else onNavigate?.(next); }}
+      hasMore={more} onMore={() => void list(true).catch(() => setError(t.failed))}
+      navigationLocked={busy || Boolean(form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)} />
+    <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
     {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button></div>}
     {loading ? <p role="status">{t.load}</p> : !work ? <>
-      <TopBar page="work" onNavigate={next => { if (next !== 'work') onNavigate?.(next); }} />
       <div className="work-overview">
         <header className="work-overview-head"><div><h1>{t.title}</h1><p>{items.length ? t.overviewCount(items.length) : t.intro}</p></div>
-          <button className="work-primary" onClick={() => setForm('work')}><Icon name="new" />{t.create}</button></header>
+          </header>
         {!items.length && <div className="work-empty">{t.empty}</div>}
-        <div className="work-list">{items.map(item => <button key={item.id} className="work-tile" onClick={() => void openWork(item.id)}>
-          <span className="work-tile-mark"><WorkCore size={72} /></span>
-          <strong>{item.title}</strong>
-          <span className="work-tile-meta"><span>{item.owner}</span><span>{t.requirement} v{item.requirement_version}</span></span>
-          {item.updated_at && <time dateTime={item.updated_at} title={item.updated_at}>{t.updated} {formatDateTime(item.updated_at, locale)}</time>}
-        </button>)}</div>
-        {more && <button className="work-quiet work-more" onClick={() => void list(true).catch(() => setError(t.failed))}>{t.more}</button>}
+        {items.length > 0 && <div className="work-empty">{t.selectWork}</div>}
       </div>
     </> : <>
       <header className="work-toolbar"><button className="work-back" onClick={back}><Icon name="back" />{t.back}</button><div className="work-heading"><strong>{work.title}</strong><span className="work-version">{t.requirement} v{work.requirement_version}</span></div>
-        <LanguageSelector compact />
         <button ref={menuButton} className="work-icon-button" aria-label={t.actions} title={t.actions} aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><Icon name="more" /></button>
-        {menuOpen && <div className="work-menu"><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={openRecovery}>{t.recovery}</button><button onClick={() => { setRecoveryPanel(false); setForm('task'); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setRecoveryPanel(false); setForm('artifact'); setMenuOpen(false); }}>{t.newArtifact}</button><button onClick={() => { onNavigate?.('home'); setMenuOpen(false); }}>{t.guard}</button></div>}</header>
+        {menuOpen && <div className="work-menu"><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={openRecovery}>{t.recovery}</button><button onClick={() => { setRecoveryPanel(false); setForm('task'); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setRecoveryPanel(false); setForm('artifact'); setMenuOpen(false); }}>{t.newArtifact}</button></div>}</header>
       <WorkExecutionStatus key={work.id} client={client} workId={work.id} visible={visible} onOpen={openSessions}
         onRequirement={version => { if (workRef.current?.id === work.id && workRef.current.requirement_version < version) void refreshDeliveryWork(work.id); }} />
       {!inSpace && <div className="work-tools"><button className="work-quiet" onClick={returnToSpace}><Icon name="back" />{t.returnSpace}</button><button className="work-quiet" onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}><Icon name="library" />{t.addRelated}</button><div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
@@ -523,8 +529,6 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
           <button className="work-quiet" onClick={() => openAgents()}><Icon name="agents" />{t.agents}<span className="work-count">{agents.failed ? '!' : agents.items.length}</span></button>
           <button className="work-quiet" onClick={() => openAppearance()}>{locale === 'zh-CN' ? 'Agent 颜色' : 'Agent colors'}</button>
           <button className="work-quiet" onClick={() => setRestOpen(true)}><Icon name="orbit" />{t.restScene}</button>
-          <button className="work-icon-button" aria-label={t.environment} title={t.environment} onClick={() => onNavigate?.('environment')}><Icon name="environment" /></button>
-          <button className="work-icon-button" aria-label={t.settings} title={t.settings} onClick={() => onNavigate?.('settings')}><Icon name="settings" /></button>
         </div></nav>
     </>}
     <WorkRecovery protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
@@ -553,7 +557,7 @@ export default function WorkPage({ client = apiClient, onUnsavedChange, onNaviga
       {form === 'artifact' && <small>{t.manual} · {t.basedOn} v{work?.requirement_version}</small>}
       <footer><button type="button" disabled={busy} onClick={() => { setForm(null); setError(''); }}>{t.cancel}</button><button className="work-primary" disabled={busy}>{busy ? t.load : t.save}</button></footer>
     </form></div>}
-  </section>;
+  </section></div></div>;
 }
 
 function CardContent({ client, work, card, onScroll }: { client: ApiClient; work: Work; card: Card; onScroll: (scroll: number) => void }) {

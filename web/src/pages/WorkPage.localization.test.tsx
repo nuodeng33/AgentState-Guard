@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import { I18nProvider } from '../i18n/I18nProvider';
 import WorkPage from './WorkPage';
+import { LanguageSelector } from '../components/LanguageSelector';
 
 const id = '11111111-1111-4111-8111-111111111111';
 afterEach(() => { cleanup(); localStorage.clear(); history.replaceState(null, '', '/'); });
@@ -19,7 +20,7 @@ function setup() {
       artifacts: [{ id: 'artifact', title: '成果', version: 1, requirement_version: 1 }] };
   }) } as unknown as ApiClient;
   history.replaceState(null, '', `/?work=${id}`);
-  const view = render(<I18nProvider systemLanguage="en-US"><WorkPage client={client} /></I18nProvider>);
+  const view = render(<I18nProvider systemLanguage="en-US"><LanguageSelector /><WorkPage client={client} /></I18nProvider>);
   return { ...view, post };
 }
 
@@ -31,7 +32,8 @@ it('uses English plural counts and switches controls without changing content, v
   await screen.findByText('unchanged');
   const before = container.querySelector('.work-world')?.getAttribute('style');
   expect(before).toBeTruthy();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'zh-CN' } });
+  // Drive the same shared preference control now hosted only in Settings.
+  fireEvent.click(screen.getByRole('radio', { name: '简体中文' }));
   expect(document.documentElement.lang).toBe('zh-CN');
   expect(localStorage.getItem('asg.ui.language')).toBe('zh-CN');
   expect(screen.getByRole('button', { name: '放大' })).toBeTruthy();
@@ -47,7 +49,8 @@ it('keeps an unsaved form draft when the interface language changes', async () =
   fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: '未保存的任务 draft' } });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'zh-CN' } });
+  // Drive the same shared preference control now hosted only in Settings.
+  fireEvent.click(screen.getByRole('radio', { name: '简体中文' }));
   expect(screen.getByLabelText('标题').getAttribute('value')).toBe('未保存的任务 draft');
   expect(post).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '取消' }));

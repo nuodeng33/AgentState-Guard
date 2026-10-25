@@ -1,10 +1,9 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { ApiClient } from '../api/client';
 import { useT } from '../i18n/I18nProvider';
 import type { MessageKey } from '../i18n/messages';
 import { StatusBanner } from './StatusBanner';
-import { LanguageSelector } from './LanguageSelector';
 
 export type PageKey =
   | 'work'
@@ -27,82 +26,103 @@ const NAV_ITEMS: Array<{ key: PageKey; labelKey: MessageKey; icon: IconName }> =
   { key: 'settings', labelKey: 'nav.settings', icon: 'settings' },
 ];
 
-const NAV_GROUPS: PageKey[][] = [['work'], ['home', 'environment', 'changes', 'supervision', 'recovery', 'devices'], ['settings']];
+const SETTINGS_ITEMS = NAV_ITEMS.filter(item => item.key !== 'work');
 
-/**
- * First-level navigation shared by the Guard pages and the work overview.
- * It is hidden once a single work is open, so the work owns the screen.
- */
-export function TopBar({ page, onNavigate, navigationLocked = false }: {
-  page: PageKey; onNavigate: (page: PageKey) => void; navigationLocked?: boolean;
-}) {
+export type WorkSidebarProps = {
+  items?: { id: string; title: string }[];
+  activeId?: string | null;
+  onOpen?: (id: string) => void;
+  onCreate?: () => void;
+  onNavigate: (page: PageKey) => void;
+  page: PageKey;
+  onMore?: () => void;
+  hasMore?: boolean;
+  navigationLocked?: boolean;
+};
+
+/** Work navigation only; auxiliary destinations live inside Settings. */
+export function WorkSidebar({ items = [], activeId, onOpen, onCreate, onNavigate, page,
+  onMore, hasMore = false, navigationLocked = false }: WorkSidebarProps) {
   const t = useT();
-  return (
-    <header className="app-topbar">
-      <div className="app-brand">
-        <ShieldNodesMark />
-        <div className="app-brand-name">{t('app.brand.name')}</div>
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLocaleLowerCase();
+  const filteredItems = query ? items.filter(item => item.title.toLocaleLowerCase().includes(query)) : items;
+  const profile = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => { setProfileOpen(false); }, [page]);
+  useEffect(() => {
+    if (!profileOpen) return;
+    const outside = (event: PointerEvent) => {
+      if (!profile.current?.contains(event.target as Node)) setProfileOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation(); setProfileOpen(false); trigger.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape, true);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
+  }, [profileOpen]);
+  return <aside className="work-sidebar" aria-label={t('nav.work')}>
+    <div className="work-sidebar-brand"><ShieldNodesMark /><span>{t('app.brand.name')}</span></div>
+    {onCreate && <button type="button" className="work-sidebar-create" disabled={navigationLocked}
+      onClick={onCreate}><span aria-hidden="true">＋</span>{t('sidebar.newWork')}</button>}
+    <nav className="work-sidebar-nav" aria-label={t('app.nav.primary')}>
+      <button type="button" className="work-sidebar-home" disabled={navigationLocked}
+        aria-current={page === 'work' && !activeId ? 'page' : undefined} onClick={() => onNavigate('work')}>
+        <NavIcon name="work" />{t('nav.work')}
+      </button>
+      {onOpen && <input type="search" className="work-sidebar-search" aria-label={t('sidebar.searchWork')}
+        placeholder={t('sidebar.searchWork')} value={search} disabled={navigationLocked}
+        onChange={event => setSearch(event.target.value)} />}
+      <div className="work-sidebar-list">
+        {query && !filteredItems.length && <p className="work-sidebar-no-match">{t('sidebar.noMatches')}</p>}
+        {filteredItems.map(item => <button type="button" key={item.id} title={item.title}
+          disabled={navigationLocked} aria-current={page === 'work' && item.id === activeId ? 'page' : undefined}
+          onClick={() => onOpen?.(item.id)}>{item.title}</button>)}
+        {hasMore && onMore && <button type="button" disabled={navigationLocked} onClick={onMore}>{t('sidebar.moreWorks')}</button>}
       </div>
-      <nav className="app-nav" aria-label={t('app.nav.primary')}>
-        {NAV_GROUPS.map((group, index) => (
-          <div className="app-nav-group" key={group.join()}>
-            {index > 0 && <span className="app-nav-rule" aria-hidden="true" />}
-            {group.map((key) => {
-              const item = NAV_ITEMS.find((entry) => entry.key === key)!;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  aria-label={t(item.labelKey)}
-                  disabled={navigationLocked && key !== page}
-                  className={`app-nav-item${key === page ? ' is-active' : ''}`}
-                  aria-current={key === page ? 'page' : undefined}
-                  onClick={() => onNavigate(key)}
-                >
-                  <NavIcon name={item.icon} />
-                  <span>{t(item.labelKey)}</span>
-                </button>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
-      <LanguageSelector compact />
-    </header>
-  );
+    </nav>
+    <div className="work-sidebar-profile" ref={profile}>
+      {profileOpen && <div className="work-profile-popover">
+        <button type="button" disabled={navigationLocked && page !== 'settings'} onClick={() => {
+          setProfileOpen(false); onNavigate('settings');
+        }}><NavIcon name="settings" />{t('nav.settings')}</button>
+      </div>}
+      <button type="button" ref={trigger} className="work-profile-trigger" aria-label={t('sidebar.profile')} aria-expanded={profileOpen}
+        onClick={() => setProfileOpen(open => !open)}>
+        <span className="work-local-avatar" aria-hidden="true">{t('sidebar.localInitial')}</span>
+        <span>{t('sidebar.localWorkspace')}</span><span aria-hidden="true">⌄</span>
+      </button>
+    </div>
+  </aside>;
 }
 
-/**
- * Product shell for Guard pages: top navigation, the bounded readiness
- * banner, and the content header. Machine states inside pages stay verbatim.
- */
-export function AppShell({
-  page,
-  onNavigate,
-  client,
-  title,
-  navigationLocked = false,
-  children,
-}: {
-  page: PageKey;
-  onNavigate: (page: PageKey) => void;
-  client?: ApiClient;
-  title: string;
-  navigationLocked?: boolean;
-  children: ReactNode;
+/** Auxiliary pages are sections of Settings; the work remains available at left. */
+export function AppShell({ page, onNavigate, client, title, navigationLocked = false, children }: {
+  page: PageKey; onNavigate: (page: PageKey) => void; client?: ApiClient;
+  title: string; navigationLocked?: boolean; children: ReactNode;
 }) {
-  return (
-    <div className="app-shell">
-      <TopBar page={page} onNavigate={onNavigate} navigationLocked={navigationLocked} />
-      <div className="app-main">
-        <StatusBanner client={client} />
-        <header className="app-header">
-          <h1 className="app-title">{title}</h1>
-        </header>
-        <main className="app-content">{children}</main>
-      </div>
+  const t = useT();
+  return <div className="app-shell">
+    <WorkSidebar page={page} onNavigate={onNavigate} navigationLocked={navigationLocked} />
+    <div className="app-main">
+      <StatusBanner client={client} />
+      <header className="app-header"><h1 className="app-title">{t('nav.settings')}</h1></header>
+      <nav className="settings-sections" aria-label={t('sidebar.settingsSections')}>
+        {SETTINGS_ITEMS.map(item => <button type="button" key={item.key}
+          aria-current={page === item.key ? 'page' : undefined}
+          disabled={navigationLocked && item.key !== page} onClick={() => onNavigate(item.key)}>
+          {t(item.labelKey)}
+        </button>)}
+      </nav>
+      <main className="app-content">
+        {page !== 'settings' && <h2 className="settings-section-title">{title}</h2>}
+        {children}
+      </main>
     </div>
-  );
+  </div>;
 }
 
 /**

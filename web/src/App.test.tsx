@@ -47,6 +47,7 @@ const fetchCalls: string[] = [];
 function smokeFetch(input: RequestInfo | URL): Promise<Response> {
   const path = String(input);
   fetchCalls.push(path);
+  if (path.startsWith('/api/v1/works?')) return Promise.resolve(json({ items: [], has_more: false }));
   if (path === '/api/session') return Promise.resolve(json({ token: 'smoke-token' }));
   if (path === '/api/readiness') {
     return Promise.resolve(
@@ -101,12 +102,18 @@ describe('App smoke (product IA)', () => {
   it('navigates the seven-surface IA without a white screen and never persists the token', async () => {
     render(<App />);
 
-    // Home is the landing view and summarizes the authoritative projections
-    // plus the Device Link lifecycle — never an aggregate health verdict.
+    expect(await screen.findByRole('heading', { name: 'My work' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New work' })).toBeTruthy();
+    expect(screen.queryByText('Overview')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Environment' })).toBeNull();
+    expect(fetchCalls).not.toContain('/api/status');
+    expect(fetchCalls).not.toContain('/api/doctor');
+    expect(fetchCalls).not.toContain('/api/v1/runtime');
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace account' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Guard' }));
     expect(await screen.findByText('Overview')).toBeTruthy();
-    for (const label of ['Environment', 'Agents', 'Supervision', 'Recovery', 'Changes', 'Device Link']) {
-      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
-    }
+    expect(screen.getByRole('button', { name: 'Workspace account' }).getAttribute('aria-expanded')).toBe('false');
 
     // Runtime/Agents are no longer primary nav items; Environment folds both.
     expect(screen.queryByRole('button', { name: 'Agents' })).toBeNull();
@@ -169,6 +176,13 @@ describe('App smoke (product IA)', () => {
     expect(await screen.findByText('Real requirement')).toBeTruthy();
     expect(container.querySelector('.app-sidebar')).toBeNull();
     const layout = (container.querySelector('.work-world') as HTMLElement).style.transform;
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace account' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByText('Real requirement')).toBeTruthy();
+    expect((container.querySelector('.work-world') as HTMLElement).style.transform).toBe(layout);
+    expect(screen.getByRole('button', { name: 'Workspace account' }).getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace account' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     fireEvent.click(screen.getByRole('button', { name: 'Environment' }));
     expect(await screen.findByText('No runtime records')).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });

@@ -7,7 +7,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { LanguageSelector } from '../components/LanguageSelector';
-import { TopBar } from '../components/AppShell';
+import SettingsPage from '../pages/SettingsPage';
 import { resolveLocale } from './detect';
 import { I18nProvider, useT } from './I18nProvider';
 import {
@@ -89,11 +89,10 @@ describe('I18nProvider', () => {
 
 describe('LanguageSelector', () => {
   it('switches the top navigation immediately through the compact selector', () => {
-    render(<I18nProvider systemLanguage="en-US"><TopBar page="work" onNavigate={() => {}} /></I18nProvider>);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Language' }), { target: { value: 'zh-CN' } });
+    render(<I18nProvider systemLanguage="en-US"><SettingsPage /></I18nProvider>);
+    fireEvent.click(screen.getByRole('radio', { name: '简体中文' }));
     expect(document.documentElement.lang).toBe('zh-CN');
-    expect(screen.getByRole('button', { name: '我的工作' })).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: '语言' }).getAttribute('aria-label')).toBe('语言');
+    expect(screen.getByRole('radio', { name: '简体中文' })).toBeTruthy();
   });
 
   it('offers system / en-US / zh-CN and persists the choice immediately', () => {

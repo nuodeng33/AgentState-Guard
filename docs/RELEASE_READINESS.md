@@ -1,5 +1,11 @@
 # Release readiness — 2026-10-23
 
+### 2026-10-25 latest: work-first shell
+
+User-requested left work list/search/new, central work, top File/Edit/View and avatar-only Settings implemented. Guard/detection surfaces are inside Settings. Independent337frontend/typecheck/build passed; actual production-asset browser with installedCore verified work/task creation, view/save and settings return; menu CSS collision fixed and focused6/build reverified. This is source preview, not newMSI acceptance. See [phase26](phases/26-work-first-shell.md).
+
+Native17f testMSI is now uninstalled and six originalfiles restoredexactSHA against immutablebackup. Formal mobile12checks and compensation16checks passed; final external-editcase remains FAIL(PROCESS_PATH_UNAVAILABLE). No permanent deletion, security bypass, merge/release or Windows restart. Wholegoal remains active.
+
 ### 2026-10-24 latest checkpoint — real MuMu failure reproduced and repaired in source
 
 The tested 0c88 baseline has all four exact-commit CI workflows successful. Actual old4a8→0c88 MSI direct upgrade passed (5 seed / 9 reread checks), actual MSI payload hashes matched, schema19→20 preserved migration/ledger/step-event history, and two actual installed-Core restore interruption cases passed with compensation/external-change preservation and stable replay/restart.

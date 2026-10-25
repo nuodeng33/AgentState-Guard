@@ -107,4 +107,30 @@ describe('work navigation recovery', () => {
     expect(screen.getByRole('status').textContent).toContain('Workspace not saved');
     expect(screen.getByRole('button', { name: 'Save workspace' })).toBeTruthy();
   });
+  it('starts saving the previous workspace immediately when switching directly in the sidebar', async () => {
+    const otherId = '33333333-3333-4333-8333-333333333333';
+    const other = { ...work, id: otherId, title: 'Other work' };
+    const get = vi.fn(async (path: string) => {
+      if (path.includes('?limit=')) return { items: [work, other] };
+      if (path.endsWith('/execution-summary')) return { items: [], counts: {} };
+      if (path.endsWith('/agents') || path.endsWith('/agent-appearances')) return { items: [] };
+      if (path.endsWith('/view')) return { revision: 1, state: { ...board, cards: [{ ...board.cards[0], ref_id: path.includes(otherId) ? otherId : workId }] } };
+      if (path.includes('/requirements/')) return { body: path.includes(otherId) ? 'Other requirement' : 'Readable requirement' };
+      return path.includes(otherId) ? other : work;
+    });
+    const post = vi.fn().mockResolvedValue({ revision: 2 });
+    history.replaceState(null, '', `/?work=${workId}`);
+    render(<WorkPage client={{ bootstrap: vi.fn(), get, post } as unknown as ApiClient} />);
+    await screen.findByText('Readable requirement');
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    post.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Other work' }));
+    expect(post).toHaveBeenCalledWith(`/api/v1/works/${workId}/view`, expect.objectContaining({
+      state: expect.objectContaining({ viewport: expect.objectContaining({ zoom: expect.any(Number) }) }),
+    }));
+    expect(post.mock.calls[0][1].state.viewport.zoom).toBeGreaterThan(1);
+    await screen.findByText('Other requirement');
+    expect(location.search).toContain(otherId);
+  });
+
 });
