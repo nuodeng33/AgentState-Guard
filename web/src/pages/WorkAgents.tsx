@@ -100,10 +100,14 @@ export default function WorkAgents({ client, workId, revision, linked, tasks = [
           client.get<{ items: WorkAgent[]; status: string }>('/api/v1/agents'),
           new Promise<{ items: WorkAgent[]; status: string }>(resolve => setTimeout(() => resolve({ items: [], status: 'UNAVAILABLE' }), 1200)),
         ]).catch(() => ({ items: [], status: 'UNAVAILABLE' }));
+        const bounded = <T,>(request: Promise<T>, fallback: T, ms = 1500) => Promise.race([
+          request.catch(() => fallback),
+          new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
+        ]);
         const [associated, work, sourceList] = await Promise.all([
-          client.get<{ items: WorkAgent[] }>(`/api/v1/works/${workId}/agents`),
+          bounded(client.get<{ items: WorkAgent[] }>(`/api/v1/works/${workId}/agents`), { items: [] }),
           client.get<{ revision: number }>(`/api/v1/works/${workId}`),
-          client.get<DiscoverySources>('/api/v1/discovery/sources').catch(() => null),
+          bounded(client.get<DiscoverySources>('/api/v1/discovery/sources'), null),
         ]);
         if (!live.current) return;
         if (!Array.isArray(associated.items) || !Array.isArray(detected.items)) throw new Error('Missing agent list');
