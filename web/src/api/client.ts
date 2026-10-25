@@ -93,7 +93,7 @@ interface SessionBootstrapRetryPolicy {
 const DEFAULT_SESSION_BOOTSTRAP_RETRY: SessionBootstrapRetryPolicy = {
   // One immediate attempt plus at most 60 bounded one-second waits in a
   // packaged build. Development fails immediately through the Vite proxy.
-  maxAttempts: import.meta.env.DEV ? 1 : 61,
+  maxAttempts: import.meta.env.DEV ? 1 : 12,
   wait: () => new Promise((resolve) => setTimeout(resolve, 1_000)),
 };
 
@@ -109,6 +109,16 @@ export function createApiClient(
   // injection) work; production uses the global fetch.
   const callFetch: typeof fetch =
     fetchImpl ?? ((input, init) => fetch(input, init));
+  // A packaged sidecar may be starting or restarting. Never let a WebView
+  // fetch leave the whole workspace in an unbounded loading state.
+  async function boundedFetch(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 5000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const cancel = () => controller.abort();
+    init?.signal?.addEventListener('abort', cancel, { once: true });
+    try { return await callFetch(input, { ...init, signal: controller.signal }); }
+    finally { clearTimeout(timer); init?.signal?.removeEventListener('abort', cancel); }
+  }
 
   function bootstrapSession(): Promise<string> {
     if (!bootstrapInFlight) {
@@ -116,7 +126,7 @@ export function createApiClient(
         let response: Response | null = null;
         for (let attempt = 1; attempt <= bootstrapRetry.maxAttempts; attempt += 1) {
           try {
-            response = await callFetch(urlResolver('/api/session'), {
+            response = await boundedFetch(urlResolver('/api/session'), {
               headers: { Accept: 'application/json' },
             });
             break;
@@ -152,7 +162,7 @@ export function createApiClient(
 
   async function request(path: string, sessionToken: string): Promise<Response> {
     try {
-      return await callFetch(urlResolver(path), {
+      return await boundedFetch(urlResolver(path), {
         headers: { Accept: 'application/json', 'X-Session-Token': sessionToken },
       });
     } catch {
@@ -185,7 +195,7 @@ export function createApiClient(
 
   async function send(method: 'POST' | 'PATCH' | 'PUT', path: string, sessionToken: string, body: unknown): Promise<Response> {
     try {
-      return await callFetch(urlResolver(path), {
+      return await boundedFetch(urlResolver(path), {
         method,
         headers: {
           Accept: 'application/json',
@@ -243,7 +253,7 @@ export function createApiClient(
     const fetchStream = async (sessionToken: string) => {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       try {
-        return await callFetch(urlResolver(path), {
+        return await boundedFetch(urlResolver(path), {
           headers: { Accept: 'text/event-stream', 'X-Session-Token': sessionToken },
           signal,
         });
