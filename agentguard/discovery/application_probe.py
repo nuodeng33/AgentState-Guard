@@ -127,6 +127,39 @@ def probe_entry(path: str | os.PathLike[str]) -> dict:
     return result
 
 
+def _windows_installed_entries(names, registry=None):
+    """Read bounded uninstall metadata; never execute an icon or uninstall command."""
+    import re
+    if registry is None:
+        import winreg as registry
+    accepted = {name.casefold().removesuffix('.exe') for name in names if isinstance(name, str)}
+    paths = []
+    branches = (r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+                r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall")
+    for hive in (registry.HKEY_CURRENT_USER, registry.HKEY_LOCAL_MACHINE):
+        for branch in branches:
+            try:
+                with registry.OpenKey(hive, branch) as root:
+                    for index in range(min(registry.QueryInfoKey(root)[0], 256)):
+                        try:
+                            with registry.OpenKey(root, registry.EnumKey(root, index)) as entry:
+                                name = registry.QueryValueEx(entry, 'DisplayName')[0]
+                                icon = registry.QueryValueEx(entry, 'DisplayIcon')[0]
+                            if not isinstance(name, str) or not isinstance(icon, str) or len(icon) > 4096:
+                                continue
+                            name = re.sub(r'\s+\d+(?:\.\d+)*(?:[-+][a-zA-Z0-9.-]+)?$', '', name)
+                            if name.casefold() not in accepted:
+                                continue
+                            match = re.fullmatch(r'\s*"?(.+?\.exe)"?(?:,\s*-?\d+)?\s*', icon, re.IGNORECASE)
+                            if match and Path(match[1]).is_absolute() and all(ord(char) >= 32 for char in match[1]):
+                                paths.append(match[1])
+                        except OSError:
+                            continue
+            except OSError:
+                continue
+    return tuple(dict.fromkeys(paths))
+
+
 def inventory(names: tuple[str, ...] | list[str], paths: tuple[str, ...] | list[str] = ()) -> dict:
     """Discover bounded PATH and OS application entries, then classify elsewhere."""
     requested_names = tuple(dict.fromkeys(names))[:100]
@@ -178,6 +211,8 @@ def inventory(names: tuple[str, ...] | list[str], paths: tuple[str, ...] | list[
                             continue
             except OSError:
                 continue
+    if os.name == 'nt':
+        candidates = [*_windows_installed_entries(requested_names), *candidates]
     unique = dict.fromkeys(candidates)
     items = [probe_entry(path) for path in list(unique)[:768]]
     bounded = []
@@ -193,5 +228,5 @@ def inventory(names: tuple[str, ...] | list[str], paths: tuple[str, ...] | list[
     return {"items": items, "coverage": {"status": "PARTIAL" if truncated or len(unique) > 768 else "AVAILABLE",
         "requested": len(requested_names) + len(requested_paths), "observed": observed,
         "missing": missing, "entries_examined": scanned, "truncated": truncated or len(unique) > 768,
-        "methods": ["VISIBLE_PROCESSES", "PATH_ENTRIES", "REGISTERED_PATHS"] + (["WINDOWS_APP_PATHS"] if os.name == "nt" else []),
+        "methods": ["VISIBLE_PROCESSES", "PATH_ENTRIES", "REGISTERED_PATHS"] + (["WINDOWS_APP_PATHS", "WINDOWS_INSTALLED_ENTRIES"] if os.name == "nt" else []),
         "reason_code": "DISCOVERY_INVENTORY_LIMIT" if truncated else "BOUNDED_ENTRY_OBSERVATION"}}

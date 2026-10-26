@@ -344,7 +344,7 @@ describe('work session management', () => {
         requirement_version: 3, requirement: 'Real requirement', tasks: [], artifacts: [] };
       if (path.endsWith('/view')) return { revision: 1, state: { schema_version: 1, surface: 'space', cards: [],
         viewport: { x: 0, y: 0, zoom: 1 }, space: { viewport: { x: 10, y: 15, zoom: 1 }, nodes: [{ kind: 'requirement', ref_id: 'work-a', version: 3, x: 0, y: 0 }] } } };
-      if (path.endsWith('/agents')) return { items: [] };
+      if (path.split('?')[0].endsWith('/agents')) return { items: [] };
       return existing(path);
     });
     history.replaceState(null, '', '/?work=work-a');

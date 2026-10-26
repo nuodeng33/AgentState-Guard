@@ -701,3 +701,43 @@ def test_old_view_receipt_digest_stays_compatible():
             "cards": [],
         },
     }
+
+
+def test_empty_work_links_do_not_scan_discovery_or_claim_presence(tmp_path, monkeypatch):
+    from agentguard.work.service import WorkService
+
+    client = _client(tmp_path)
+    work = _work(client)
+
+    def reject_unrelated_scan(self):
+        raise AssertionError("empty local links must not rescan discovery")
+
+    monkeypatch.setattr(WorkService, "_current_agents", reject_unrelated_scan)
+    response = client.get(f"/api/v1/works/{work}/agents")
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "discovery_status": "UNKNOWN"}
+
+
+def test_lightweight_links_read_saved_relationship_without_claiming_current_presence(tmp_path, monkeypatch):
+    from agentguard.work.service import WorkService
+
+    client = _client(tmp_path)
+    work = _work(client)
+    agent = "external-agent-" + "d" * 24
+    _record_agent(tmp_path, "links-view-observation", agent)
+    assert client.post(f"/api/v1/works/{work}/agents", json=_request(expected_revision=1, agent_id=agent)).status_code == 201
+
+    def reject_scan(self):
+        raise AssertionError("saved relationship view must not perform live discovery validation")
+
+    monkeypatch.setattr(WorkService, "_current_agents", reject_scan)
+    response = client.get(f"/api/v1/works/{work}/agents?view=links")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["agent_id"] == agent
+    assert item["association"] == "USER_LINKED"
+    assert item["presence"] == "UNKNOWN"
+    assert item["lifecycle"] == "UNKNOWN"
+    assert item["reason_code"] == "WORK_AGENT_OBSERVATION_PENDING"
+    assert item["activity"] == "UNKNOWN"
+    assert client.get(f"/api/v1/works/{work}/agents?view=unsafe").status_code == 422

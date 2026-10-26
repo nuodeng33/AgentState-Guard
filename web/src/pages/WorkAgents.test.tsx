@@ -68,7 +68,7 @@ function fixture(initial: WorkAgent[] = [], detected: WorkAgent[] = [observed]) 
             { session_id: 'session-2', title: null, updated_at: null }], has_more: true, next_offset: 50 };
     }
     if (path === '/api/v1/agents') return { status: 'DEGRADED', items: detected };
-    if (path.endsWith('/agents')) return { items: linked };
+    if (path.split('?')[0].endsWith('/agents')) return { items: linked };
     return { revision };
   });
   const props = { client: { get, post, bootstrap: vi.fn() } as unknown as ApiClient, workId: 'work-1', revision: 3,
@@ -84,7 +84,7 @@ it('links a real discovery identity while leaving work execution explicitly unkn
     agent_id: observed.agent_id, expected_revision: 3, request_id: expect.any(String),
   }));
   expect(props.onLinkedChanged).toHaveBeenLastCalledWith([expect.objectContaining({ activity: 'UNKNOWN', association: 'USER_LINKED' })]);
-  fireEvent.click(screen.getByRole('button', { name: /CODEX.*Process observed/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Codex.*Process observed/ }));
   expect(await screen.findByText('No verified execution record for this work or its tasks.')).toBeTruthy();
   expect(screen.getByText('User linked')).toBeTruthy();
 });
@@ -101,7 +101,7 @@ it('retries an uncertain association with the exact same request receipt', async
 
 it('retains an old linked identity without claiming its process is still present', async () => {
   const old = { ...observed, presence: 'NOT_CURRENT' as const, association: 'USER_LINKED' as const };
-  const { props, post } = fixture([old]); render(<WorkAgents {...props} initialAgentId={old.agent_id} />);
+  const { props, post } = fixture([old], []); render(<WorkAgents {...props} initialAgentId={old.agent_id} />);
   expect(await screen.findByText('Not in current observation · activity unknown')).toBeTruthy();
   await waitFor(() => expect((screen.getByRole('button', { name: 'Unlink' }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'Unlink' }));
@@ -220,4 +220,28 @@ it('polls observations while visible and stops when hidden', async () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(reads()).toBe(hidden);
   } finally { vi.useRealTimers(); }
+});
+
+
+it('reconciles a lost successful association reply by reading saved links without posting twice', async () => {
+  const { props, post } = fixture();
+  const original = post.getMockImplementation()!;
+  post.mockImplementationOnce(async (path, body) => { await original(path, body); throw new Error('reply lost'); });
+  render(<WorkAgents {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Link to this work' }));
+  expect(await screen.findByRole('button', { name: 'Unlink' })).toBeTruthy();
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(props.onLinkedChanged).toHaveBeenLastCalledWith([expect.objectContaining({ agent_id: observed.agent_id, association: 'USER_LINKED' })]);
+});
+
+it('groups identical installed paths without merging separate Codex installations or process identities', async () => {
+  const peers = [observed, { ...observed, agent_id: 'second-process', pid: 421 },
+    { ...observed, agent_id: 'api-process', pid: 422, program_path: 'D:/Codex-API/ProfileHome/bin/codex.exe' }];
+  const { props } = fixture([], peers);
+  const view = render(<WorkAgents {...props} />);
+  await screen.findByText('2 process observations', { exact: false });
+  expect(view.container.querySelectorAll('.work-agent-group')).toHaveLength(1);
+  expect(view.container.querySelectorAll('.work-agent-group .work-agent-row')).toHaveLength(2);
+  expect(screen.getByText('API Codex')).toBeTruthy();
+  expect(view.container.querySelectorAll('.work-agent-row')).toHaveLength(3);
 });

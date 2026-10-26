@@ -13,7 +13,7 @@ afterEach(() => { cleanup(); history.replaceState(null, '', '/'); });
 it('loads authoritative color into both 2D and 3D and closes color dialog without leaving Work', async () => {
   const get = vi.fn(async (path: string) => {
     if (path.endsWith('/agent-appearances')) return { work_id: workId, items: [{ agent_id: agentId, color: '#e3a5bf', revision: 2, updated_at: null }] };
-    if (path.endsWith('/agents')) return { items: [{ agent_id: agentId, detected_identity: 'CODEX', task_ids: [], lifecycle: 'RUNNING', presence: 'CURRENT', association: 'USER_LINKED' }] };
+    if (path.split('?')[0].endsWith('/agents')) return { items: [{ agent_id: agentId, detected_identity: 'CODEX', task_ids: [], lifecycle: 'RUNNING', presence: 'CURRENT', association: 'USER_LINKED' }] };
     if (path.endsWith('/execution-summary')) return { work_id: workId, requirement_version: 1, items: [], counts: {} };
     if (path.endsWith('/view')) return { revision: 1, state: { schema_version: 1, surface: 'space', cards: [], viewport: { x: 0, y: 0, zoom: 1 },
       space: { viewport: { x: 0, y: 0, zoom: 1 }, nodes: [{ kind: 'requirement', ref_id: workId, version: 1, x: 0, y: 0 }] } } };

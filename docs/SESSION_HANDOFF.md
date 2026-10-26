@@ -1,5 +1,12 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-10-26 authoritative checkpoint — recognizable applications and saved links
+
+Phase29 groups same installed Codex observations, distinguishes API Codex, replaces sphere rows with aligned flat icons, and discovers installed DeepSeek Harness through bounded Windows metadata without inventing a live process. Completion-based polling/backoff plus exact raw-row read validation reuse removes redundant work. Optional `agents?view=links` decouples saved relationships from live observation while preserving default API and unconditional writer checks. No schema/permission change.
+
+Full frontend428passed; backend1587passed49skipped; typecheck/build/Ruff/diff and1091legacy-equivalence vectors passed. Actual Windows54MB archived-copy browser link/reload/unlink passed with one mutation request; confirmation5357ms, not a universal latency pass. Source proof requires exact new CI/MSI/native verification. Installed7a46 is idle; original6files and backup hashes restored/verified, originalDB not started. Prior recovery external-edit preview timeout remains failed. Manual-move cleanup only; broader goal incomplete. See [phase29](phases/29-recognizable-agent-applications.md) and [evidence](verification/AGENT_DESKTOP_CLOSURE_20261026.json).
+
+
 ### 2026-10-25 authoritative checkpoint — local read/startup closure
 
 Phase28 fixes synchronous startup discovery, event-loop blocking R4 reads, repeated Agent ledger validation, unsafe layout hydration, duplicate panel keys and incomplete request deadlines. Independent frontend421passed; backend1580passed/49skipped; typecheck/build/Ruff/diff green. Actual Windows source Core + sandboxed production browser with34526-event copied DB showed283ms list /175ms click-to-task-body, plus strict15 and delivery/recovery22 checks. Source proof does not replace final MSI/native input acceptance. Cold concurrent heavy Agent read5144ms remains explicit. See [phase28](phases/28-responsive-local-reads.md) and [evidence](verification/READ_PATH_CLOSURE_20261025.json).

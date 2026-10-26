@@ -1,5 +1,12 @@
 # Release readiness — 2026-10-23
 
+### 2026-10-26 authoritative checkpoint — recognizable applications and saved links
+
+Phase29 groups same installed Codex observations, distinguishes API Codex, replaces sphere rows with aligned flat icons, and discovers installed DeepSeek Harness through bounded Windows metadata without inventing a live process. Completion-based polling/backoff plus exact raw-row read validation reuse removes redundant work. Optional `agents?view=links` decouples saved relationships from live observation while preserving default API and unconditional writer checks. No schema/permission change.
+
+Full frontend428passed; backend1587passed49skipped; typecheck/build/Ruff/diff and1091legacy-equivalence vectors passed. Actual Windows54MB archived-copy browser link/reload/unlink passed with one mutation request; confirmation5357ms, not a universal latency pass. Source proof requires exact new CI/MSI/native verification. Installed7a46 is idle; original6files and backup hashes restored/verified, originalDB not started. Prior recovery external-edit preview timeout remains failed. Manual-move cleanup only; broader goal incomplete. See [phase29](phases/29-recognizable-agent-applications.md) and [evidence](verification/AGENT_DESKTOP_CLOSURE_20261026.json).
+
+
 ### 2026-10-25 latest: work-first shell
 
 User-requested left work list/search/new, central work, top File/Edit/View and avatar-only Settings implemented. Guard/detection surfaces are inside Settings. Independent337frontend/typecheck/build passed; actual production-asset browser with installedCore verified work/task creation, view/save and settings return; menu CSS collision fixed and focused6/build reverified. This is source preview, not newMSI acceptance. See [phase26](phases/26-work-first-shell.md).

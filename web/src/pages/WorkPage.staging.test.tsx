@@ -14,7 +14,7 @@ function fixture(view = Promise.resolve({ revision: 8, state: board() })) {
   const get = vi.fn(async (path: string): Promise<unknown> => {
     if (path.includes('/works?')) return { items: [work(), work(otherId)] };
     if (path.endsWith('/execution-summary')) return { counts: {}, items: [] };
-    if (path.endsWith('/agents') || path.endsWith('/agent-appearances')) return { items: [] };
+    if (path.split('?')[0].endsWith('/agents') || path.endsWith('/agent-appearances')) return { items: [] };
     if (path.endsWith('/protection-links')) return { items: [] };
     if (path.endsWith('/view')) return path.includes(otherId) ? { revision: 4, state: board(otherId) } : view;
     if (path.includes('/requirements/')) return { body: 'Actual requirement' };
@@ -164,7 +164,7 @@ it('derives relations from existing saved layouts without scheduling a write', a
 
 it('does not announce zero linked Agents until a delayed authoritative empty read succeeds', async () => {
   const linked = deferred<unknown>(); const f = fixture(), original = f.get.getMockImplementation()!;
-  f.get.mockImplementation(path => path === '/api/v1/works/' + id + '/agents' ? linked.promise : original(path));
+  f.get.mockImplementation(path => path === '/api/v1/works/' + id + '/agents?view=links' ? linked.promise : original(path));
   render(<WorkPage client={f.client} />);
   await screen.findByText('Actual requirement');
   const dock = screen.getByRole('button', { name: 'Linked agents' });

@@ -36,12 +36,13 @@ def disable_triggers(connection):
 
 def counted(monkeypatch):
     ledger._READ_VALIDATED.clear()
+    ledger._READ_AUTHORITY_VALIDATED.clear()
     calls = []
     original = ledger._verify_ledger_rows
 
-    def verify(rows):
+    def verify(rows, **kwargs):
         calls.append(len(rows))
-        return original(rows)
+        return original(rows, **kwargs)
 
     monkeypatch.setattr(ledger, "_verify_ledger_rows", verify)
     return calls
@@ -277,3 +278,44 @@ def test_attachment_writer_fully_validates_a_warm_read_cache_and_rejects_old_row
     assert refused.status_code == 409, refused.text
     assert refused.json()["reason_code"] == "WORK_AGENT_EVIDENCE_INVALID"
     assert len(calls) == 2
+
+
+def test_changed_snapshot_checks_every_chain_link_but_only_new_raw_authority_needs_revalidation(database, monkeypatch):
+    ledger._READ_VALIDATED.clear()
+    ledger._READ_AUTHORITY_VALIDATED.clear()
+    calls = []
+    original = ledger._verify_authority_row
+
+    def verify(row, sequence):
+        calls.append(sequence)
+        return original(row, sequence)
+
+    monkeypatch.setattr(ledger, "_verify_authority_row", verify)
+    assert ledger.verify_ledger_snapshot(database._conn) == []
+    assert calls == [1, 2, 3]
+    with database.transaction():
+        ledger.EvidenceLedger().append(database._conn, _event(event_id="new-authority"))
+    assert ledger.verify_ledger_snapshot(database._conn) == []
+    assert calls == [1, 2, 3, 4]
+    # Writers must fully validate even when every exact raw authority is cached.
+    assert ledger.verify_ledger(database._conn) == []
+    assert calls[-4:] == [1, 2, 3, 4]
+    disable_triggers(database._conn)
+    database._conn.execute("UPDATE evidence_ledger_events SET prev_hash='invalid' WHERE sequence=2")
+    database._conn.commit()
+    assert ledger.verify_ledger_snapshot(database._conn) == ledger.verify_ledger(database._conn)
+    assert ledger.verify_ledger_snapshot(database._conn)
+    assert all(type(key) is bytes and len(key) == 32 and value is None
+               for key, value in ledger._READ_AUTHORITY_VALIDATED.items())
+
+
+def test_row_authority_cache_is_bounded_and_does_not_skip_reordered_chain_checks(database, monkeypatch):
+    ledger._READ_AUTHORITY_VALIDATED.clear()
+    monkeypatch.setattr(ledger, "_READ_AUTHORITY_LIMIT", 2)
+    rows = ledger._ledger_rows(database._conn)
+    assert ledger._verify_ledger_rows(rows, _read_cache=True) == []
+    assert len(ledger._READ_AUTHORITY_VALIDATED) == 2
+    reordered = [rows[1], rows[0], rows[2]]
+    assert ledger._verify_ledger_rows(reordered, _read_cache=True) == ledger._verify_ledger_rows(reordered)
+    assert "LEDGER_SEQUENCE_INVALID" in ledger._verify_ledger_rows(reordered, _read_cache=True)
+    assert len(ledger._READ_AUTHORITY_VALIDATED) == 2

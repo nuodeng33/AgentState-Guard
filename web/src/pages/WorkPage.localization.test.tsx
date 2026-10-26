@@ -12,7 +12,7 @@ function setup() {
   const post = vi.fn();
   const client = { post, get: vi.fn(async (path: string) => {
     if (path.endsWith('/view')) return { revision: 0, state: null };
-    if (path.endsWith('/agents')) return { items: [] };
+    if (path.split('?')[0].endsWith('/agents')) return { items: [] };
     if (path.endsWith('/execution-summary')) return { work_id: id, requirement_version: 1, counts: {}, items: [] };
     if (path.includes('/requirements/')) return { body: '用户原文 **unchanged**' };
     return { id, title: '用户工作', requirement: '用户原文 **unchanged**', owner: 'Owner', revision: 1, requirement_version: 1,

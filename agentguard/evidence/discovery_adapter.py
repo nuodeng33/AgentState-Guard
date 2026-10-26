@@ -325,6 +325,11 @@ def _workspace_bindings_snapshot(connection: sqlite3.Connection, validate):
                FROM evidence_ledger_events WHERE event_type = 'WORKSPACE_LINKED'
                ORDER BY sequence"""
         ).fetchall()
+        binding_rows_by_subject: dict[str, list[tuple[Any, ...]]] = {}
+        for row in binding_rows:
+            subject = _safe_value(row[5])
+            if subject is not None:
+                binding_rows_by_subject.setdefault(subject, []).append(row)
         latest_rows: dict[str, tuple[Any, ...]] = {}
         for row in rows:
             payload = _json_object(row[6])
@@ -355,7 +360,7 @@ def _workspace_bindings_snapshot(connection: sqlite3.Connection, validate):
                 agent_domain=_safe_value(agent[4]),
                 agent_subject=_safe_value(agent[5]),
                 agent_payload=payload,
-                binding_rows=binding_rows,
+                binding_rows=binding_rows_by_subject.get(_safe_value(agent[5]), []),
                 runtime_rows=runtime_rows,
             )
 

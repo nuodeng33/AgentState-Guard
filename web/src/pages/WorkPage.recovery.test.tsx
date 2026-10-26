@@ -41,7 +41,7 @@ function fixture() {
   const get = vi.fn(async (path: string) => {
     if (path.endsWith('/view')) return { revision: 1, state: board };
     if (path.endsWith('/execution-summary')) return { work_id: workId, requirement_version: 1, counts: {}, items: [] };
-    if (path.endsWith('/agents')) return { items: [] };
+    if (path.split('?')[0].endsWith('/agents')) return { items: [] };
     if (path.includes('/requirements/')) return { body: work.requirement };
     if (path.includes('?limit=')) return { items: [work] };
     return work;

@@ -1,0 +1,95 @@
+{
+  "status": "SOURCE_ACCEPTANCE_PASS_EXACT_NEW_MSI_REQUIRED",
+  "source_base": "7a46e9741d8a9574c23668dfb902bda8316eb3df",
+  "scope": "2026-10-26 real Windows, archived 54MB/34526-event SQLite copy, ordinary real discovery and production browser; excludes new MSI/native pointer proof",
+  "frontend": {
+    "passed": 428,
+    "failures": 0,
+    "skipped": 0,
+    "files": 54
+  },
+  "backend": {
+    "passed": 1587,
+    "skipped": 49,
+    "failures": 0,
+    "total": 1636
+  },
+  "browser": {
+    "result": "PASS",
+    "stage": "complete",
+    "harness_installed_without_invented_running_process": true,
+    "grouped_application_rows": [
+      {
+        "name": "CloudCLI",
+        "x": 268,
+        "width": 36,
+        "height": 36,
+        "textX": 316
+      },
+      {
+        "name": "API Codex",
+        "x": 268,
+        "width": 36,
+        "height": 36,
+        "textX": 316
+      },
+      {
+        "name": "Codex",
+        "x": 268,
+        "width": 36,
+        "height": 36,
+        "textX": 316
+      }
+    ],
+    "link_confirmed_ms": 5357,
+    "link_sent_once": true,
+    "link_persisted_after_reload": true,
+    "unlink_confirmed": true,
+    "no_page_errors": true,
+    "browser_closed": true
+  },
+  "core": {
+    "scope": "Fresh isolated source Core, real Windows/Docker discovery, production assets, sandboxed headless Chrome; excludes installed MSI UI",
+    "initial_discovery_seconds": 17.25,
+    "browser_exit": 0,
+    "status": "PASS",
+    "owned_core_stopped": true,
+    "archive_unchanged": true
+  },
+  "original_data": {
+    "original_files_verified": 6,
+    "immutable_backup_matches": true,
+    "original_db_started": false,
+    "asg_processes": 0,
+    "port_8787_exclusive": true
+  },
+  "prior_installed_package": {
+    "source": "7a46e9741d8a9574c23668dfb902bda8316eb3df",
+    "direct_upgrade_e311_passed": true,
+    "work_baseline_operation_file_idempotency_checks": 5,
+    "installed_payload_matches_verified_msi": true,
+    "native_work_list_read_observed": true,
+    "native_pointer_error": "coordinate input geometry is unavailable",
+    "recovery_compensation_second_attempt": "PASS",
+    "recovery_external_edit": "FAIL: preview HTTP timeout; previous failure retained",
+    "msi_currently_installed": true
+  },
+  "failures_retained": [
+    "agent-list-large-live",
+    "agent-list-linked-live",
+    "agent-list-linked-final",
+    "agent-desktop-closure",
+    "agent-desktop-links-final",
+    "recovery-final-7a46-v3",
+    "recovery-final-7a46-v3-second"
+  ],
+  "limits": [
+    "Link confirmation5357ms is not claimed subsecond or universally within5s.",
+    "New exact commit CI and MSI/native verification required.",
+    "Physical phone and real provider/model acceptance remain separate.",
+    "Only manual-move cleanup authorized; no space reclaimed by moves."
+  ],
+  "new_api": "Optional GET /api/v1/works/{id}/agents?view=links for saved relationships only; default observed behavior preserved, writes fully validate",
+  "no_database_schema_change": true,
+  "source_archive_sha256": "7f1b7f654704b8b152a5f92d71511a18b26db61e7d210e520f5429a60d03183e"
+}

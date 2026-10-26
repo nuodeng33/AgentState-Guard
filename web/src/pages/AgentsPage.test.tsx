@@ -45,7 +45,7 @@ const WITH_DETECTED_AGENT: AgentsView = {
 describe('AgentsPage lifecycle honesty', () => {
   it('keeps UNKNOWN lifecycle as UNKNOWN and never upgrades by identity name', () => {
     render(<AgentsViewBody data={WITH_UNKNOWN_AGENT} />);
-    expect(screen.getByText(/claude-code · Unknown environment · Unknown instance/)).toBeTruthy();
+    expect(screen.getByText('Claude Code')).toBeTruthy();
     // lifecycle UNKNOWN and workspace UNKNOWN both stay UNKNOWN.
     expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(0);
     expect(screen.queryByText('RUNNING')).toBeNull();
@@ -70,7 +70,7 @@ describe('AgentsPage lifecycle honesty', () => {
       program_path: 'C:/Apps/CloudCLI/cloudcli.exe', pid: 441, cwd: 'C:/Work',
       observed_at: '2026-09-29T10:00:00Z' };
     render(<AgentsViewBody data={{ ...WITH_DETECTED_AGENT, items: [agent] }} />);
-    expect(screen.getByText('cloudcli · Local processes (abcdef123456) · 12345678')).toBeTruthy();
+    expect(screen.getByText('cloudcli', { selector: '.agent-identity-label' })).toBeTruthy();
     fireEvent.click(screen.getByText('Identity and observation details'));
     expect(screen.getByText(agent.program_path)).toBeTruthy();
     expect(screen.getByText('441')).toBeTruthy();

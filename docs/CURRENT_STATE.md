@@ -1,5 +1,12 @@
 # Current State
 
+### 2026-10-26 authoritative checkpoint — recognizable applications and saved links
+
+Phase29 groups same installed Codex observations, distinguishes API Codex, replaces sphere rows with aligned flat icons, and discovers installed DeepSeek Harness through bounded Windows metadata without inventing a live process. Completion-based polling/backoff plus exact raw-row read validation reuse removes redundant work. Optional `agents?view=links` decouples saved relationships from live observation while preserving default API and unconditional writer checks. No schema/permission change.
+
+Full frontend428passed; backend1587passed49skipped; typecheck/build/Ruff/diff and1091legacy-equivalence vectors passed. Actual Windows54MB archived-copy browser link/reload/unlink passed with one mutation request; confirmation5357ms, not a universal latency pass. Source proof requires exact new CI/MSI/native verification. Installed7a46 is idle; original6files and backup hashes restored/verified, originalDB not started. Prior recovery external-edit preview timeout remains failed. Manual-move cleanup only; broader goal incomplete. See [phase29](phases/29-recognizable-agent-applications.md) and [evidence](verification/AGENT_DESKTOP_CLOSURE_20261026.json).
+
+
 ### 2026-10-25 startup fixture CI follow-up
 
 7060895 Core CI failed one Python 3.12 case because the fixture read before the first background discovery receipt committed. A test-only publication wait and controlled regression preserve all original authority and privacy assertions. Independent focused24 passed; ordering3 passed separately; Ruff/diff passed. Product source and assets remain identical to 7060895. New exact-source CI and packaged cold-start measurements are required; no CI pass or final MSI acceptance is inferred. See [evidence](verification/STARTUP_PUBLICATION_FIXTURE_20261025.json).

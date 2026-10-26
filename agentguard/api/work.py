@@ -2,6 +2,7 @@
 
 import sqlite3
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -54,8 +55,8 @@ def work_router(db_path: Path, agent_enricher=None) -> APIRouter:
         return invoke("get", str(work_id))
 
     @router.get("/{work_id}/agents")
-    def agents(work_id: UUID):
-        result = invoke("agents", str(work_id))
+    def agents(work_id: UUID, view: Literal["observed", "links"] = "observed"):
+        result = invoke("agents", str(work_id), view=view)
         return agent_enricher(result) if agent_enricher and isinstance(result, dict) else result
 
     @router.post("/{work_id}/agents", status_code=201)

@@ -46,6 +46,8 @@ PRODUCT_SIGNATURES: tuple[tuple[str, AgentSignatureRule], ...] = (
     _rule("CCR", AgentRole.MODEL_ROUTER, ("node", "node.exe"),
           packages=("@musistudio/claude-code-router",)),
     _rule("ZCODE", AgentRole.AGENT_HOST, ("zcode", "zcode.exe")),
+    _rule("DEEPSEEK_HARNESS", AgentRole.AGENT_HOST,
+          ("deepseek harness", "deepseek harness.exe", "deepseek-harness", "deepseek-harness.exe")),
     _rule("CODEX", AgentRole.EXECUTION_AGENT, ("codex", "codex.exe")),
     _rule("KIMI_CODE", AgentRole.EXECUTION_AGENT,
           ("kimi", "kimi.exe", "kimi-code", "kimi-code.exe")),

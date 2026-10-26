@@ -113,10 +113,14 @@ class WorkService:
         # The projection verifies the evidence ledger and selects only the latest discovery.
         return R4ReadProjectionService(self.db, None).agents()
 
-    def agents(self, work_id: str):
+    def agents(self, work_id: str, *, view: str = "observed"):
         with self.db.transaction(immediate=False) as conn:
             self._work(conn, work_id)
-            projection = self._current_agents()
+            # No relationship exists to enrich. Do not rescan discovery merely
+            # to establish an empty local link set; UNKNOWN makes no discovery claim.
+            if conn.execute("SELECT 1 FROM work_agent_links WHERE work_id=? LIMIT 1", (work_id,)).fetchone() is None:
+                return {"items": [], "discovery_status": "UNKNOWN"}
+            projection = {"items": [], "status": "UNKNOWN"} if view == "links" else self._current_agents()
             current = {
                 item["agent_id"]: item
                 for item in projection["items"]
@@ -148,13 +152,13 @@ class WorkService:
                         "lifecycle": "UNKNOWN",
                         "workspace": {"status": "UNKNOWN", "binding_ref": None},
                         "confidence": 0,
-                        "reason_code": "WORK_AGENT_NOT_CURRENT",
+                        "reason_code": "WORK_AGENT_OBSERVATION_PENDING" if view == "links" else "WORK_AGENT_NOT_CURRENT",
                         "observed_at": row[4],
                         "evidence_refs": [row[5]],
                         "uncertainty": True,
                         "association": "USER_LINKED",
                         "activity": "UNKNOWN",
-                        "presence": "NOT_CURRENT",
+                        "presence": "UNKNOWN" if view == "links" else "NOT_CURRENT",
                     }
                 item["linked_at"] = row[6]
                 item["task_ids"] = task_ids.get(agent_id, [])

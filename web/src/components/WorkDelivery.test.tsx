@@ -215,7 +215,7 @@ describe('local Work delivery', () => {
         requirement_version: 3, requirement: 'Requirement', tasks: [], artifacts };
       if (path.endsWith('/view')) return { revision: 1, state: { schema_version: 1, surface: 'board',
         viewport: { x: 71, y: 27, zoom: 1 }, cards: [{ kind: 'requirement', ref_id: 'work-a', version: 3, x: 19, y: 23, width: 400, height: 430, scroll: 8 }] } };
-      if (path.endsWith('/agents')) return { items: [] };
+      if (path.split('?')[0].endsWith('/agents')) return { items: [] };
       if (path.endsWith('/requirements/3')) return { title: 'Requirement', body: 'Requirement body' };
       if (path.includes('/artifacts/')) return { title: 'Implementation', body: 'Artifact body', requirement_version: 3, source: 'AGENT_RUN', source_run_id: 'run-a' };
       return originalGet(path);

@@ -113,7 +113,7 @@ describe('work navigation recovery', () => {
     const get = vi.fn(async (path: string) => {
       if (path.includes('?limit=')) return { items: [work, other] };
       if (path.endsWith('/execution-summary')) return { items: [], counts: {} };
-      if (path.endsWith('/agents') || path.endsWith('/agent-appearances')) return { items: [] };
+      if (path.split('?')[0].endsWith('/agents') || path.endsWith('/agent-appearances')) return { items: [] };
       if (path.endsWith('/view')) return { revision: 1, state: { ...board, cards: [{ ...board.cards[0], ref_id: path.includes(otherId) ? otherId : workId }] } };
       if (path.includes('/requirements/')) return { body: path.includes(otherId) ? 'Other requirement' : 'Readable requirement' };
       return path.includes(otherId) ? other : work;

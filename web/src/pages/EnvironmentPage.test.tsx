@@ -116,7 +116,7 @@ describe('EnvironmentPage real backend wiring', () => {
 
     // Runtime + Agents projection bodies (unchanged K3 presentation).
     expect((await screen.findAllByText('python')).length).toBeGreaterThan(0);
-    expect(screen.getByText('claude-code · edge-domain · Unknown instance')).toBeTruthy();
+    expect(screen.getByText('Claude Code')).toBeTruthy();
     expect(screen.getByText('R4_RUNTIME_AVAILABLE')).toBeTruthy();
     expect(screen.getByText('R4_AGENTS_AVAILABLE')).toBeTruthy();
     // Source times come from the backend projection, never from elapsed-time math.

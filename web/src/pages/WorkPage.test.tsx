@@ -143,7 +143,7 @@ describe('persistent workbench', () => {
     const { client } = fixture(state); const originalGet = vi.mocked(client.get).getMockImplementation()!;
     vi.mocked(client.get).mockImplementation(async (path: string) => {
       if (path.endsWith('/tasks/' + task)) return { id: task, work_id: id, title: 'Verify delivery', body: 'Task body', assignee: null, depends_on: [] };
-      if (path.endsWith('/agents')) return { items: [{ agent_id: 'agent-1', detected_identity: 'Codex', task_ids: [task] }] };
+      if (path.split('?')[0].endsWith('/agents')) return { items: [{ agent_id: 'agent-1', detected_identity: 'Codex', task_ids: [task] }] };
       const value = await originalGet(path) as Record<string, unknown>;
       return path === '/api/v1/works/' + id ? { ...value, tasks: [{ id: task, title: 'Verify delivery' }] } : value;
     });

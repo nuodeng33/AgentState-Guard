@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
+import { agentProgramName } from '../components/AgentIdentity';
 import { WorkMenuBar } from '../components/WorkMenuBar';
 import { WorkSidebar, type PageKey } from '../components/AppShell';
 import { useI18n } from '../i18n/I18nProvider';
@@ -566,7 +567,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
               onHover={open => setHover(open ? key(node) : null)} renderTrigger={trigger}
               actions={[{ id: 'open-task', label: `${t.open} ${item?.title ?? node.ref_id}`, onSelect: () => showOnBoard(node) },
                 ...agents.items.filter(agent => agent.task_ids?.includes(node.ref_id)).slice(0, 3).map(agent => ({ id: agent.agent_id,
-                  label: `${AGENT_NAMES[agent.detected_identity] ?? agent.detected_identity} · ${agent.agent_id.slice(-6)}`, onSelect: () => openAgents(agent.agent_id) }))]} /> : trigger(); })}
+                  label: agent.pid != null ? `${agentProgramName(agent)} · PID ${agent.pid}` : agentProgramName(agent), onSelect: () => openAgents(agent.agent_id) }))]} /> : trigger(); })}
         </div>{!relationshipsOpen && !relationsRetained && <><div className="work-agent-bubbles">
           <svg width="100%" height="100%" aria-hidden="true">{agents.items.slice(0, 4).map((agent, index) => {
             const [x, y] = [[22, 30], [78, 67], [22, 67], [78, 30]][index];
@@ -639,7 +640,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
     {appearancePanel && work && <AgentAppearancePicker agents={agents.items} state={appearances} selected={appearancePanel.selected} onClose={closeAppearance} />}
-    {active && work && <div className="work-overlay work-reading-overlay" role="dialog" aria-modal="true" aria-label={t.focus}><section className="work-reader"><header><button className="work-quiet" autoFocus onClick={() => setFocus(null)}><Icon name="back" />{t.returnBoard}</button><span className="work-card-kind"><Icon name={active.kind} size={16} />{t[active.kind]}{active.version ? <em className="work-version">v{active.version}</em> : null}</span><div className="work-reader-actions">{active.kind === 'task' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'task', taskId: active.ref_id }); }}>{locale === 'zh-CN' ? '编辑任务' : 'Edit task'}</button>}{active.kind === 'requirement' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'requirement' }); }}>{locale === 'zh-CN' ? '修订要求' : 'Revise requirement'}</button>}</div></header>{active.kind === 'task' && <div className="work-reader-context"><span>{locale === 'zh-CN' ? '关联智能体' : 'Linked agents'}</span>{agents.items.filter(agent => agent.task_ids?.includes(active.ref_id)).map(agent => <button key={agent.agent_id} className="work-quiet" onClick={() => { setFocus(null); openAgents(agent.agent_id); }}>{agent.detected_identity ?? agent.agent_id}</button>)}{!agents.items.some(agent => agent.task_ids?.includes(active.ref_id)) && <span className="work-reader-muted">{locale === 'zh-CN' ? '尚未关联' : 'None linked'}</span>}</div>}{renderContent(active, true)}</section></div>}
+    {active && work && <div className="work-overlay work-reading-overlay" role="dialog" aria-modal="true" aria-label={t.focus}><section className="work-reader"><header><button className="work-quiet" autoFocus onClick={() => setFocus(null)}><Icon name="back" />{t.returnBoard}</button><span className="work-card-kind"><Icon name={active.kind} size={16} />{t[active.kind]}{active.version ? <em className="work-version">v{active.version}</em> : null}</span><div className="work-reader-actions">{active.kind === 'task' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'task', taskId: active.ref_id }); }}>{locale === 'zh-CN' ? '编辑任务' : 'Edit task'}</button>}{active.kind === 'requirement' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'requirement' }); }}>{locale === 'zh-CN' ? '修订要求' : 'Revise requirement'}</button>}</div></header>{active.kind === 'task' && <div className="work-reader-context"><span>{locale === 'zh-CN' ? '关联智能体' : 'Linked agents'}</span>{agents.items.filter(agent => agent.task_ids?.includes(active.ref_id)).map(agent => <button key={agent.agent_id} className="work-quiet" onClick={() => { setFocus(null); openAgents(agent.agent_id); }}>{agentProgramName(agent)}</button>)}{!agents.items.some(agent => agent.task_ids?.includes(active.ref_id)) && <span className="work-reader-muted">{locale === 'zh-CN' ? '尚未关联' : 'None linked'}</span>}</div>}{renderContent(active, true)}</section></div>}
     {form && <div className="work-overlay" role="dialog" aria-modal="true" aria-label={form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}><form className="work-form" onSubmit={submit}>
       <h2>{form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}</h2>
       {error && <p role="alert">{error}</p>}
@@ -726,7 +727,6 @@ function CardContent({ client, work, card, onScroll }: { client: ApiClient; work
 
 type Copy = (typeof workspaceCopy)['en-US'];
 /** Display names for known identities; anything else is shown verbatim. */
-const AGENT_NAMES: Record<string, string> = { CODEX: 'Codex', CLAUDE_CODE: 'Claude Code', KIMI: 'Kimi', GEMINI: 'Gemini', CURSOR: 'Cursor' };
 /**
  * Agent as a replaceable tool: a tinted film with only facts the Core reports.
  * Presence comes from discovery; execution activity stays explicitly unknown.
@@ -742,7 +742,7 @@ function AgentBubble({ agent, selectedTints, index, size, tasks, copy, className
     onPointerDown={onPointerDown} onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} {...triggerProps} className={`work-agent-bubble is-${state} ${className} ${triggerProps?.className ?? ''}`}>
     <AgentFilm seed={agent.agent_id} size={size} tint={agentTint(agent.agent_id, selectedTints)} state={state} />
     <span className="work-agent-text">
-      <strong>{AGENT_NAMES[agent.detected_identity] ?? agent.detected_identity}</strong>
+      <strong>{agentProgramName(agent)}</strong>
       <span className="work-agent-state"><i aria-hidden="true" />{state === 'current' ? copy.presentNow : state === 'absent' ? copy.presentAbsent : copy.presentUnknown}</span>
       <span className="work-agent-load">{copy.carries(linked.length)}</span>
       {linked[0] && size > 140 && <span className="work-agent-task">{linked[0].title}</span>}

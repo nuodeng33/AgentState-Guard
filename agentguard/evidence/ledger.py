@@ -91,6 +91,8 @@ def _ledger_rows(connection: sqlite3.Connection):
 _READ_VALIDATED: OrderedDict[bytes, None] = OrderedDict()
 _READ_VALIDATION_LOCK = threading.Lock()
 _READ_VALIDATION_LIMIT = 64
+_READ_AUTHORITY_VALIDATED: OrderedDict[bytes, None] = OrderedDict()
+_READ_AUTHORITY_LIMIT = 65536
 
 
 def _ledger_fingerprint(rows) -> bytes | None:
@@ -150,7 +152,7 @@ def verify_ledger_snapshot(connection: sqlite3.Connection) -> list[str]:
         if key in _READ_VALIDATED:
             _READ_VALIDATED.move_to_end(key)
             return []
-        problems = _verify_ledger_rows(rows)
+        problems = _verify_ledger_rows(rows, _read_cache=True)
         if not problems:
             _READ_VALIDATED[key] = None
             if len(_READ_VALIDATED) > _READ_VALIDATION_LIMIT:
@@ -158,7 +160,7 @@ def verify_ledger_snapshot(connection: sqlite3.Connection) -> list[str]:
         return problems
 
 
-def _verify_ledger_rows(rows) -> list[str]:
+def _verify_ledger_rows(rows, *, _read_cache=False) -> list[str]:
     problems: list[str] = []
     expected_sequence = 1
     expected_prev_hash = _GENESIS_HASH
@@ -172,39 +174,70 @@ def _verify_ledger_rows(rows) -> list[str]:
         event_ids.add(row[1])
         if row[17] != expected_prev_hash:
             problems.append("LEDGER_PREV_HASH_INVALID")
-        try:
-            recorded_at = datetime.fromisoformat(row[3]).astimezone(UTC)
-            observed_at = datetime.fromisoformat(row[4]).astimezone(UTC) if row[4] else None
-            evidence_refs = json.loads(row[14])
-            payload_safe = json.loads(row[15])
-            event = EvidenceEvent(
-                schema_version=int(row[2]),
-                event_id=row[1],
-                recorded_at=recorded_at,
-                observed_at=observed_at,
-                event_family=EventFamily(row[5]),
-                event_type=EventType(row[6]),
-                source=row[7],
-                result=row[8],
-                execution_domain_id=row[9],
-                supervision_session_id=row[10],
-                transaction_id=row[11],
-                checkpoint_id=row[12],
-                subject_ref=row[13],
-                evidence_refs=tuple(evidence_refs),
-                payload_safe=payload_safe,
-            )
-            if event.payload_digest != row[16]:
-                problems.append("LEDGER_PAYLOAD_DIGEST_INVALID")
-            if canonical_json(evidence_refs) != row[14] or canonical_json(payload_safe) != row[15]:
-                problems.append("LEDGER_JSON_NONCANONICAL")
-            expected_hash = _hash_authority(
-                event.authority_dict(sequence=sequence, prev_hash=row[17])
-            )
-            if expected_hash != row[18]:
-                problems.append("LEDGER_CURR_HASH_INVALID")
-        except (ValueError, TypeError, json.JSONDecodeError):
-            problems.append("LEDGER_AUTHORITY_INVALID")
+        # Sequence, duplicate IDs and predecessor links are checked on EVERY
+        # pass. Only intrinsic authority of an identical complete raw row can
+        # reuse success; no prefix/head/count or stored chain hash grants trust.
+        problems.extend(_verify_authority_cached(row, sequence) if _read_cache
+                        else _verify_authority_row(row, sequence))
         expected_sequence += 1
         expected_prev_hash = row[18]
+    return problems
+
+
+def _verify_authority_row(row, sequence):
+    problems = []
+    try:
+        recorded_at = datetime.fromisoformat(row[3]).astimezone(UTC)
+        observed_at = datetime.fromisoformat(row[4]).astimezone(UTC) if row[4] else None
+        evidence_refs = json.loads(row[14])
+        payload_safe = json.loads(row[15])
+        event = EvidenceEvent(
+            schema_version=int(row[2]),
+            event_id=row[1],
+            recorded_at=recorded_at,
+            observed_at=observed_at,
+            event_family=EventFamily(row[5]),
+            event_type=EventType(row[6]),
+            source=row[7],
+            result=row[8],
+            execution_domain_id=row[9],
+            supervision_session_id=row[10],
+            transaction_id=row[11],
+            checkpoint_id=row[12],
+            subject_ref=row[13],
+            evidence_refs=tuple(evidence_refs),
+            payload_safe=payload_safe,
+        )
+        # EvidenceEvent already validates the freshly decoded payload. Its
+        # authority dictionary computes the same payload digest once; reuse
+        # it instead of validating/serializing the same object repeatedly.
+        authority = event.authority_dict(sequence=sequence, prev_hash=row[17])
+        if authority["payload_digest"] != row[16]:
+            problems.append("LEDGER_PAYLOAD_DIGEST_INVALID")
+        payload_json = json.dumps(payload_safe, ensure_ascii=False, sort_keys=True,
+                                  separators=(",", ":"), allow_nan=False)
+        if canonical_json(evidence_refs) != row[14] or payload_json != row[15]:
+            problems.append("LEDGER_JSON_NONCANONICAL")
+        # Full authority/privacy validation (including nested depth) remains.
+        expected_hash = _hash_authority(authority)
+        if expected_hash != row[18]:
+            problems.append("LEDGER_CURR_HASH_INVALID")
+    except (ValueError, TypeError, json.JSONDecodeError):
+        problems.append("LEDGER_AUTHORITY_INVALID")
+    return problems
+
+
+def _verify_authority_cached(row, sequence):
+    """Called only under the read-validation lock and a pinned read snapshot."""
+    key = _ledger_fingerprint([row])
+    if key is None:
+        return _verify_authority_row(row, sequence)
+    if key in _READ_AUTHORITY_VALIDATED:
+        _READ_AUTHORITY_VALIDATED.move_to_end(key)
+        return []
+    problems = _verify_authority_row(row, sequence)
+    if not problems:
+        _READ_AUTHORITY_VALIDATED[key] = None
+        if len(_READ_AUTHORITY_VALIDATED) > _READ_AUTHORITY_LIMIT:
+            _READ_AUTHORITY_VALIDATED.popitem(last=False)
     return problems
