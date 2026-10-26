@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ApiClient } from '../api/client';
+import { ApiRequestError, type ApiClient } from '../api/client';
 import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 const agent: WorkAgent = { agent_id: 'agent-codex', detected_identity: 'CODEX', lifecycle: 'RUNNING', role: 'EXECUTION_AGENT',
   confidence: 1, execution_domain_id: 'local', workspace: { status: 'UNKNOWN', binding_ref: null }, reason_code: 'OBSERVED',
@@ -91,6 +91,47 @@ it('retains known discovered identities on read failure while disabling stale as
   expect(screen.getByText('Last known observation · awaiting refresh')).toBeTruthy();
   expect(screen.queryByText('No other Agents available. Refresh discovery to check again.')).toBeNull();
   expect(screen.queryByText('private diagnostic')).toBeNull();
+});
+
+it('reads saved records and fresh candidates after a manual discovery refresh times out', async () => {
+  const f = fixture(), original = f.get.getMockImplementation()!;
+  const linked = { ...agent, agent_id: 'linked-agent', association: 'USER_LINKED' as const };
+  f.get.mockImplementation(path => path === '/api/v1/works/work-a/agents?view=links' ? Promise.resolve({ items: [linked] }) : original(path));
+  render(<WorkAgents {...f.props} />);
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Link to this work' }) as HTMLButtonElement).disabled).toBe(false));
+  f.get.mockClear();
+  const previous = f.get.getMockImplementation()!;
+  f.get.mockImplementation(path => path === '/api/v1/works/work-a' ? Promise.resolve({ revision: 9 }) : previous(path));
+  f.post.mockRejectedValueOnce(new ApiRequestError('API request timed out', null, 'API_REQUEST_TIMEOUT'));
+
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh discovery' })); });
+
+  expect(f.get).toHaveBeenCalledWith('/api/v1/works/work-a/agents?view=links');
+  expect(f.get).toHaveBeenCalledWith('/api/v1/works/work-a');
+  expect(f.get).toHaveBeenCalledWith('/api/v1/agents');
+  expect((screen.getByRole('button', { name: 'Unlink' }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole('button', { name: 'Link to this work' }) as HTMLButtonElement).disabled).toBe(false);
+  expect(f.props.onRevision).toHaveBeenLastCalledWith(9);
+  expect(f.post.mock.calls).toEqual([['/api/v1/discovery/refresh', {}]]);
+});
+
+it('keeps saved unlink available after refresh failure without authorizing an unread candidate', async () => {
+  const f = fixture(), original = f.get.getMockImplementation()!;
+  const linked = { ...agent, agent_id: 'linked-agent', association: 'USER_LINKED' as const };
+  f.get.mockImplementation(path => path === '/api/v1/works/work-a/agents?view=links' ? Promise.resolve({ items: [linked] }) : original(path));
+  render(<WorkAgents {...f.props} />);
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Link to this work' }) as HTMLButtonElement).disabled).toBe(false));
+  const previous = f.get.getMockImplementation()!;
+  f.get.mockImplementation(path => path === '/api/v1/agents' ? Promise.reject(new Error('private observation error')) : previous(path));
+  f.post.mockRejectedValueOnce(new ApiRequestError('API request timed out', null, 'API_REQUEST_TIMEOUT'));
+
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh discovery' })); });
+
+  expect((screen.getByRole('button', { name: 'Unlink' }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole('button', { name: 'Link to this work' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText('Last known observation · awaiting refresh')).toBeTruthy();
+  expect(screen.queryByText('private observation error')).toBeNull();
+  expect(f.post.mock.calls).toEqual([['/api/v1/discovery/refresh', {}]]);
 });
 
 it('keeps explicit retry available after an association read fails', async () => {

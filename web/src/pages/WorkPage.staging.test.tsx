@@ -45,6 +45,46 @@ it('starts the saved layout read alongside details and never writes a fabricated
   await waitFor(() => expect(f.post).toHaveBeenCalledWith('/api/v1/works/' + id + '/view', expect.objectContaining({ expected_revision: 8 })));
 });
 
+it('leaves the full loading state after detail failure while sidebar lists are still pending', async () => {
+  const f = fixture(), detail = deferred<unknown>(), sidebar = deferred<unknown>();
+  const original = f.get.getMockImplementation()!;
+  f.get.mockImplementation(path => path === '/api/v1/works/' + id ? detail.promise :
+    path.includes('/works?') ? sidebar.promise : original(path));
+  render(<WorkPage client={f.client} />);
+  expect(document.querySelector('.work-loading-state')).not.toBeNull();
+
+  await act(async () => detail.reject(new Error('private detail failure')));
+
+  expect(screen.getByRole('alert')).toBeTruthy();
+  expect(screen.queryByText('private detail failure')).toBeNull();
+  expect(document.querySelector('.work-loading-state')).toBeNull();
+  expect(document.querySelector('.work-overview')).not.toBeNull();
+  expect(location.search).not.toContain(id);
+  await act(async () => sidebar.resolve({ items: [work(), work(otherId)] }));
+});
+
+it('does not clear a new Work loading state when an older failure recovery list completes', async () => {
+  const f = fixture(), detail = deferred<unknown>(), recovery = deferred<unknown>(), nextDetail = deferred<unknown>();
+  const original = f.get.getMockImplementation()!; let listReads = 0;
+  f.get.mockImplementation(path => path === '/api/v1/works/' + id ? detail.promise :
+    path === '/api/v1/works/' + otherId ? nextDetail.promise :
+      path.includes('/works?') && ++listReads > 1 ? recovery.promise : original(path));
+  render(<WorkPage client={f.client} />);
+  await screen.findByRole('button', { name: 'Second work' });
+  await act(async () => detail.reject(new Error('unavailable')));
+  fireEvent.click(screen.getByRole('button', { name: 'Second work' }));
+  expect(document.querySelector('.work-loading-state')).not.toBeNull();
+
+  await act(async () => recovery.resolve({ items: [work(), work(otherId)] }));
+
+  expect(document.querySelector('.work-loading-state')).not.toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+  await act(async () => nextDetail.resolve(work(otherId)));
+  expect(document.querySelector('.work-loading-state')).toBeNull();
+  expect(document.querySelector('.work-heading')?.textContent).toContain('Second work');
+  expect(location.search).toContain(otherId);
+});
+
 it('keeps failed layout reads read-only until an explicit successful reload', async () => {
   const layout = deferred<{ revision: number; state: Board }>(); const f = fixture(layout.promise);
   render(<WorkPage client={f.client} />);

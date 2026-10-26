@@ -168,6 +168,31 @@ def test_noncanonical_or_naive_time_keeps_legacy_validation_without_cache(databa
     assert not ledger._READ_VALIDATED
 
 
+@pytest.mark.parametrize("column", ["recorded_at", "observed_at"])
+def test_naive_time_with_utc_suffix_never_reuses_success(database, monkeypatch, column):
+    time_value = "2026-08-05+00:00"
+    parsed = datetime.fromisoformat(time_value)
+    assert time_value.endswith("+00:00")
+    assert parsed.tzinfo is None
+    # Match the legacy validator's current local-time interpretation without
+    # changing the process or OS timezone. The raw value remains naive.
+    event = replace(_event(event_id="naive-utc-suffix"), **{column: parsed.astimezone(UTC)})
+    with database.transaction():
+        ledger.EvidenceLedger().append(database._conn, event)
+    disable_triggers(database._conn)
+    database._conn.execute(
+        f"UPDATE evidence_ledger_events SET {column}=? WHERE sequence=4", (time_value,)
+    )
+    database._conn.commit()
+    calls = counted(monkeypatch)
+    assert ledger.verify_ledger(database._conn) == []
+    assert ledger.verify_ledger_snapshot(database._conn) == []
+    assert ledger.verify_ledger_snapshot(database._conn) == []
+    assert calls == [4, 4, 4]
+    assert not ledger._READ_VALIDATED
+    assert not ledger._READ_AUTHORITY_VALIDATED
+
+
 def test_uncacheable_values_use_full_validator_without_reusing_success(database, monkeypatch):
     calls = counted(monkeypatch)
     monkeypatch.setattr(ledger, "_ledger_fingerprint", lambda rows: None)
@@ -307,6 +332,45 @@ def test_changed_snapshot_checks_every_chain_link_but_only_new_raw_authority_nee
     assert ledger.verify_ledger_snapshot(database._conn)
     assert all(type(key) is bytes and len(key) == 32 and value is None
                for key, value in ledger._READ_AUTHORITY_VALIDATED.items())
+
+
+def test_row_cache_over_capacity_preserves_tail_hits_after_append(database, monkeypatch):
+    ledger._READ_VALIDATED.clear()
+    ledger._READ_AUTHORITY_VALIDATED.clear()
+    monkeypatch.setattr(ledger, "_READ_AUTHORITY_LIMIT", 2)
+    calls = []
+    original = ledger._verify_authority_row
+
+    def verify(row, sequence):
+        calls.append(sequence)
+        return original(row, sequence)
+
+    monkeypatch.setattr(ledger, "_verify_authority_row", verify)
+    assert ledger.verify_ledger_snapshot(database._conn) == []
+    assert calls == [1, 2, 3]
+    assert len(ledger._READ_AUTHORITY_VALIDATED) == 2
+    for sequence, expected in [(4, [1, 4]), (5, [1, 2, 5])]:
+        with database.transaction():
+            ledger.EvidenceLedger().append(database._conn, _event(event_id=f"capacity-{sequence}"))
+        calls.clear()
+        assert ledger.verify_ledger_snapshot(database._conn) == []
+        assert calls == expected
+        assert len(ledger._READ_AUTHORITY_VALIDATED) == 2
+        assert ledger.verify_ledger(database._conn) == []
+
+    head = database._conn.execute(
+        "SELECT sequence, curr_hash FROM evidence_ledger_events ORDER BY sequence DESC LIMIT 1"
+    ).fetchone()
+    disable_triggers(database._conn)
+    database._conn.execute("UPDATE evidence_ledger_events SET source='old-row-tamper' WHERE sequence=1")
+    database._conn.commit()
+    assert database._conn.execute(
+        "SELECT sequence, curr_hash FROM evidence_ledger_events ORDER BY sequence DESC LIMIT 1"
+    ).fetchone() == head
+    expected = ledger.verify_ledger(database._conn)
+    assert expected
+    assert ledger.verify_ledger_snapshot(database._conn) == expected
+    assert len(ledger._READ_AUTHORITY_VALIDATED) == 2
 
 
 def test_row_authority_cache_is_bounded_and_does_not_skip_reordered_chain_checks(database, monkeypatch):

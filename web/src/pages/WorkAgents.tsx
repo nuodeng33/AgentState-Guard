@@ -173,7 +173,14 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
     };
     const request = (async () => {
       try {
-        if (refresh) await refreshDiscovery(client);
+        if (refresh) {
+          try { await refreshDiscovery(client); }
+          catch {
+            // A missing refresh receipt does not make persisted Work records unreadable.
+            // Fresh reads below still decide which relationship actions are available.
+            readFailed = true; if (current()) setError(failed);
+          }
+        }
         if (!current()) return;
         // Optional observations publish independently; no timeout invents an
         // empty result, and slow sources never hold the linked Work records.

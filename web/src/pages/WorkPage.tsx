@@ -269,7 +269,9 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     } catch (err) { if (seq === loadSequence.current && mounted.current) {
       workRef.current = null; boardRef.current = null; setWork(null); setBoard(null); setError(message(err));
       const url = new URL(location.href); url.searchParams.delete('work'); history.replaceState(null, '', url);
-      await list().catch(() => {}); setLoading(false);
+      // Only this active Work generation controls the content loading state.
+      // Sidebar recovery can finish later, including after another Work opens.
+      setLoading(false); void list().catch(() => {});
     } }
   }
 

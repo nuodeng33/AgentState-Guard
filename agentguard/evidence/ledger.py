@@ -9,7 +9,7 @@ import struct
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .canonical import canonical_json
@@ -126,6 +126,16 @@ def _ledger_fingerprint(rows) -> bytes | None:
     return digest.digest()
 
 
+def _cacheable_utc_time(value: object) -> bool:
+    """Require a parsed UTC offset; a UTC-looking suffix can still be naive."""
+    if not isinstance(value, str) or not value.endswith("+00:00"):
+        return False
+    try:
+        return datetime.fromisoformat(value).utcoffset() == timedelta(0)
+    except ValueError:
+        return False
+
+
 def verify_ledger_snapshot(connection: sqlite3.Connection) -> list[str]:
     """Read all raw rows every time; share only successful identical validation.
 
@@ -141,12 +151,12 @@ def verify_ledger_snapshot(connection: sqlite3.Connection) -> list[str]:
         # Event writers emit UTC-aware ISO times. The legacy validator also accepts
         # some naive times via local-zone conversion; those are not a pure function
         # of raw bytes and must keep unconditional validation, never cache reuse.
-        canonical_times = all(
-            isinstance(row[3], str) and row[3].endswith("+00:00")
-            and (row[4] is None or isinstance(row[4], str) and row[4].endswith("+00:00"))
+        cacheable_times = all(
+            _cacheable_utc_time(row[3])
+            and (row[4] is None or _cacheable_utc_time(row[4]))
             for row in rows
         )
-        key = _ledger_fingerprint(rows) if canonical_times else None
+        key = _ledger_fingerprint(rows) if cacheable_times else None
         if key is None:
             return _verify_ledger_rows(rows)
         if key in _READ_VALIDATED:
@@ -165,7 +175,10 @@ def _verify_ledger_rows(rows, *, _read_cache=False) -> list[str]:
     expected_sequence = 1
     expected_prev_hash = _GENESIS_HASH
     event_ids: set[str] = set()
-    for row in rows:
+    # Admit only the newest bounded tail. Older cache misses must not evict
+    # retained rows before this ascending pass reaches and reuses them.
+    cache_start = max(0, len(rows) - _READ_AUTHORITY_LIMIT) if _read_cache else 0
+    for row_index, row in enumerate(rows):
         sequence = int(row[0])
         if sequence != expected_sequence:
             problems.append("LEDGER_SEQUENCE_INVALID")
@@ -177,8 +190,10 @@ def _verify_ledger_rows(rows, *, _read_cache=False) -> list[str]:
         # Sequence, duplicate IDs and predecessor links are checked on EVERY
         # pass. Only intrinsic authority of an identical complete raw row can
         # reuse success; no prefix/head/count or stored chain hash grants trust.
-        problems.extend(_verify_authority_cached(row, sequence) if _read_cache
-                        else _verify_authority_row(row, sequence))
+        problems.extend(
+            _verify_authority_cached(row, sequence, admit=row_index >= cache_start)
+            if _read_cache else _verify_authority_row(row, sequence)
+        )
         expected_sequence += 1
         expected_prev_hash = row[18]
     return problems
@@ -227,7 +242,7 @@ def _verify_authority_row(row, sequence):
     return problems
 
 
-def _verify_authority_cached(row, sequence):
+def _verify_authority_cached(row, sequence, *, admit=True):
     """Called only under the read-validation lock and a pinned read snapshot."""
     key = _ledger_fingerprint([row])
     if key is None:
@@ -236,7 +251,7 @@ def _verify_authority_cached(row, sequence):
         _READ_AUTHORITY_VALIDATED.move_to_end(key)
         return []
     problems = _verify_authority_row(row, sequence)
-    if not problems:
+    if not problems and admit:
         _READ_AUTHORITY_VALIDATED[key] = None
         if len(_READ_AUTHORITY_VALIDATED) > _READ_AUTHORITY_LIMIT:
             _READ_AUTHORITY_VALIDATED.popitem(last=False)

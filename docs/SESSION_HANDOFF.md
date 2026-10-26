@@ -1,5 +1,11 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-10-26 independent revalidation — native acceptance still open
+
+The user withdrew trust in earlier diagnostic/acceptance conclusions. Historical reports remain preserved but do not establish current acceptance. Fresh source fixes cover discovery-refresh failure, Work loading generations, UTC cache purity and over-capacity row-cache admission. Independent full regression: 1590 passed / 49 skipped; frontend 432 passed / 54 files; production build/typecheck, focused60, Ruff and diff checks passed. Fresh Windows source Core plus sandboxed production browser rendered the archived task body in346.86ms after the click and verified its hash; Core exited normally and original six business files/archive stayed unchanged. This is source browser evidence, not native MSI acceptance.
+
+Installed local identity was independently rehashed; new exact-commit CI/MSI/upgrade/native input/recovery/mobile gates remain open. Full-history Agent reads remain O(history), so long-term ledger growth is not solved. The old native report's7132ms upper bound conflicts with its own timestamps (~67162ms) and is invalid. No merge/release/restart/permanent deletion; cleanup is manual-move only. See [fresh audit](phases/30-independent-revalidation.md) and [source read evidence](verification/INDEPENDENT_SOURCE_READS_20261026.json).
+
 ### 2026-10-26 authoritative checkpoint — recognizable applications and saved links
 
 Phase29 groups same installed Codex observations, distinguishes API Codex, replaces sphere rows with aligned flat icons, and discovers installed DeepSeek Harness through bounded Windows metadata without inventing a live process. Completion-based polling/backoff plus exact raw-row read validation reuse removes redundant work. Optional `agents?view=links` decouples saved relationships from live observation while preserving default API and unconditional writer checks. No schema/permission change.
