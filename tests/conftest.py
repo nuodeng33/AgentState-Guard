@@ -1,6 +1,7 @@
 """Shared test fixtures."""
 
 import tempfile
+import threading
 from collections.abc import Generator
 from pathlib import Path
 
@@ -18,6 +19,74 @@ def pytest_configure(config):
                 "--basetemp must be outside every Git checkout; workspace tests "
                 "resolve ancestor Git roots. Use a new system-temp directory."
             )
+
+
+_CLOSE_VERIFIED_READERS = pytest.StashKey()
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item):
+    """Join test-owned readers before normal fixture/monkeypatch teardown.
+
+    Use the teardown boundary rather than an autouse dependency on monkeypatch:
+    forcing that fixture early would reorder unrelated runtime fixture cleanup.
+    """
+    close = item.stash.get(_CLOSE_VERIFIED_READERS, None)
+    close_failure = None
+    try:
+        if close is not None:
+            close()
+    except Exception as error:  # noqa: BLE001 -- other fixture cleanup must still run
+        close_failure = error
+    outcome = yield
+    if close_failure is not None:
+        if outcome.excinfo is not None:
+            close_failure = BaseExceptionGroup(
+                "Reader and fixture teardown failures", [close_failure, outcome.excinfo[1]]
+            )
+        outcome.force_exception(close_failure)
+
+
+@pytest.fixture(autouse=True)
+def close_owned_verified_readers(request):
+    """Own lazy readers even when a TestClient never enters ASGI lifespan."""
+    from agentguard.api.verified_agents import VerifiedAgentReads
+
+    created = []
+    lock = threading.Lock()
+    initialize = VerifiedAgentReads.__init__
+
+    def track(reader, *args, **kwargs):
+        initialize(reader, *args, **kwargs)
+        with lock:
+            created.append(reader)
+
+    def close():
+        failures = []
+        while True:
+            with lock:
+                if not created:
+                    break
+                reader = created.pop()
+            try:
+                reader.close()
+            except Exception as error:  # noqa: BLE001 -- close every owner, then fail teardown
+                failures.append(error)
+        if failures:
+            raise ExceptionGroup("Test-owned verified readers failed to close", failures)
+
+    request.node.stash[_CLOSE_VERIFIED_READERS] = close
+    # A private patch context preserves the normal ordering of the test's own
+    # monkeypatch fixture and all its dependent resources.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(VerifiedAgentReads, "__init__", track)
+        try:
+            yield
+        finally:
+            try:
+                close()  # also catch readers created by another fixture's finalizer
+            finally:
+                del request.node.stash[_CLOSE_VERIFIED_READERS]
 
 
 @pytest.fixture
