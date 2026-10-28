@@ -11,6 +11,7 @@ import ctypes
 import errno
 import hashlib
 import json
+import ntpath
 import os
 import re
 import shutil
@@ -123,6 +124,29 @@ def _verify_root(request: dict) -> Path:
     return root
 
 
+def _windows_internal_path(root: str, path: str) -> str:
+    """I/O spelling for private descendants after their root is verified/pinned.
+
+    This never accepts an external namespace or normalizes a caller's root. The
+    operation directory's fixed components are the only production caller.
+    """
+    for value in (root, path):
+        drive, tail = ntpath.splitdrive(value)
+        if (not re.fullmatch(r'[A-Za-z]:', drive) or not tail.startswith('\\')
+                or '\x00' in value or '/' in value or value != ntpath.normpath(value)):
+            raise HelperError('WORKSPACE_ISOLATION_UNSAFE')
+        if any(part in {'.', '..'} or ':' in part or part.endswith(('.', ' '))
+               for part in tail.split('\\') if part):
+            raise HelperError('WORKSPACE_ISOLATION_UNSAFE')
+    try:
+        contained = ntpath.normcase(ntpath.commonpath((root, path))) == ntpath.normcase(root)
+    except ValueError:
+        contained = False
+    if not contained:
+        raise HelperError('WORKSPACE_ISOLATION_UNSAFE')
+    return '\\\\?\\' + path
+
+
 @contextmanager
 def _pin_directory(root: Path, identity: dict, parts: tuple[str, ...], *, create: bool = False):
     if os.name == 'posix':
@@ -178,16 +202,22 @@ def _pin_directory(root: Path, identity: dict, parts: tuple[str, ...], *, create
     handles = []
     current = Path(root.anchor)
     components = list(root.parts[1:]) + list(parts)
+    private_operation = (len(parts) == 3 and parts[:2] == ('.agentguard', 'protection')
+                         and re.fullmatch(r'[0-9a-f]{32}', parts[2]) is not None)
     try:
         for index, part in enumerate([None, *components]):
             if part is not None:
                 current = current / part
+            # Root/ancestors keep their original spelling and identity checks.
+            # Only fixed private descendants use extended I/O after root pinning.
+            internal = (Path(_windows_internal_path(str(root), str(current)))
+                        if private_operation and index > len(root.parts) - 1 else current)
             if create and index > len(root.parts) - 1:
                 try:
-                    current.mkdir(mode=0o700)
+                    internal.mkdir(mode=0o700)
                 except FileExistsError:
                     pass
-            handle = kernel.CreateFileW(str(current), 0x80, 0x3, None, 3, 0x02200000, None)
+            handle = kernel.CreateFileW(str(internal), 0x80, 0x3, None, 3, 0x02200000, None)
             if handle in (None, ctypes.c_void_p(-1).value):
                 if ctypes.get_last_error() in {2, 3}:
                     raise FileNotFoundError(str(current))
@@ -198,13 +228,13 @@ def _pin_directory(root: Path, identity: dict, parts: tuple[str, ...], *, create
                 raise HelperError('WORKSPACE_DIRECTORY_PIN_UNAVAILABLE')
             if info.attributes & 0x400 or not info.attributes & 0x10:
                 raise HelperError('WORKSPACE_PARENT_UNSAFE')
-            observed = current.lstat()
+            observed = internal.lstat()
             file_index = (info.index_high << 32) | info.index_low
             if file_index != observed.st_ino:
                 raise HelperError('WORKSPACE_DIRECTORY_IDENTITY_CHANGED')
             if index == len(root.parts) - 1 and {'dev': observed.st_dev, 'ino': observed.st_ino} != identity:
                 raise HelperError('WORKSPACE_ROOT_IDENTITY_CHANGED')
-        yield current
+        yield Path(_windows_internal_path(str(root), str(current))) if private_operation else current
     finally:
         for handle in reversed(handles):
             kernel.CloseHandle(handle)
@@ -872,10 +902,9 @@ def _cleanup_operation(root: Path, operation_id: object, identity: dict) -> dict
                 os.rmdir(root.joinpath(*parts))
                 _sync_dir(root.joinpath(*parts[:-1]))
         if os.name == 'nt':
-            original = root.joinpath(*parts)
             if _identity(root) != identity:
                 raise HelperError('WORKSPACE_ROOT_IDENTITY_CHANGED')
-            original.rmdir()
+            isolated.rmdir()
         return {'removed': True, 'bytes': total}
     except FileNotFoundError:
         _assert_root_identity(root, identity)

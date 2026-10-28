@@ -1,5 +1,10 @@
 # Rollback Ledger
 
+### 2026-10-29 private journal Windows path fix
+
+Verified-root private I/O fixes receipt/tmp260 failure without policy/ACL changes. Windows3.11 native17passed, fullbackend1631passed52skipped; source actual recovery/fault-seam external-edit PASS. New official package/actual interruption remains open. Rollback productcc85317; tests9df9b8a preserve CI resource isolation. See [phase31](phases/31-verified-read-snapshots.md).
+
+
 ### 2026-10-29 final source ready — native gates open
 
 Started-at snapshot causality and512-file preview retention/deadline fixes integrated. Final backend1616passed49skipped, frontend448passed/build; Windows actual512-file UIpreview6.12s with health/Work responsive and no file changes. cdd9060 remains previous package; build new exactcandidate then finish MSI/nativeWindows/MuMu1/crash/provider scope. See [phase31](phases/31-verified-read-snapshots.md). Original AppData sixfiles still original; upgrade-v3 testfixture retained.

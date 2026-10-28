@@ -1,0 +1,70 @@
+{
+  "windows_source_recovery": {
+    "result": "PASS",
+    "source": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\takeover-20261029\\source-v3",
+    "python_version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+    "source_hashes": {
+      "protection.py": "141847f255871165228d05b2a640c799b0d040b5abca58c3599445a9af57829e",
+      "protection_helper.py": "84cbf9eca35e77df0baaa72f2934d397dffa2bf94ae7155def0cadf3876daf94",
+      "protection_domains.py": "eb0a1208c6111274a8120b62d89563fc6e2cccc1d2cd714c5330bf9f8d0ee185",
+      "workspace_permissions.py": "5044120bd4f43fc0753a43ad7ea0504e76d904bc859c92af8750f7dae72e74bb"
+    },
+    "script_sha256": "a13d2ab18e5cd5730b71f4936d97439529fce3aa444bf2e68b0f12a643e34eaa",
+    "scope": "Windows source service, one test file per isolated case; after_apply fault seam simulates interruption, not OS process termination",
+    "cases": {
+      "normal": {
+        "root_length": 154,
+        "checks": {
+          "normal_restore": true,
+          "receipt_exists": true,
+          "reconcile_idempotent": true
+        },
+        "apply_errors": [],
+        "execute_state": "SUCCEEDED",
+        "execute_reason": "PROTECTION_RESTORED_AND_VERIFIED",
+        "result": "PASS"
+      },
+      "external": {
+        "root_length": 154,
+        "checks": {
+          "fault_after_actual_write": true,
+          "external_edit_preserved": true,
+          "reconcile_idempotent": true
+        },
+        "apply_errors": [],
+        "reconcile_reason": "PROTECTION_STEP_UNCERTAIN",
+        "result": "PASS"
+      },
+      "atomic": {
+        "root_length": 154,
+        "normal_temporary_length": 260,
+        "pinned_temporary_length": 264,
+        "read_matches": true,
+        "test_file_removed": true,
+        "pinned_handle_closed": true,
+        "result": "PASS"
+      }
+    }
+  },
+  "windows_pytest": {
+    "tests": 17,
+    "passed": 17,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0,
+    "python": "3.11.9"
+  },
+  "backend": {
+    "tests": 1683,
+    "passed": 1631,
+    "skipped": 52,
+    "failures": 0,
+    "errors": 0
+  },
+  "source_zip_sha256": "6525e4270b15e260be3bbf9c1065a5f380a13d467f8f2401ef73fce4aeddf0e0",
+  "limitations": [
+    "Windows source recovery uses the existing fault seam, not actual process termination",
+    "Final packaged external-edit recovery remains required",
+    "Source Python3.12 mkdir0700 DACL behavior differs from the shipped Python3.11 runtime; not relaxed or mislabelled"
+  ]
+}
