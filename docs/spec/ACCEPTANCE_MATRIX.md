@@ -1,5 +1,10 @@
 # Acceptance Matrix — AgentState Guard v1.0
 
+### 2026-10-29 phase31 — implementation in progress
+
+Approved last-verified interface reads implemented with background full verification and explicit freshness/errors. Mutation authority remains current full verification. Baseline/rollback28cc7b0; candidate not yet packaged/native accepted. See [phase31](../phases/31-verified-read-snapshots.md). Full source/backend and current exact-commit package/native gates remain open.
+
+
 ### 2026-10-25 latest: work-first shell
 
 User-requested left work list/search/new, central work, top File/Edit/View and avatar-only Settings implemented. Guard/detection surfaces are inside Settings. Independent337frontend/typecheck/build passed; actual production-asset browser with installedCore verified work/task creation, view/save and settings return; menu CSS collision fixed and focused6/build reverified. This is source preview, not newMSI acceptance. See [phase26](../phases/26-work-first-shell.md).

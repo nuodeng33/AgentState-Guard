@@ -8,6 +8,8 @@ import sqlite3
 import struct
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -95,7 +97,7 @@ _READ_AUTHORITY_VALIDATED: OrderedDict[bytes, None] = OrderedDict()
 _READ_AUTHORITY_LIMIT = 65536
 
 
-def _ledger_fingerprint(rows) -> bytes | None:
+def _ledger_fingerprint(rows, *, cancelled=None) -> bytes | None:
     """Bind every raw authority value, SQLite type, column and row boundary.
 
     This digest is a process-local validation key, never a stored ledger hash.
@@ -103,6 +105,7 @@ def _ledger_fingerprint(rows) -> bytes | None:
     """
     digest = hashlib.sha256(b"ASG:ledger-validation:v1:19-columns")
     for row in rows:
+        _check_read_cancelled(cancelled)
         if len(row) != 19:
             return None
         digest.update(b"R")
@@ -136,33 +139,60 @@ def _cacheable_utc_time(value: object) -> bool:
         return False
 
 
-def verify_ledger_snapshot(connection: sqlite3.Connection) -> list[str]:
-    """Read all raw rows every time; share only successful identical validation.
+class LedgerReadCancelled(RuntimeError):
+    """An explicitly cancelled display read never produces a valid receipt."""
 
-    Callers keep their projection in the same SQLite read snapshot. There is no
-    TTL, trusted prefix/head/count or projection cache. The lock coalesces full
-    validation of identical concurrent reads; invalid results are never cached.
-    Writers continue to use verify_ledger's unconditional complete validator.
+
+def _check_read_cancelled(cancelled) -> None:
+    if cancelled is not None and cancelled():
+        raise LedgerReadCancelled("LEDGER_READ_CANCELLED")
+
+
+@contextmanager
+def _read_validation_lock(cancelled):
+    if cancelled is None:
+        with _READ_VALIDATION_LOCK:
+            yield
+        return
+    while True:
+        _check_read_cancelled(cancelled)
+        if _READ_VALIDATION_LOCK.acquire(timeout=0.05):
+            break
+    try:
+        _check_read_cancelled(cancelled)
+        yield
+    finally:
+        _READ_VALIDATION_LOCK.release()
+
+
+def verify_ledger_snapshot(
+    connection: sqlite3.Connection, *, cancelled: Callable[[], bool] | None = None,
+) -> list[str]:
+    """Read all raw rows; reuse only successful identical historical validation.
+
+    The optional read-only cancellation hook covers lock waits and Python loops.
+    Cancellation is an exception, never a success or a partial validation. Writers
+    retain verify_ledger's unconditional validator with no cancellation behavior.
     """
-    # Serialize raw scans too: concurrent sqlite fetchall calls repeatedly
-    # contend for the GIL. Each caller still reads/fingerprints its own snapshot.
-    with _READ_VALIDATION_LOCK:
+    with _read_validation_lock(cancelled):
         rows = _ledger_rows(connection)
-        # Event writers emit UTC-aware ISO times. The legacy validator also accepts
-        # some naive times via local-zone conversion; those are not a pure function
-        # of raw bytes and must keep unconditional validation, never cache reuse.
-        cacheable_times = all(
-            _cacheable_utc_time(row[3])
-            and (row[4] is None or _cacheable_utc_time(row[4]))
-            for row in rows
-        )
-        key = _ledger_fingerprint(rows) if cacheable_times else None
+        cacheable_times = True
+        for row in rows:
+            _check_read_cancelled(cancelled)
+            if not (_cacheable_utc_time(row[3])
+                    and (row[4] is None or _cacheable_utc_time(row[4]))):
+                cacheable_times = False
+                break
+        key = ((_ledger_fingerprint(rows, cancelled=cancelled) if cancelled is not None
+                else _ledger_fingerprint(rows)) if cacheable_times else None)
         if key is None:
-            return _verify_ledger_rows(rows)
+            return _verify_ledger_rows(rows, cancelled=cancelled)
+        _check_read_cancelled(cancelled)
         if key in _READ_VALIDATED:
             _READ_VALIDATED.move_to_end(key)
             return []
-        problems = _verify_ledger_rows(rows, _read_cache=True)
+        problems = _verify_ledger_rows(rows, _read_cache=True, cancelled=cancelled)
+        _check_read_cancelled(cancelled)
         if not problems:
             _READ_VALIDATED[key] = None
             if len(_READ_VALIDATED) > _READ_VALIDATION_LIMIT:
@@ -170,7 +200,7 @@ def verify_ledger_snapshot(connection: sqlite3.Connection) -> list[str]:
         return problems
 
 
-def _verify_ledger_rows(rows, *, _read_cache=False) -> list[str]:
+def _verify_ledger_rows(rows, *, _read_cache=False, cancelled=None) -> list[str]:
     problems: list[str] = []
     expected_sequence = 1
     expected_prev_hash = _GENESIS_HASH
@@ -179,6 +209,7 @@ def _verify_ledger_rows(rows, *, _read_cache=False) -> list[str]:
     # retained rows before this ascending pass reaches and reuses them.
     cache_start = max(0, len(rows) - _READ_AUTHORITY_LIMIT) if _read_cache else 0
     for row_index, row in enumerate(rows):
+        _check_read_cancelled(cancelled)
         sequence = int(row[0])
         if sequence != expected_sequence:
             problems.append("LEDGER_SEQUENCE_INVALID")

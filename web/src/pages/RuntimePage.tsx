@@ -1,3 +1,4 @@
+import { AgentVerification } from '../components/AgentVerification';
 import type { RuntimeItem, RuntimeView } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
 import { EvidenceRefs } from '../components/EvidenceRefs';
@@ -11,6 +12,7 @@ export function RuntimeViewBody({ data }: { data: RuntimeView }) {
   const label = t('nav.runtime');
   return (
     <div>
+      <AgentVerification verification={data.verification} />
       <div className="view-head">
         <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
         <span className="reason">

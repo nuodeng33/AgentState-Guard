@@ -13,7 +13,17 @@ export type ViewName = 'runtime' | 'agents' | 'supervision' | 'recovery' | 'chan
 /** Top-level projection status. UNKNOWN/DEGRADED/UNREACHABLE are never "fine". */
 export type ViewStatus = 'EMPTY' | 'UNKNOWN' | 'DEGRADED' | 'AVAILABLE' | 'UNREACHABLE';
 
+export interface VerificationState {
+  state: 'PENDING' | 'VERIFIED' | 'STALE' | 'INVALID' | 'ERROR';
+  verified_at: string | null;
+  checked_at: string | null;
+  refreshing: boolean;
+  reason_code: string;
+}
+
 export interface R4ViewDto<TItem> {
+  /** Read-only last-verified snapshot; mutations always verify independently. */
+  verification?: VerificationState;
   schema_version: string;
   view: ViewName;
   status: ViewStatus;

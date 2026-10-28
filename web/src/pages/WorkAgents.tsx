@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiActionError, type ApiClient } from '../api/client';
-import type { AgentItem, DiscoveryApplication, DiscoveryInventoryCoverage, DiscoverySource, DiscoverySources, EvidenceDetail } from '../api/types';
+import type { AgentItem, DiscoveryApplication, DiscoveryInventoryCoverage, DiscoverySource, DiscoverySources, EvidenceDetail, VerificationState } from '../api/types';
 import { DISCOVERY_POLL_INTERVAL_MS, getEvidence, refreshDiscovery } from '../api/product';
+import { AgentVerification } from '../components/AgentVerification';
 import { AgentIdentityDetails, AgentIdentityLabel, AgentProgramIcon, agentIdentityLabel, agentSourceLabel } from '../components/AgentIdentity';
 import { DiscoveryCatalog } from '../components/DiscoveryCatalog';
 import { EvidenceDetailPanel } from '../components/EvidenceDetailPanel';
@@ -16,7 +17,11 @@ export type WorkAgent = AgentItem & {
   task_ids?: string[];
 };
 
-function enrichLinked(linked: WorkAgent[], detected: WorkAgent[], freshObservation = false): WorkAgent[] {
+function enrichLinked(linked: WorkAgent[], detected: WorkAgent[], freshObservation = false, verification?: VerificationState): WorkAgent[] {
+  if (verification && !['VERIFIED', 'STALE'].includes(verification.state)) {
+    return linked.map(item => ({ ...item, lifecycle: 'UNKNOWN', presence: 'UNKNOWN', freshness: 'UNKNOWN',
+      uncertainty: true, workspace: { status: 'UNKNOWN', binding_ref: null } }));
+  }
   const byId = new Map(detected.map(item => [item.agent_id, item]));
   return linked.map(item => {
     const current = byId.get(item.agent_id);
@@ -125,6 +130,7 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
   const lastReadFailed = useRef(false);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [discoveryState, setDiscoveryState] = useState('UNKNOWN');
+  const [verification, setVerification] = useState<VerificationState | undefined>();
   const [sources, setSources] = useState<DiscoverySource[]>(() => knownItems<DiscoverySource>(client, sourcesPath) ?? []);
   const [inventoryCoverage, setInventoryCoverage] = useState<DiscoveryInventoryCoverage[]>([]);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
@@ -150,6 +156,7 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
     if (loadInFlight.current && !refresh && !force) return loadInFlight.current;
     let readFailed = false;
     let currentDetected: WorkAgent[] | undefined;
+    let currentVerification: VerificationState | undefined;
     const generation = ++loadSequence.current;
     const current = () => live.current && generation === loadSequence.current;
     if (!quiet) { setLoading(true); setError(''); }
@@ -185,11 +192,12 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
         // Optional observations publish independently; no timeout invents an
         // empty result, and slow sources never hold the linked Work records.
         setObserving(true);
-        const detected = receive<{ items: WorkAgent[]; status: string }>(detectedPath, value => {
+        const detected = receive<{ items: WorkAgent[]; status: string; verification?: VerificationState }>(detectedPath, value => {
           if (!Array.isArray(value.items) || typeof value.status !== 'string') throw new Error('Missing discovery list');
-          currentDetected = value.items;
+          currentDetected = value.items; currentVerification = value.verification;
+          setVerification(value.verification);
           setCandidates(value.items.filter(agent => Boolean(agent.agent_id))); setDiscoveryState(value.status);
-          setItems(previous => enrichLinked(previous, value.items, true));
+          setItems(previous => enrichLinked(previous, value.items, true, value.verification));
         }, 'detected').finally(() => { if (current()) setObserving(false); });
         const sourceRead = receive<DiscoverySources>(sourcesPath, value => {
           if (!Array.isArray(value.items)) throw new Error('Missing sources');
@@ -199,7 +207,7 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
         await Promise.all([
           receive<{ items: WorkAgent[] }>(linkedPath, value => {
             if (!Array.isArray(value.items)) throw new Error('Missing associations');
-            const linkedItems = enrichLinked(value.items, currentDetected ?? knownItems<WorkAgent>(client, detectedPath) ?? [], currentDetected !== undefined);
+            const linkedItems = enrichLinked(value.items, currentDetected ?? knownItems<WorkAgent>(client, detectedPath) ?? [], currentDetected !== undefined, currentVerification);
             setItems(linkedItems);
             // A lost mutation reply is reconciled by fresh persisted relation
             // reads, never by silently resending the mutation with a new UUID.
@@ -292,8 +300,12 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
     } catch (err) {
       if (!live.current) return;
       const conflict = err instanceof ApiActionError && err.reasonCode === 'WORK_REVISION_CONFLICT';
-      if (conflict) pending.current = null;
+      const invalid = err instanceof ApiActionError && err.reasonCode === 'WORK_AGENT_EVIDENCE_INVALID';
+      const notCurrent = err instanceof ApiActionError && err.reasonCode === 'WORK_AGENT_NOT_CURRENT';
+      if (conflict || invalid || notCurrent) pending.current = null;
       setError(conflict ? (zh ? '工作已在别处变更。请刷新记录后重试。' : 'This work changed elsewhere. Reload records before retrying.') :
+        invalid ? (zh ? '当前记录校验失败，关联操作已拒绝，未修改关系。' : 'Linking was rejected because current record verification failed. No relationship was changed.') :
+        notCurrent ? (zh ? '当前已无法确认此 Agent，关联操作已拒绝。请刷新发现后重试。' : 'This Agent is no longer confirmed current. Linking was rejected. Refresh discovery before retrying.') :
         (zh ? '关联回执尚未收到，正在核对已保存记录；也可重试同一操作。' : 'The reply was not received. Checking saved links; you can also retry the same action.'));
       if (!conflict) await load(false, true, true);
     } finally { if (live.current) setBusy(false); }
@@ -341,7 +353,7 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
     } finally { if (live.current) setSourceBusy(null); }
   }
   const available = candidates.filter(item => !associatedIds.has(item.agent_id));
-  const canLink = (item: WorkAgent) => ready.detected && item.presence === 'CURRENT' && item.lifecycle !== 'UNKNOWN';
+  const canLink = (item: WorkAgent) => (!verification || ['VERIFIED', 'STALE'].includes(verification.state)) && ready.detected && item.presence === 'CURRENT' && item.lifecycle !== 'UNKNOWN';
   const name = (item: WorkAgent) => agentIdentityLabel(item, zh);
   const state = (item: WorkAgent) => !(associatedIds.has(item.agent_id) ? ready.linked : ready.detected) ?
     (zh ? '上次已知观测 · 当前正在核对' : 'Last known observation · awaiting refresh') : item.presence === 'NOT_CURRENT' ? (zh ? '本次未观测到 · 活动未知' : 'Not in current observation · activity unknown') :
@@ -391,6 +403,7 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
     <div className="work-agents-content">
       {loading && <div className="work-agent-loading" role="status"><span className="work-loading-spinner" aria-hidden="true" />{zh ? '正在读取 Agent 记录…' : 'Reading Agent records…'}</div>}
       {error && <p role="alert">{error} <button disabled={busy || loading} onClick={() => void load()}>{zh ? '刷新记录' : 'Reload records'}</button></p>}
+      {!showEvidence && <AgentVerification verification={verification} />}
       {showEvidence ? <EvidenceDetailPanel detail={evidence} phase={evidencePhase} /> : agent ? <>
         <p className="work-agent-state">{state(agent)}</p>
         <dl className="work-agent-facts"><div><dt>{zh ? '此工作中的关系' : 'Relationship to this work'}</dt><dd>{associatedIds.has(agent.agent_id) ? (zh ? '用户关联' : 'User linked') : (zh ? '尚未关联' : 'Not linked')}</dd></div>
@@ -414,7 +427,7 @@ function WorkAgentsBody({ client, workId, revision, linked, tasks = [], initialA
         {items.length ? groupedRows(items, true) : !loading && ready.linked && <p>{zh ? '这项工作还没有关联实际 Agent。' : 'No actual Agents are linked to this work yet.'}</p>}
         <h3>{zh ? '发现的 Agent' : 'Discovered agents'}</h3>
         {groupedRows(available, false)}
-        {!loading && ready.detected && !available.length && <p>{zh ? '没有其他可关联的 Agent。可刷新发现。' : 'No other Agents available. Refresh discovery to check again.'}</p>}
+        {!loading && ready.detected && (!verification || verification.state === 'VERIFIED') && !available.length && <p>{zh ? '没有其他可关联的 Agent。可刷新发现。' : 'No other Agents available. Refresh discovery to check again.'}</p>}
         {(!ready.detected || discoveryState === 'UNKNOWN' || discoveryState === 'DEGRADED' || discoveryState === 'UNAVAILABLE') && <p>{zh ? '观测不完整，不能据此判断 Agent 不存在。' : 'Observation is incomplete; this does not establish absence.'}</p>}
         {!!installedOnly.length && <section className="work-installed-programs"><h3>{zh ? '其他已安装工具' : 'Other installed tools'}</h3>
           {installedOnly.map(program => <div className="work-agent-row" key={program.id}>

@@ -11,7 +11,6 @@ import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -299,9 +298,14 @@ def create_app(
     product_config_target = cfg_o.ensure_product_config()
     cfg = cfg_o._data
     db_path = state_db_path or cfg_o.state_db()
+    from .verified_agents import VerifiedAgentReads
     from .work import work_router
-
-    app.include_router(work_router(db_path, agent_enricher=lambda result: enrich_agents(result)))
+    verified_agents = VerifiedAgentReads(db_path, cfg_o.snapshot_dir())
+    app.state.verified_agents = verified_agents
+    app.include_router(work_router(
+        db_path, agent_enricher=lambda result: enrich_agents(result),
+        agent_reader=verified_agents.read,
+    ))
     from .work_appearance import appearance_router
     app.include_router(appearance_router(db_path))
     snapshots_dir = cfg_o.snapshot_dir()
@@ -481,6 +485,7 @@ def create_app(
                             ).observe(active_scope, observed_at=datetime.now(UTC))
         finally:
             current_db.close()
+        verified_agents.request_refresh()
         affected_views = ["runtime", "agents", "supervision"]
         evidence_refs = [receipt.event_id for receipt in receipts]
         if scope_result is not None:
@@ -576,12 +581,14 @@ def create_app(
         if not product_startup_discovery:
             execution.start()
         protection.start()
+        verified_agents.start()
 
     @app.on_event("shutdown")
     async def shutdown_protection():
         # Prevent a slow source initializer from starting execution during shutdown.
         with protection.initialization_lock:
             protection.stop_event.set()
+        await run_in_threadpool(verified_agents.close)
         try:
             await run_in_threadpool(execution.close)
         finally:
@@ -674,40 +681,25 @@ def create_app(
     from ..supervision.service import SupervisionActionError, SupervisionService
     from .r4_projection import R4ReadProjectionService
 
-    def _r4_projection(view: str) -> dict[str, Any]:
-        try:
-            current_db = _get_db()
-        except (OSError, sqlite3.DatabaseError, RuntimeError):
-            return R4ReadProjectionService.unavailable(view)
-        try:
-            projector = R4ReadProjectionService(
-                current_db, SnapshotStore(snapshots_dir)
-            )
-            return getattr(projector, view)()
-        except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
-            return R4ReadProjectionService.unavailable(view)
-        finally:
-            current_db.close()
-
-    # These synchronous reads verify the full ledger and may read catalog/files.
-    # FastAPI runs them in its worker pool; each creates and closes its own DB
-    # on that worker so integrity work cannot monopolize the ASGI event loop.
+    # Display reads return the last fully verified snapshot immediately. The
+    # owned worker verifies all historical ledger bytes in an independent read
+    # transaction. Authority-bearing actions below retain synchronous validation.
     @app.get("/api/v1/runtime")
     def api_r4_runtime():
-        return _r4_projection("runtime")
+        return verified_agents.read("runtime")
 
     @app.get("/api/v1/agents")
     def api_r4_agents():
-        result = _r4_projection("agents")
+        result = verified_agents.read()
         return enrich_agents(result) if isinstance(_product_discovery, ManagedDiscoveryService) else result
 
     @app.get("/api/v1/supervision")
     def api_r4_supervision():
-        return _r4_projection("supervision")
+        return verified_agents.read("supervision")
 
     @app.get("/api/v1/recovery")
     def api_r4_recovery():
-        return _r4_projection("recovery")
+        return verified_agents.read("recovery")
 
     @app.post("/api/v1/recovery/checkpoints")
     async def api_recovery_checkpoint(_request: ProductRecoveryEmptyRequest):
@@ -803,7 +795,7 @@ def create_app(
 
     @app.get("/api/v1/changes")
     def api_r4_changes():
-        return _r4_projection("changes")
+        return verified_agents.read("changes")
 
     @app.get("/api/v1/evidence/{event_id}")
     def api_r4_evidence(event_id: str):

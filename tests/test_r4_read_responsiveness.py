@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -31,12 +33,14 @@ def test_slow_ledger_verification_does_not_block_health_or_work_reads(tmp_path: 
     verified_threads = []
     original = r4_projection.verify_ledger
 
-    def bounded_verify(connection):
+    def bounded_verify(connection, **kwargs):
+        if connection.execute("PRAGMA database_list").fetchone()[2] != str(tmp_path / "state.db"):
+            return original(connection, **kwargs)
         verified_threads.append(threading.get_ident())
         entered.set()
         assert release.wait(2), "fixture verification gate timed out"
         # Real verification still runs, on the same connection and owning thread.
-        return original(connection)
+        return original(connection, **kwargs)
 
     monkeypatch.setattr(r4_projection, "verify_ledger", bounded_verify)
     monkeypatch.setattr(discovery_adapter, "verify_ledger_snapshot", bounded_verify)
@@ -51,11 +55,23 @@ def test_slow_ledger_verification_does_not_block_health_or_work_reads(tmp_path: 
             fallback = threading.Timer(.75, release.set)
             fallback.start()
             request = asyncio.create_task(client.get(path, headers=headers))
+            display_read = not path.startswith("/api/v1/evidence/")
             try:
                 assert await asyncio.to_thread(entered.wait, 1)
+                if display_read:
+                    response = await asyncio.wait_for(request, .5)
+                    verification = response.json()["verification"]
+                    assert verification["state"] == "PENDING"
+                    assert verification["verified_at"] is None
+                    assert verification["checked_at"] is None
+                    assert response.json()["items"] == []
+                else:
+                    # Detail/evidence reads remain immediate authority reads.
+                    assert not request.done()
                 health = await client.get("/api/health")
                 works = await client.get("/api/v1/works", headers=headers)
                 independent_reads_finished_before_release = not release.is_set()
+                after = datetime.now(UTC).isoformat()
             finally:
                 release.set()
                 fallback.cancel()
@@ -65,5 +81,22 @@ def test_slow_ledger_verification_does_not_block_health_or_work_reads(tmp_path: 
             assert response.status_code in {200, 404}
             assert independent_reads_finished_before_release, "R4 verification stalled independent reads"
             assert verified_threads and all(value != loop_thread for value in verified_threads)
+            if display_read:
+                deadline = time.monotonic() + 2
+                while True:
+                    ready = (await client.get(path, headers=headers)).json()
+                    verification = ready["verification"]
+                    if (verification["checked_at"] or "") >= after:
+                        break
+                    assert time.monotonic() < deadline, ready
+                    await asyncio.sleep(.01)
+                assert verification["state"] == "VERIFIED"
+                assert verification["verified_at"] >= after
+                assert ready["status"] == "EMPTY"
+                assert ready["items"] == []
 
-    asyncio.run(exercise())
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+        app.state.verified_agents.close()

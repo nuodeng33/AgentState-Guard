@@ -30,6 +30,7 @@ from agentguard.discovery import (
 )
 from agentguard.discovery.agents import ProcessAccessDeniedError
 from agentguard.discovery.product import ProductDiscoveryService
+from tests.verified_reads_wait import wait_for_verified
 
 NOW = datetime.now(UTC)
 
@@ -283,6 +284,7 @@ def _running_api(root: Path):
         discovery_service=_SequenceDiscovery(),
         product_startup_discovery=True,
     )
+    app.state.verified_agents._interval = 0.02
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
     )
@@ -323,6 +325,7 @@ def _running_failing_api(root: Path):
         return result
 
     app.state.protection.discovery_refresh = observe_failure_publication
+    app.state.verified_agents._interval = 0.02
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
     )
@@ -347,7 +350,7 @@ def test_packaged_startup_records_discovery_and_refresh_replaces_visible_agents(
 ):
     monkeypatch.setitem(globals(), "NOW", datetime.now(UTC))
     with _running_api(tmp_path) as (base_url, token):
-        startup_agents = _request(base_url, "/api/v1/agents", token)[1]
+        startup_agents = wait_for_verified(lambda: _request(base_url, "/api/v1/agents", token))[1]
         status, refreshed = _request(
             base_url,
             "/api/v1/discovery/refresh",
@@ -362,8 +365,8 @@ def test_packaged_startup_records_discovery_and_refresh_replaces_visible_agents(
             method="POST",
             body={"target_path": "C:\\caller-controlled"},
         )
-        refreshed_agents = _request(base_url, "/api/v1/agents", token)[1]
-        refreshed_runtime = _request(base_url, "/api/v1/runtime", token)[1]
+        refreshed_agents = wait_for_verified(lambda: _request(base_url, "/api/v1/agents", token))[1]
+        refreshed_runtime = wait_for_verified(lambda: _request(base_url, "/api/v1/runtime", token))[1]
 
     assert startup_agents["items"][0]["detected_identity"] == "CODEX"
     assert startup_agents["items"][0]["lifecycle"] == "RUNNING"
@@ -387,7 +390,7 @@ def test_packaged_startup_records_discovery_and_refresh_replaces_visible_agents(
 
 def test_discovery_failure_is_ledgered_as_degraded_without_leaking_exception(tmp_path):
     with _running_failing_api(tmp_path) as (base_url, token):
-        runtime = _request(base_url, "/api/v1/runtime", token)[1]
+        runtime = wait_for_verified(lambda: _request(base_url, "/api/v1/runtime", token))[1]
         status, refresh = _request(
             base_url,
             "/api/v1/discovery/refresh",
@@ -455,7 +458,7 @@ def test_failing_api_fixture_waits_for_committed_startup_evidence(tmp_path, monk
         try:
             with _running_failing_api(tmp_path) as (base_url, token):
                 yielded.set()
-                result = _request(base_url, "/api/v1/runtime", token)[1]
+                result = wait_for_verified(lambda: _request(base_url, "/api/v1/runtime", token))[1]
                 assert result["status"] == "DEGRADED"
                 assert result["evidence_refs"]
                 assert finish.wait(3)

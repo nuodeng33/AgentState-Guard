@@ -19,7 +19,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { apiClient, type ApiClient } from '../api/client';
-import { DISCOVERY_POLL_INTERVAL_MS, getDoctor, getStatus, refreshDiscovery } from '../api/product';
+import { getDoctor, getStatus, refreshDiscovery } from '../api/product';
 import type { AgentsView, RuntimeView, DiscoverySource, DiscoverySources, DiscoveryApplication, DiscoveryPage } from '../api/types';
 import { useAsync } from '../api/useAsync';
 import { useR4View } from '../api/useR4View';
@@ -64,13 +64,6 @@ export default function EnvironmentPage({ client = apiClient }: { client?: ApiCl
       agents.reload();
     }
   }, [agentReadBusy, agents.reload]);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'visible' || agentReadBusyRef.current) return;
-      agents.reload();
-    }, DISCOVERY_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [agents.reload]);
   // Bounded host projections; re-read whenever `attempt` bumps.
   const status = useAsync(() => getStatus(client), [client, attempt]);
   const doctor = useAsync(() => getDoctor(client), [client, attempt]);

@@ -1,3 +1,4 @@
+import { AgentVerification } from '../components/AgentVerification';
 /**
  * Home: final V1 aggregation over the authoritative child projections.
  *
@@ -78,6 +79,7 @@ function ViewSummaryCard({
       <p className="status-card-meta">
         <code>{data.reason_code}</code>
       </p>
+      <AgentVerification verification={data.verification} />
       {view === 'agents' ? <AgentObservationSummary items={data.items as AgentItem[]} status={data.status} reasonCode={data.reason_code} />
         : <p className="status-card-meta muted">{t('common.items', { count: data.items.length })}</p>}
       {data.observed_at && (

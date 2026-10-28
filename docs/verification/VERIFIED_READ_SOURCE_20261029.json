@@ -1,0 +1,289 @@
+{
+  "scope": "Actual Windows source Core, production browser assets, copied archive; excludes installed MSI/native window",
+  "archive_sha256_before": "d9cb922542ac130a63a60ea1a1f0cba3b8e76ebc750bbdf31ead3c1823e8df67",
+  "disabled_copy_scopes": 1,
+  "source_zip_sha256": "67ef4a3ebc5afccdd79cc2a39b39bcd22e7e487f69f1b5ae1c54d8a7ecfee355",
+  "reads": [
+    {
+      "path": "/api/v1/works",
+      "status": 200,
+      "ms": 341.548,
+      "items": 2
+    },
+    {
+      "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d",
+      "status": 200,
+      "ms": 363.72,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/tasks/db321d84-a14c-45b0-9bbe-74a28bd20dfd",
+      "status": 200,
+      "ms": 311.886,
+      "items": 0
+    },
+    {
+      "path": "/api/health",
+      "status": 200,
+      "ms": 230.222,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d",
+      "status": 200,
+      "ms": 645.986,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 1087.245,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/agents",
+      "status": 200,
+      "ms": 1088.672,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 61.445,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 24.482,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 122.313,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 28.914,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 20.454,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 122.311,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/agents",
+      "status": 200,
+      "ms": 28.867,
+      "items": 6
+    },
+    {
+      "path": "/api/v1/runtime",
+      "status": 200,
+      "ms": 2.512,
+      "items": 3
+    },
+    {
+      "path": "/api/v1/supervision",
+      "status": 200,
+      "ms": 2.791,
+      "items": 0
+    },
+    {
+      "path": "/api/v1/changes",
+      "status": 200,
+      "ms": 3.419,
+      "items": 5
+    },
+    {
+      "path": "/api/v1/recovery",
+      "status": 200,
+      "ms": 2.595,
+      "items": 0
+    }
+  ],
+  "health_since_launch_ms": 3369.44,
+  "concurrent_results": [
+    {
+      "path": "/api/v1/agents",
+      "status": "DEGRADED",
+      "current_items": 0,
+      "reason_code": "R4_VERIFICATION_PENDING",
+      "verification": {
+        "state": "PENDING",
+        "verified_at": null,
+        "checked_at": null,
+        "refreshing": true,
+        "reason_code": "R4_VERIFICATION_PENDING"
+      }
+    },
+    {
+      "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/agents",
+      "status": null,
+      "current_items": 0,
+      "reason_code": null,
+      "verification": {
+        "state": "PENDING",
+        "verified_at": null,
+        "checked_at": null,
+        "refreshing": true,
+        "reason_code": "R4_VERIFICATION_PENDING"
+      }
+    },
+    {
+      "path": "/api/health",
+      "status": "ok",
+      "current_items": 0,
+      "reason_code": null,
+      "verification": null
+    },
+    {
+      "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d",
+      "status": null,
+      "current_items": 0,
+      "reason_code": null,
+      "verification": null
+    }
+  ],
+  "verification_history": [
+    {
+      "state": "PENDING",
+      "verified_at": null,
+      "checked_at": null,
+      "refreshing": true,
+      "reason_code": "R4_VERIFICATION_PENDING"
+    },
+    {
+      "state": "PENDING",
+      "verified_at": null,
+      "checked_at": null,
+      "refreshing": true,
+      "reason_code": "R4_VERIFICATION_PENDING"
+    },
+    {
+      "state": "PENDING",
+      "verified_at": null,
+      "checked_at": null,
+      "refreshing": true,
+      "reason_code": "R4_VERIFICATION_PENDING"
+    },
+    {
+      "state": "PENDING",
+      "verified_at": null,
+      "checked_at": null,
+      "refreshing": true,
+      "reason_code": "R4_VERIFICATION_PENDING"
+    },
+    {
+      "state": "PENDING",
+      "verified_at": null,
+      "checked_at": null,
+      "refreshing": true,
+      "reason_code": "R4_VERIFICATION_PENDING"
+    },
+    {
+      "state": "PENDING",
+      "verified_at": null,
+      "checked_at": null,
+      "refreshing": true,
+      "reason_code": "R4_VERIFICATION_PENDING"
+    },
+    {
+      "state": "VERIFIED",
+      "verified_at": "2026-10-28T18:30:04.153327+00:00",
+      "checked_at": "2026-10-28T18:30:04.153327+00:00",
+      "refreshing": false,
+      "reason_code": "R4_SNAPSHOT_VERIFIED"
+    }
+  ],
+  "r4_read_max_ms": 1087.245,
+  "browser_exit": 0,
+  "browser": {
+    "scope": "Fresh sandboxed headless Chrome against actual source Core; not native Tauri",
+    "requests": [
+      {
+        "path": "/api/session",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 11.18
+      },
+      {
+        "path": "/api/v1/works",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 72.26
+      },
+      {
+        "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 52.13
+      },
+      {
+        "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/view",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 52.68
+      },
+      {
+        "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/requirements/1",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 23.41
+      },
+      {
+        "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/tasks/db321d84-a14c-45b0-9bbe-74a28bd20dfd",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 61.56
+      },
+      {
+        "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/agent-appearances",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 62
+      },
+      {
+        "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/execution-summary",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 62.58
+      },
+      {
+        "path": "/api/v1/works/731f75ab-1d3e-4547-93f4-9a49d6fcf78d/agents",
+        "method": "GET",
+        "status": 200,
+        "msToHeaders": 87.67
+      }
+    ],
+    "work_list_visible_ms": 959.54,
+    "task_body_rendered_ms": 256.18,
+    "rendered_body_sha256": "f5084e10df0418cb046b6d4f26b4a9438326010e3c8d73a2a9bdf50c9dcb6eb9",
+    "body_matches_database": true,
+    "task_controls": [
+      "\u4e13\u6ce8\u9605\u8bfb \u4efb\u52a1 ",
+      "\u5173\u95ed\u5361\u7247 \u4efb\u52a1 ",
+      "\u8c03\u6574\u4efb\u52a1\u5361\u7247\u5927\u5c0f"
+    ],
+    "detail_edit_available": true,
+    "detail_relationship_context": true,
+    "unexpected_mutations": [],
+    "result": "PASS"
+  },
+  "result": "READ_CHECKS_PASSED",
+  "server_exit": 0,
+  "normal_shutdown": true,
+  "archive_sha256_after": "d9cb922542ac130a63a60ea1a1f0cba3b8e76ebc750bbdf31ead3c1823e8df67",
+  "archive_unchanged": true
+}

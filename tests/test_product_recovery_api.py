@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agentguard.api.server import create_app
@@ -13,6 +14,16 @@ from agentguard.discovery import (
     DiscoverySnapshot,
     RuntimeDescriptor,
 )
+from tests.verified_reads_wait import read_verified
+
+_CLIENTS = []
+
+
+@pytest.fixture(autouse=True)
+def close_display_readers():
+    yield
+    while _CLIENTS:
+        _CLIENTS.pop().app.state.verified_agents.close()
 
 
 class _FixedDiscovery:
@@ -40,6 +51,7 @@ def _client(root: Path) -> tuple[TestClient, dict[str, str]]:
             discovery_service=_FixedDiscovery(),
         )
     )
+    _CLIENTS.append(client)
     token = client.get("/api/session").json()["token"]
     return client, {"X-Session-Token": token}
 
@@ -78,7 +90,7 @@ def test_product_checkpoint_and_test_restore_require_preview_before_live_restore
     assert restored.json()["reason_code"] == "PREVIEW_REQUIRED"
     assert target.read_text(encoding="utf-8") == "[checks]\nport = 9999\n"
 
-    projection = client.get("/api/v1/recovery", headers=headers).json()
+    projection = read_verified(client, "/api/v1/recovery", headers=headers).json()
     assert projection["checkpoint_count"] == 1
     assert projection["latest_checkpoint"]["checkpoint_id"] == checkpoint_id
     assert projection["test_restore_status"] == "VERIFIED_R2"

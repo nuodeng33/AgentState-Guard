@@ -1,3 +1,4 @@
+import { AgentVerification } from '../components/AgentVerification';
 import { apiClient, type ApiClient } from '../api/client';
 import type {
   RecoveryItem,
@@ -71,6 +72,7 @@ export function RecoveryViewBody({
 
   return (
     <div>
+      <AgentVerification verification={data.verification} />
       <div className="view-head">
         <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
         <span className="reason">

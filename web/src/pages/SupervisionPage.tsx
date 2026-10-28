@@ -1,3 +1,4 @@
+import { AgentVerification } from '../components/AgentVerification';
 /**
  * Supervision product surface: Core authority projection + bounded actions.
  *
@@ -147,6 +148,7 @@ export function SupervisionViewBody({
     selectedEvidence !== null && (evidencePanel.phase !== 'idle' || evidencePanel.detail !== null);
   return (
     <div>
+      <AgentVerification verification={data.verification} />
       <div className="view-head">
         <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
         <span className="reason">

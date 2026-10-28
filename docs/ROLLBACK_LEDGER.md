@@ -1,5 +1,10 @@
 # Rollback Ledger
 
+### 2026-10-29 phase31 — implementation in progress
+
+Approved last-verified interface reads implemented with background full verification and explicit freshness/errors. Mutation authority remains current full verification. Baseline/rollback28cc7b0; candidate not yet packaged/native accepted. See [phase31](phases/31-verified-read-snapshots.md). Full source/backend and current exact-commit package/native gates remain open.
+
+
 ### 2026-10-25 authoritative checkpoint — local read/startup closure
 
 Phase28 fixes synchronous startup discovery, event-loop blocking R4 reads, repeated Agent ledger validation, unsafe layout hydration, duplicate panel keys and incomplete request deadlines. Independent frontend421passed; backend1580passed/49skipped; typecheck/build/Ruff/diff green. Actual Windows source Core + sandboxed production browser with34526-event copied DB showed283ms list /175ms click-to-task-body, plus strict15 and delivery/recovery22 checks. Source proof does not replace final MSI/native input acceptance. Cold concurrent heavy Agent read5144ms remains explicit. See [phase28](phases/28-responsive-local-reads.md) and [evidence](verification/READ_PATH_CLOSURE_20261025.json).

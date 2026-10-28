@@ -303,6 +303,7 @@ def test_attachment_writer_fully_validates_a_warm_read_cache_and_rejects_old_row
     assert refused.status_code == 409, refused.text
     assert refused.json()["reason_code"] == "WORK_AGENT_EVIDENCE_INVALID"
     assert len(calls) == 2
+    client.app.state.verified_agents.close()
 
 
 def test_changed_snapshot_checks_every_chain_link_but_only_new_raw_authority_needs_revalidation(database, monkeypatch):

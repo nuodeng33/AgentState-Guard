@@ -32,14 +32,24 @@ def _free_port():
 
 
 def _get(base_url, path, token=None):
-    request = urllib.request.Request(f"{base_url}{path}")
-    if token is not None:
-        request.add_header("X-Session-Token", token)
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.status, json.loads(response.read())
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read())
+    # Product GETs deliberately return last-verified state immediately. Tests
+    # asserting post-write state explicitly await a new completed background pass.
+    after = datetime.now(UTC).isoformat()
+    deadline = time.monotonic() + 5
+    while True:
+        request = urllib.request.Request(f"{base_url}{path}")
+        if token is not None:
+            request.add_header("X-Session-Token", token)
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                status, body = response.status, json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read())
+        verification = body.get("verification") if isinstance(body, dict) else None
+        if not verification or (verification.get("checked_at") or "") >= after:
+            return status, body
+        assert time.monotonic() < deadline, body
+        time.sleep(0.01)
 
 
 @contextmanager
@@ -49,6 +59,7 @@ def _running_api(tmp_path: Path, state_db_path: Path | None = None):
         state_db_path=state_db_path or tmp_path / "state.db",
         config={"base_dir": str(tmp_path)},
     )
+    app.state.verified_agents._interval = 0.02
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -168,7 +179,10 @@ def test_r4_runtime_projects_verified_fact_and_unbound_agent_degrades(tmp_path):
     with _running_api(tmp_path) as (base_url, token, _root):
         runtime = _get(base_url, "/api/v1/runtime?availability=FORGED", token)[1]
         agents = _get(base_url, "/api/v1/agents?confidence=1.0", token)[1]
-        assert _get(base_url, "/api/v1/runtime", token)[1] == runtime
+        repeated = _get(base_url, "/api/v1/runtime", token)[1]
+        assert {key: value for key, value in repeated.items() if key != "verification"} == {
+            key: value for key, value in runtime.items() if key != "verification"
+        }
 
     assert runtime["status"] == "AVAILABLE"
     assert runtime["items"][0]["runtime_type"] == "python"
@@ -255,6 +269,7 @@ def test_r4_contract_fails_closed_when_database_or_ledger_is_unavailable(tmp_pat
     database.close()
     with _running_api(tmp_path) as (base_url, token, _root):
         invalid = _get(base_url, "/api/v1/runtime", token)[1]
+    assert invalid.pop("verification")["state"] == "INVALID"
     assert invalid == {
         "schema_version": "r4-p8-1", "view": "runtime", "status": "DEGRADED",
         "reason_code": "R4_LEDGER_INVALID", "evidence_refs": [], "items": [],

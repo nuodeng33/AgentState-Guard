@@ -1,3 +1,4 @@
+import { AgentVerification } from '../components/AgentVerification';
 /**
  * Changes product surface: the verified activity feed.
  *
@@ -113,6 +114,7 @@ export function ChangesViewBody({
   const showPanel = selected !== null && (panel.phase !== 'idle' || panel.detail !== null);
   return (
     <div>
+      <AgentVerification verification={data.verification} />
       <div className="view-head">
         <StateBadge label={data.status} tone={viewStatusTone(data.status)} />
         <span className="reason">

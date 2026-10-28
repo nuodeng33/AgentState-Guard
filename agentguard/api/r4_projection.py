@@ -10,8 +10,16 @@ from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
 
-from agentguard.evidence.discovery_adapter import _read_workspace_bindings
-from agentguard.evidence.ledger import verify_ledger_snapshot as verify_ledger
+from agentguard.evidence.discovery_adapter import (
+    _read_workspace_bindings,
+    _workspace_bindings_snapshot,
+)
+from agentguard.evidence.ledger import (
+    _check_read_cancelled,
+)
+from agentguard.evidence.ledger import (
+    verify_ledger_snapshot as verify_ledger,
+)
 from agentguard.recovery.coverage import RecoveryCoverageService
 from agentguard.recovery.manifest import validate_snapshot_v3
 from agentguard.storage.db import StateDB
@@ -244,11 +252,42 @@ class R4ReadProjectionService:
         self, database: StateDB, snapshots: SnapshotStore,
         *, clock: Callable[[], datetime] | None = None,
         observation_ttl_seconds: int = 120,
+        cancelled: Callable[[], bool] | None = None,
     ) -> None:
         self._database = database
         self._snapshots = snapshots
         self._clock = clock or (lambda: datetime.now(UTC))
         self._observation_ttl_seconds = observation_ttl_seconds
+        self._batch_verified_connection = None
+        self._cancelled = cancelled
+
+    @_read_snapshot
+    def verified_views(self, on_verified=None) -> dict[str, dict[str, Any]]:
+        """Publish display DTOs from one pinned, fully verified ledger snapshot.
+
+        This private batch lifetime never escapes its savepoint or authorizes a
+        mutation. Recovery coverage retains its own additional full checks.
+        """
+        views = ("agents", "runtime", "supervision", "changes", "recovery")
+        connection = self._verified_connection("agents")
+        if isinstance(connection, dict):
+            return {view: {**self.unavailable(view),
+                           "reason_code": connection["reason_code"]}
+                    for view in views}
+        self._batch_verified_connection = connection
+        try:
+            results = {}
+            for view in views:
+                _check_read_cancelled(self._cancelled)
+                if view == "recovery" and on_verified is not None:
+                    on_verified(results)
+                try:
+                    results[view] = getattr(self, view)()
+                except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
+                    results[view] = self.unavailable(view)
+            return results
+        finally:
+            self._batch_verified_connection = None
 
     def _freshness(self, observed_at: object) -> str:
         try:
@@ -370,7 +409,12 @@ class R4ReadProjectionService:
         connection = self._database._conn
         if connection is None:
             return self.unavailable("agents")
-        with _read_workspace_bindings(connection) as resolve_workspace:
+        bindings = (
+            _workspace_bindings_snapshot(connection, lambda _connection: [])
+            if self._batch_verified_connection is connection
+            else _read_workspace_bindings(connection)
+        )
+        with bindings as resolve_workspace:
             if resolve_workspace is None:
                 return _base("agents", "DEGRADED", "R4_LEDGER_INVALID", [])
             return self._agents(connection, resolve_workspace)
@@ -771,6 +815,7 @@ class R4ReadProjectionService:
             return _with_empty_recovery(connection)
         items: list[dict[str, Any]] = []
         for checkpoint in self._database.list_checkpoints(limit=100):
+            _check_read_cancelled(self._cancelled)
             checkpoint_id = str(checkpoint["id"])
             artifact, load_reason = self._snapshots.load_recovery_v3_with_status(
                 checkpoint["snapshot_path"]
@@ -886,7 +931,10 @@ class R4ReadProjectionService:
         connection = self._database._conn
         if connection is None:
             return self.unavailable(view)
-        if verify_ledger(connection):
+        if self._batch_verified_connection is not connection and (
+            verify_ledger(connection, cancelled=self._cancelled) if self._cancelled is not None
+            else verify_ledger(connection)
+        ):
             return _base(view, "DEGRADED", "R4_LEDGER_INVALID", [])
         return connection
 

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ApiRequestError, type ApiClient } from '../api/client';
+import { ApiActionError, ApiRequestError, type ApiClient } from '../api/client';
 import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 const agent: WorkAgent = { agent_id: 'agent-codex', detected_identity: 'CODEX', lifecycle: 'RUNNING', role: 'EXECUTION_AGENT',
   confidence: 1, execution_domain_id: 'local', workspace: { status: 'UNKNOWN', binding_ref: null }, reason_code: 'OBSERVED',
@@ -184,4 +184,60 @@ it('backs off failed reads instead of filling the server queue and never enables
   expect(f.post).not.toHaveBeenCalled();
   expect(screen.queryByRole('button', { name: 'Link to this work' })).toBeNull();
   expect(screen.queryByText('No other Agents available. Refresh discovery to check again.')).toBeNull();
+});
+
+function verification(state: string) {
+  return { state, verified_at: state === 'PENDING' ? null : '2026-10-29T00:01:00Z',
+    checked_at: state === 'PENDING' ? null : '2026-10-29T00:02:00Z', refreshing: state === 'PENDING' || state === 'STALE', reason_code: 'VERIFICATION_' + state };
+}
+it('shows pending verification without claiming an empty discovery and recovers on polling', async () => {
+  vi.useFakeTimers(); const f = fixture(), original = f.get.getMockImplementation()!;
+  let value: unknown = { items: [], status: 'DEGRADED', verification: verification('PENDING') };
+  f.get.mockImplementation(path => path === '/api/v1/agents' ? Promise.resolve(value) : original(path));
+  render(<WorkAgents {...f.props} />);
+  await act(async () => {});
+  expect(screen.getByText('Verifying records for the first time. Your work remains available.')).toBeTruthy();
+  expect(screen.queryByText('No other Agents available. Refresh discovery to check again.')).toBeNull();
+  value = { items: [agent], status: 'AVAILABLE', verification: verification('VERIFIED') };
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+  expect(screen.getByText('Last verified state')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Link to this work' }).hasAttribute('disabled')).toBe(false);
+  expect(f.post).not.toHaveBeenCalled();
+});
+it('retains the stale snapshot with its time and requires a current server verdict for linking', async () => {
+  const f = fixture(), original = f.get.getMockImplementation()!;
+  f.get.mockImplementation(path => path === '/api/v1/agents' ? Promise.resolve({ items: [agent], status: 'AVAILABLE', verification: verification('STALE') }) : original(path));
+  render(<WorkAgents {...f.props} />);
+  expect(await screen.findByText('Showing the last verified state while verification catches up.')).toBeTruthy();
+  const time = screen.getByText('Last verified:').parentElement?.querySelector('time');
+  expect(time?.dateTime).toBe('2026-10-29T00:01:00Z');
+  expect(f.post).not.toHaveBeenCalled();
+  f.post.mockRejectedValueOnce(new ApiActionError(409, 'WORK_AGENT_EVIDENCE_INVALID'));
+  fireEvent.click(screen.getByRole('button', { name: 'Link to this work' }));
+  expect(await screen.findByText('Linking was rejected because current record verification failed. No relationship was changed.')).toBeTruthy();
+  expect(f.post).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('button', { name: 'Unlink' })).toBeNull();
+  expect(screen.queryByText('The reply was not received. Checking saved links; you can also retry the same action.')).toBeNull();
+});
+it('removes previously current observations after an invalid verdict while preserving saved links', async () => {
+  vi.useFakeTimers(); const f = fixture(), original = f.get.getMockImplementation()!;
+  let value: unknown = { items: [agent], status: 'AVAILABLE', verification: verification('VERIFIED') };
+  f.get.mockImplementation(path => path === '/api/v1/agents' ? Promise.resolve(value) : path === '/api/v1/works/work-a/agents?view=links' ? Promise.resolve({ items: [{ ...agent, association: 'USER_LINKED' }] }) : original(path));
+  render(<WorkAgents {...f.props} />);
+  await act(async () => {});
+  expect(screen.getByText('Process observed · work activity unknown')).toBeTruthy();
+  value = { items: [], status: 'DEGRADED', verification: verification('INVALID') };
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+  expect(screen.getByText('Record integrity verification failed. Current observations are unavailable.')).toBeTruthy();
+  expect(screen.queryByText('Process observed · work activity unknown')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Unlink' })).toBeTruthy();
+  expect(f.post).not.toHaveBeenCalled();
+});
+it('distinguishes verification errors from absence and does not show raw diagnostics', async () => {
+  const f = fixture(), original = f.get.getMockImplementation()!;
+  f.get.mockImplementation(path => path === '/api/v1/agents' ? Promise.resolve({ items: [], status: 'DEGRADED', verification: { ...verification('ERROR'), reason_code: 'private diagnostic' } }) : original(path));
+  render(<WorkAgents {...f.props} />);
+  expect(await screen.findByText('Verification is temporarily unavailable. It will retry automatically.')).toBeTruthy();
+  expect(screen.queryByText('No other Agents available. Refresh discovery to check again.')).toBeNull();
+  expect(screen.queryByText('private diagnostic')).toBeNull();
 });

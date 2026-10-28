@@ -37,30 +37,39 @@ export function useR4View<T>(view: ViewName, client: ApiClient = apiClient): Vie
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
-    setInFlight(true);
-    // A refetch after an in-place action keeps the previous authoritative data
-    // visible; only a cold start or a prior failure shows the loading gate.
-    setState((prev) => (prev.data === null ? { phase: 'loading', data: null, error: null } : prev));
-    client.get<T>(`/api/v1/${view}`).then(
-      (data) => {
+    let cancelled = false, failures = 0;
+    let timer: ReturnType<typeof window.setTimeout> | undefined;
+    const schedule = () => {
+      if (!cancelled) timer = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') void read();
+        else schedule();
+      }, failures ? Math.min(30_000, 5_000 * 2 ** failures) : 5_000);
+    };
+    const read = async () => {
+      setInFlight(true);
+      setState(prev => prev.data === null ? { phase: 'loading', data: null, error: null } : prev);
+      try {
+        const data = await client.get<T>(`/api/v1/${view}`);
         if (cancelled) return;
-        setInFlight(false);
+        failures = 0;
         setState({ phase: 'ready', data, error: null });
-      },
-      (err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return;
-        setInFlight(false);
+        failures = Math.min(failures + 1, 3);
         if (err instanceof SessionUnavailableError) {
           setState({ phase: 'session-unavailable', data: null, error: 'SESSION_UNAVAILABLE' });
         } else {
           const message = err instanceof ApiRequestError ? err.message : 'API request failed';
           setState({ phase: 'api-error', data: null, error: message });
         }
-      },
-    );
+      } finally {
+        if (!cancelled) { setInFlight(false); schedule(); }
+      }
+    };
+    void read();
     return () => {
       cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [view, client, attempt]);
 

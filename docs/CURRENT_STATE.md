@@ -1,5 +1,10 @@
 # Current State
 
+### 2026-10-29 active takeover — phase31
+
+Latest user authorizes necessary steps and requires continued work through functionality and actual native testing. Approved last-verified read architecture implemented; backend1599passed49skipped, frontend438passed plus final focused30/build passed. Actual Windows source34,526event reads and22-check workflow passed. Baseline28cc7b0; exact new CI/package/native gates still open. See [current phase](phases/31-verified-read-snapshots.md). Original business data stays isolated from tests; existing reports remain preserved. Backend Sol/medium, frontend/integration primary.
+
+
 ### 2026-10-26 independent revalidation — native acceptance still open
 
 The user withdrew trust in earlier diagnostic/acceptance conclusions. Historical reports remain preserved but do not establish current acceptance. Fresh source fixes cover discovery-refresh failure, Work loading generations, UTC cache purity and over-capacity row-cache admission. Independent full regression: 1590 passed / 49 skipped; frontend 432 passed / 54 files; production build/typecheck, focused60, Ruff and diff checks passed. Fresh Windows source Core plus sandboxed production browser rendered the archived task body in346.86ms after the click and verified its hash; Core exited normally and original six business files/archive stayed unchanged. This is source browser evidence, not native MSI acceptance.

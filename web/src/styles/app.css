@@ -991,3 +991,8 @@ code {
   .work-local-avatar { width: 24px; height: 24px; }
   .work-sidebar-home, .work-sidebar-create, .work-sidebar-list button { padding: 9px 7px; font-size: 12px; }
 }
+
+/* Dated verification remains readable within Work and Guard surfaces. */
+.agent-verification { margin: .75rem 0; padding: .65rem .9rem; border-left: 2px solid currentColor; font-size: .85rem; }
+.agent-verification p { margin: .2rem 0; }
+.agent-verification time { font-variant-numeric: tabular-nums; }

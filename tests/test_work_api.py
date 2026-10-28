@@ -1,6 +1,8 @@
 """Persistent work commands through the real, session-protected Core API."""
 
 import sqlite3
+import time
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -19,8 +21,24 @@ def _client(root):
     client = TestClient(
         create_app(state_db_path=root / "state.db", config={"base_dir": str(root)})
     )
+    client.app.state.verified_agents._interval = 0.02
+    weakref.finalize(client, client.app.state.verified_agents.close)
     client.headers["X-Session-Token"] = client.get("/api/session").json()["token"]
     return client
+
+
+def _read(client, path):
+    after = datetime.now(UTC).isoformat()
+    client.app.state.verified_agents.request_refresh()
+    deadline = time.monotonic() + 5
+    while True:
+        response = client.get(path)
+        body = response.json()
+        verification = body.get("verification")
+        if not verification or (verification.get("checked_at") or "") >= after:
+            return response
+        assert time.monotonic() < deadline, body
+        time.sleep(0.01)
 
 
 def _request(**values):
@@ -131,28 +149,28 @@ def test_work_agent_link_uses_verified_current_identity_and_survives_refresh(tmp
     assert unknown.json()["reason_code"] == "WORK_AGENT_NOT_CURRENT"
 
     _record_agent(tmp_path, "agent-snapshot", agent_id)
-    candidate = client.get("/api/v1/agents").json()["items"][0]
+    candidate = _read(client, "/api/v1/agents").json()["items"][0]
     assert candidate["agent_id"] == agent_id
     assert candidate["association"] is None
     assert candidate["activity"] == "UNKNOWN"
     assert candidate["lifecycle"] == "RUNNING"
-    assert client.get(root + "/agents").json()["items"] == []
+    assert _read(client, root + "/agents").json()["items"] == []
 
     command = _request(expected_revision=1, agent_id=agent_id)
     attached = client.post(root + "/agents", json=command)
     assert attached.status_code == 201
     assert client.post(root + "/agents", json=command).json() == attached.json()
     assert attached.json()["revision"] == 2
-    linked = client.get(root + "/agents").json()["items"][0]
+    linked = _read(client, root + "/agents").json()["items"][0]
     assert linked["association"] == "USER_LINKED"
     assert linked["presence"] == "CURRENT"
     assert linked["activity"] == "UNKNOWN"
     assert linked["evidence_refs"] == candidate["evidence_refs"]
 
     _record_agent(tmp_path, "empty-snapshot")
-    assert client.get("/api/v1/agents").json()["items"] == []
+    assert _read(client, "/api/v1/agents").json()["items"] == []
     restarted = _client(tmp_path)
-    stale = restarted.get(root + "/agents").json()["items"][0]
+    stale = _read(restarted, root + "/agents").json()["items"][0]
     assert stale["agent_id"] == agent_id
     assert stale["association"] == "USER_LINKED"
     assert stale["presence"] == "NOT_CURRENT"
@@ -168,7 +186,7 @@ def test_work_agent_link_uses_verified_current_identity_and_survives_refresh(tmp
     result = restarted.post(root + f"/agents/{agent_id}/detach", json=detach)
     assert result.status_code == 200
     assert restarted.post(root + f"/agents/{agent_id}/detach", json=detach).json() == result.json()
-    assert restarted.get(root + "/agents").json()["items"] == []
+    assert _read(restarted, root + "/agents").json()["items"] == []
     with sqlite3.connect(tmp_path / "state.db") as conn:
         assert conn.execute(
             "SELECT 1 FROM evidence_ledger_events WHERE subject_ref=?", (agent_id,)
@@ -180,7 +198,7 @@ def test_legacy_agent_observation_remains_readable_but_cannot_be_linked(tmp_path
     work_id = _work(client)
     agent_id = "external-agent-" + "b" * 24
     _record_agent(tmp_path, "legacy-snapshot", agent_id, legacy=True)
-    candidate = client.get("/api/v1/agents").json()["items"][0]
+    candidate = _read(client, "/api/v1/agents").json()["items"][0]
     assert candidate["detected_identity"] == "CODEX"
     assert candidate["agent_id"] is None
     response = client.post(
@@ -208,13 +226,13 @@ def test_agent_task_assignments_are_explicit_bounded_to_work_and_reversible(tmp_
         f"/api/v1/works/{other_work}/tasks",
         json=_request(expected_revision=1, title="Foreign"),
     ).json()["task_id"]
-    assert client.get(root + "/agents").json()["items"] == []
+    assert _read(client, root + "/agents").json()["items"] == []
 
     first_agent = "external-agent-" + "c" * 24
     second_agent = "external-agent-" + "d" * 24
     _record_agent(tmp_path, "multi-agent-snapshot", first_agent)
     _record_agent(tmp_path, "multi-agent-snapshot", second_agent)
-    assert len(client.get("/api/v1/agents").json()["items"]) == 2
+    assert len(_read(client, "/api/v1/agents").json()["items"]) == 2
     assert client.post(
         root + "/agents", json=_request(expected_revision=3, agent_id=first_agent)
     ).json()["revision"] == 4
@@ -237,7 +255,7 @@ def test_agent_task_assignments_are_explicit_bounded_to_work_and_reversible(tmp_
         json=_request(expected_revision=6, task_ids=[first_task]),
     ).json()["revision"] == 7
     linked = {
-        item["agent_id"]: item for item in client.get(root + "/agents").json()["items"]
+        item["agent_id"]: item for item in _read(client, root + "/agents").json()["items"]
     }
     assert set(linked[first_agent]["task_ids"]) == {first_task, second_task}
     assert linked[second_agent]["task_ids"] == [first_task]
@@ -272,7 +290,7 @@ def test_agent_task_assignments_are_explicit_bounded_to_work_and_reversible(tmp_
         json=_request(expected_revision=7),
     )
     assert detached.json()["revision"] == 8
-    remaining = client.get(root + "/agents").json()["items"]
+    remaining = _read(client, root + "/agents").json()["items"]
     assert len(remaining) == 1
     assert remaining[0]["task_ids"] == [first_task]
     assert client.get(root + f"/tasks/{first_task}").status_code == 200
@@ -288,7 +306,7 @@ def test_agent_task_assignments_are_explicit_bounded_to_work_and_reversible(tmp_
     )
     assert cleared.status_code == 200
     assert cleared.json()["task_ids"] == []
-    assert client.get(root + "/agents").json()["items"][0]["task_ids"] == []
+    assert _read(client, root + "/agents").json()["items"][0]["task_ids"] == []
 
 
 def test_work_content_versions_and_assignment_survive_restart(tmp_path):
@@ -715,7 +733,9 @@ def test_empty_work_links_do_not_scan_discovery_or_claim_presence(tmp_path, monk
     monkeypatch.setattr(WorkService, "_current_agents", reject_unrelated_scan)
     response = client.get(f"/api/v1/works/{work}/agents")
     assert response.status_code == 200
-    assert response.json() == {"items": [], "discovery_status": "UNKNOWN"}
+    body = response.json()
+    assert body.pop("verification")["state"] in {"PENDING", "VERIFIED", "STALE"}
+    assert body == {"items": [], "discovery_status": "UNKNOWN"}
 
 
 def test_lightweight_links_read_saved_relationship_without_claiming_current_presence(tmp_path, monkeypatch):

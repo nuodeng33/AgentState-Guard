@@ -24,6 +24,7 @@ from agentguard.recovery.workspace_permissions import (
 )
 from agentguard.storage.db import StateDB
 from agentguard.storage.snapshots import SnapshotStore
+from tests.verified_reads_wait import read_verified
 
 _CLIENTS = []
 
@@ -114,7 +115,7 @@ def test_empty_checkpoint_request_uses_active_host_workspace(tmp_path):
     }
     assert str(workspace.resolve()) not in json.dumps(body)
 
-    projection = client.get("/api/v1/recovery", headers=headers).json()
+    projection = read_verified(client, "/api/v1/recovery", headers=headers).json()
     assert projection["latest_checkpoint"]["scope_kind"] == "HOST_WORKSPACE"
     assert projection["latest_checkpoint"]["workspace_id"] == body["workspace_id"]
     assert projection["latest_checkpoint"]["coverage"]["counts"] == body["coverage"]
@@ -196,7 +197,7 @@ def test_refresh_records_checkpoint_diff_without_agent_attribution(tmp_path):
     assert refresh.status_code == 200
     assert refresh.json()["workspace_change_status"] == "AVAILABLE"
     assert refresh.json()["workspace_change_count"] == 3
-    changes = client.get("/api/v1/changes", headers=headers).json()
+    changes = read_verified(client, "/api/v1/changes", headers=headers).json()
     observed = [item for item in changes["items"] if item["type"] == "OBSERVED_CHANGE"]
     assert len(observed) == 3
     by_kind = {item["change_kind"]: item for item in observed}
@@ -221,7 +222,7 @@ def test_refresh_records_checkpoint_diff_without_agent_attribution(tmp_path):
 
     repeated = client.post("/api/v1/discovery/refresh", json={}, headers=headers)
     assert repeated.status_code == 200
-    repeated_changes = client.get("/api/v1/changes", headers=headers).json()
+    repeated_changes = read_verified(client, "/api/v1/changes", headers=headers).json()
     assert (
         len(
             [
@@ -252,7 +253,7 @@ def test_created_audit_and_excluded_objects_are_never_projected_recoverable(tmp_
     assert refresh.status_code == 200
     observed = [
         item
-        for item in client.get("/api/v1/changes", headers=headers).json()["items"]
+        for item in read_verified(client, "/api/v1/changes", headers=headers).json()["items"]
         if item["type"] == "OBSERVED_CHANGE"
     ]
     assert {item["recovery_disposition"] for item in observed} == {
@@ -329,7 +330,7 @@ def test_workspace_test_restore_then_legacy_restore_requires_preview_without_wri
         database.close()
     assert record is None
 
-    projection = client.get("/api/v1/recovery", headers=headers).json()
+    projection = read_verified(client, "/api/v1/recovery", headers=headers).json()
     assert projection["latest_checkpoint"]["actual_restore_status"] != "VERIFIED"
     assert projection["recovery_verified"] is False
 
@@ -367,7 +368,7 @@ def test_legacy_restore_does_not_enter_writer_without_preview(tmp_path, monkeypa
     assert calls == []
     assert baseline.read_text(encoding="utf-8") == "after"
     assert created.read_text(encoding="utf-8") == "must remain"
-    projection = client.get("/api/v1/recovery", headers=headers).json()
+    projection = read_verified(client, "/api/v1/recovery", headers=headers).json()
     assert projection["latest_checkpoint"]["actual_restore_status"] != "VERIFIED"
     assert projection["recovery_verified"] is False
 

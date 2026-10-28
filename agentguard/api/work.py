@@ -23,7 +23,7 @@ from agentguard.work.models import (
 from agentguard.work.service import WorkError, WorkService
 
 
-def work_router(db_path: Path, agent_enricher=None) -> APIRouter:
+def work_router(db_path: Path, agent_enricher=None, agent_reader=None) -> APIRouter:
     router = APIRouter(prefix="/api/v1/works")
 
     def invoke(method, *args, **kwargs):
@@ -56,7 +56,25 @@ def work_router(db_path: Path, agent_enricher=None) -> APIRouter:
 
     @router.get("/{work_id}/agents")
     def agents(work_id: UUID, view: Literal["observed", "links"] = "observed"):
-        result = invoke("agents", str(work_id), view=view)
+        # Saved relationships are local facts, while observations are display-only
+        # last-verified snapshots. WorkService mutation methods keep full verification.
+        result = invoke("agents", str(work_id), view="links" if agent_reader else view)
+        if isinstance(result, dict) and agent_reader and view == "observed":
+            projection = agent_reader()
+            current = {item["agent_id"]: item for item in projection["items"]
+                       if item.get("agent_id") is not None}
+            result["items"] = [
+                {**current[item["agent_id"]], "association": "USER_LINKED",
+                 "linked_at": item["linked_at"], "task_ids": item["task_ids"]}
+                if item["agent_id"] in current else item
+                for item in result["items"]
+            ]
+            for item in result["items"]:
+                if (item["agent_id"] not in current
+                        and projection["verification"]["state"] in {"VERIFIED", "STALE"}):
+                    item.update(presence="NOT_CURRENT", reason_code="WORK_AGENT_NOT_CURRENT")
+            result["discovery_status"] = projection["status"] if result["items"] else "UNKNOWN"
+            result["verification"] = projection["verification"]
         return agent_enricher(result) if agent_enricher and isinstance(result, dict) else result
 
     @router.post("/{work_id}/agents", status_code=201)

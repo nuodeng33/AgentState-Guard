@@ -1,3 +1,4 @@
+import { AgentVerification } from '../components/AgentVerification';
 import type { AgentItem, AgentsView } from '../api/types';
 import { AgentObservationSummary } from '../components/AgentObservationSummary';
 import { AgentIdentityDetails, AgentIdentityLabel } from '../components/AgentIdentity';
@@ -35,6 +36,8 @@ export function AgentsViewBody({ data }: { data: AgentsView }) {
           reason_code: <code>{data.reason_code}</code>
         </span>
       </div>
+
+      <AgentVerification verification={data.verification} />
 
       <AgentObservationSummary items={data.items} status={data.status} reasonCode={data.reason_code} />
 

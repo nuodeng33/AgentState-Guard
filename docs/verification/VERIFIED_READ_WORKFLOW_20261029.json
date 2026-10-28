@@ -1,0 +1,33 @@
+{
+  "result": "PASS",
+  "scope": "manual Work + native file protection; no model calls",
+  "environment": "Windows",
+  "checked_at": 1793212424.1683042,
+  "run_id": "01de9740-a7c8-4627-b900-eacfbd81b454",
+  "checks": {
+    "browser_work_delivery": true,
+    "native_versions_and_attribution": true,
+    "preview_is_read_only": true,
+    "actual_diff": true,
+    "selective_restore": true,
+    "operation_idempotency": true,
+    "undo_restore": true,
+    "stale_preview_rejected": true,
+    "ui_global_directory_and_version": true,
+    "ui_preview_read_only": true,
+    "ui_actual_diff": true,
+    "ui_selective_restore": true,
+    "ui_undo_restore": true,
+    "ui_expired_preview_rejected": true,
+    "ui_mobile_confirm_accessible": true,
+    "ui_keyboard_focus": true,
+    "ui_final_bytes": true,
+    "operation_survives_restart": true,
+    "browser_reopens_after_core_restart": true,
+    "ui_recovery_history_after_restart": true,
+    "database_integrity": true,
+    "no_execution_created": true
+  },
+  "browser_sandbox": "chromiumSandbox:true enforced through a scoped preload; no security flags disabled",
+  "first_attempt": "Node preload path quoting failed before browser startup; preserved in Windows workflow-source/browser-create.log. Forward slash path corrected; product unchanged."
+}

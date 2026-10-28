@@ -1,0 +1,20 @@
+{
+  "backend": {
+    "tests": 1648,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 49,
+    "passed": 1599
+  },
+  "backend_junit": "/tmp/asg-phase31-full-v2.xml",
+  "frontend_full": {
+    "files": 55,
+    "passed": 438
+  },
+  "final_narrow_frontend": {
+    "passed": 30,
+    "files": 2
+  },
+  "build": "PASS",
+  "note": "First full backend failure14 retained; only async contract tests corrected. Final product unchanged after Windows source verification."
+}
