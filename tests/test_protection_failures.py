@@ -245,10 +245,16 @@ def test_undo_operation_preview_survives_retention_without_exposing_content(tmp_
         changed_entry = service.version(changed)["files"][0]
         assert service.execute(operation_id)["state"] == "SUCCEEDED"
         assert target.read_text(encoding="utf-8") == "baseline"
+        target.write_text("unrelated current", encoding="utf-8")
+        assert service.capture(scope_id, force=True)["status"] == "RECORDED"
+        unrelated_preview = service.preview(scope_id, "restore_version", [changed_entry["file_id"]], version_id=baseline)
+        unrelated = service.queue_restore(unrelated_preview["preview_id"], unrelated_preview["digest"], "unrelated-restore")
+        assert service.execute(unrelated["id"])["state"] == "SUCCEEDED"
+        assert target.read_text(encoding="utf-8") == "baseline"
 
         with service.db.transaction() as conn:
             conn.execute("UPDATE protection_versions SET created_at='2000-01-01T00:00:00+00:00' WHERE id=?", (changed,))
-            conn.execute("UPDATE protection_operations SET created_at='2000-01-01T00:00:00+00:00' WHERE id=?", (operation_id,))
+            conn.execute("UPDATE protection_operations SET created_at='2000-01-01T00:00:00+00:00' WHERE id IN (?,?)", (operation_id, unrelated["id"]))
             conn.execute("UPDATE protection_scopes SET last_collected_at=0 WHERE id=?", (scope_id,))
         service.configure(scope_id, "undo-retention", 1, enabled=True, retention_days=1,
                           quota_bytes=2 * 1024 * 1024 * 1024)
@@ -257,6 +263,14 @@ def test_undo_operation_preview_survives_retention_without_exposing_content(tmp_
 
         assert preview["status"] == "READY"
         assert service.scope(scope_id)["last_collected_at"] > 0
+        assert service.conn.execute(
+            "SELECT 1 FROM protection_blob_refs WHERE owner_kind='operation' AND owner_id=?",
+            (unrelated["id"],),
+        ).fetchone() is None
+        assert service.conn.execute(
+            "SELECT 1 FROM protection_blob_refs WHERE owner_kind='operation' AND owner_id=?",
+            (operation_id,),
+        ).fetchone() is not None
         assert "content_b64" not in json.dumps(preview["selection"])
         saved_selection = service.conn.execute(
             "SELECT selection_json FROM protection_previews WHERE id=?", (preview["preview_id"],)
@@ -268,6 +282,17 @@ def test_undo_operation_preview_survives_retention_without_exposing_content(tmp_
         ).fetchone()
         assert service.blobs.get(changed_entry["content_digest"]) == b"current"
         assert service.version(baseline)["available"] == 1
+        # The source operation is protected only during this preview's preflight.
+        # Its independent preview references take over before ordinary collection.
+        service.collect(scope_id)
+        assert service.conn.execute(
+            "SELECT 1 FROM protection_blob_refs WHERE owner_kind='operation' AND owner_id=?",
+            (operation_id,),
+        ).fetchone() is None
+        assert service.blobs.get(changed_entry["content_digest"]) == b"current"
+        undo = service.queue_restore(preview["preview_id"], preview["digest"], "undo-after-source-retention")
+        assert service.execute(undo["id"])["state"] == "SUCCEEDED"
+        assert target.read_text(encoding="utf-8") == "current"
     finally:
         service.close()
 

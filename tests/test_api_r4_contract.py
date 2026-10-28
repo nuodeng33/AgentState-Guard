@@ -46,7 +46,7 @@ def _get(base_url, path, token=None):
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read())
         verification = body.get("verification") if isinstance(body, dict) else None
-        if not verification or (verification.get("checked_at") or "") >= after:
+        if not verification or (verification.get("started_at") or "") >= after:
             return status, body
         assert time.monotonic() < deadline, body
         time.sleep(0.01)

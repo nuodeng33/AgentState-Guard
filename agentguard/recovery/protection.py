@@ -329,19 +329,32 @@ class ProtectionService:
             if entry["category"] != "restorable":
                 continue
             value = entry.get("content_b64")
-            data = base64.b64decode(value, validate=True) if value is not None else self._read_blob(entry["content_digest"])
-            if data is None or len(data) > 4 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != entry["content_digest"]:
-                raise ProtectionError("PROTECTION_CONTENT_INVALID")
-            if contains_sensitive_data(data.decode("utf-8", errors="ignore")):
-                raise ProtectionError("PROTECTION_SENSITIVE_CONTENT_NOT_STORED")
             sha = entry["content_digest"]
             exists = conn.execute("SELECT 1 FROM protection_blob_refs WHERE owner_kind=? AND owner_id=? AND sha256=?",
                 (owner_kind, owner_id or version_id, sha)).fetchone()
-            if sha not in hashes and not exists:
+            new_reference = sha not in hashes and not exists
+            if value is not None:
+                data = base64.b64decode(value, validate=True)
+            elif new_reference:
                 try:
-                    self.blobs.put(data, conn)
-                except ValueError as exc:
+                    data = self.blobs.retain_verified(sha, conn)
+                except (ValueError, RuntimeError) as exc:
                     raise ProtectionError("PROTECTION_CONTENT_CORRUPT") from exc
+            else:
+                data = self._read_blob(sha)
+            if data is None:
+                raise ProtectionError("PROTECTION_CONTENT_UNAVAILABLE" if owner_kind == "preview" and value is None
+                                      else "PROTECTION_CONTENT_INVALID")
+            if len(data) > 4 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != sha:
+                raise ProtectionError("PROTECTION_CONTENT_INVALID")
+            if contains_sensitive_data(data.decode("utf-8", errors="ignore")):
+                raise ProtectionError("PROTECTION_SENSITIVE_CONTENT_NOT_STORED")
+            if new_reference:
+                if value is not None:
+                    try:
+                        self.blobs.put(data, conn)
+                    except ValueError as exc:
+                        raise ProtectionError("PROTECTION_CONTENT_CORRUPT") from exc
                 conn.execute("INSERT INTO protection_blob_refs VALUES (?,?,?,?)",
                     (owner_kind, owner_id or version_id, scope_id, sha))
                 hashes.add(sha)
@@ -392,14 +405,17 @@ class ProtectionService:
             coverage[entry["category"]] = coverage.get(entry["category"], 0) + 1
         return {"coverage": coverage, "file_count": len(manifest), "change_count": change_count}
 
-    def maybe_collect(self, scope_id, *, reserve_bytes=0, protect_versions=()):
-        return history.maybe_collect(self, scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions)
+    def maybe_collect(self, scope_id, *, reserve_bytes=0, protect_versions=(), protect_operations=()):
+        return history.maybe_collect(self, scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions,
+                                protect_operations=protect_operations)
 
-    def collect(self, scope_id, *, reserve_bytes=0, protect_versions=()):
-        return history.collect(self, scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions)
+    def collect(self, scope_id, *, reserve_bytes=0, protect_versions=(), protect_operations=()):
+        return history.collect(self, scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions,
+                                protect_operations=protect_operations)
 
-    def _collect(self, scope_id, *, reserve_bytes=0, protect_versions=()):
-        return history._collect(self, scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions)
+    def _collect(self, scope_id, *, reserve_bytes=0, protect_versions=(), protect_operations=()):
+        return history._collect(self, scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions,
+                                protect_operations=protect_operations)
 
     def capture(self, scope_id, *, force=False, operation_id=None):
         with self.lock:
@@ -679,7 +695,7 @@ class ProtectionService:
                     raise ProtectionError("PROTECTION_SELECTION_INVALID")
             else:
                 raise ProtectionError("PROTECTION_MODE_INVALID", 422)
-            selection, conflicts, hydrated_targets = [], [], {}
+            selection, conflicts, retained_targets = [], [], {}
             for file_id in file_ids:
                 before, after = current.get(file_id), target.get(file_id)
                 if before is None and after is None:
@@ -689,19 +705,23 @@ class ProtectionService:
                 if expected_batch is not None and not same_entry(before, expected_batch.get(file_id)):
                     conflicts.append(file_id)
                 if after:
-                    hydrated_targets["after-" + file_id] = self._hydrate(after)
+                    retained_targets["after-" + file_id] = self._clean({"entry": after})["entry"]
                 selection.append({"file_id": file_id, "relative_path": (before or after)["relative_path"],
                     "before": before, "after": after})
             if conflicts:
                 return {"status": "CONFLICT", "reason_code": "PROTECTION_CURRENT_STATE_CONFLICT", "conflicts": conflicts, "preview_id": None}
             preview_id = identifier("preview")
             expires = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
-            content = {"before-"+s["file_id"]: s["before"] for s in selection if s["before"]}
-            content.update(hydrated_targets)
+            # Verify retained targets before storing newly scanned preimages.
+            # Their full bytes are read once by _save_manifest inside its write
+            # transaction; execution/restart still independently rehydrate them.
+            content = dict(retained_targets)
+            content.update({"before-"+s["file_id"]: s["before"] for s in selection if s["before"]})
             clean_selection = [{**s, "before": self._clean({"e": s["before"]})["e"] if s["before"] else None} for s in selection]
             metadata_reserve = len(encoded(clean_selection).encode()) + 8192 + 512 * len(content)
             self.maybe_collect(scope_id, reserve_bytes=self._additional_bytes(scope, content) + metadata_reserve,
-                protect_versions=dependency_versions)
+                protect_versions=dependency_versions,
+                protect_operations=(operation_id,) if mode == "undo_operation" else ())
             self._check_capacity(scope, content, metadata_reserve)
             with self.db.transaction() as conn:
                 self._save_manifest(conn, scope_id, preview_id, content, owner_kind="preview")

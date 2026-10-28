@@ -95,6 +95,21 @@ class BlobStore:
         except (gzip.BadGzipFile, EOFError, OSError, ValueError, zlib.error):
             return None
 
+    def retain_verified(self, sha256: str, conn: sqlite3.Connection) -> bytes | None:
+        """Retain existing storage only after reading and verifying all bytes.
+
+        The caller owns the transaction, including rollback on later validation
+        failure. A file without a metadata row cannot silently acquire references.
+        No disk bytes are rewritten or verification reused across calls.
+        """
+        data = self.get(sha256)
+        if data is None:
+            return None
+        retained = conn.execute(
+            "UPDATE blobs SET ref_count = ref_count + 1 WHERE sha256 = ?", (sha256,)
+        )
+        return data if retained.rowcount == 1 else None
+
     def verify(self, sha256: str) -> bool:
         """Verify blob integrity: hash matches."""
         return self.get(sha256) is not None

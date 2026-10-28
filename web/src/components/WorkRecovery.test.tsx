@@ -45,6 +45,21 @@ async function preview() {
 afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); Object.defineProperty(document, 'hidden', { configurable: true, value: false }); });
 
 describe('native file recovery', () => {
+  it.each(['success', 'failure'])('shows preview preparation until %s', async outcome => {
+    const { props, post } = fixture();
+    let finish!: (value: unknown) => void; let fail!: (error: Error) => void;
+    post.mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    render(<WorkRecovery {...props} />); await selectFiles();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview restore' }));
+    expect(screen.getByText('Preparing recovery preview...')).toBeTruthy();
+    await act(async () => {
+      if (outcome === 'failure') fail(new Error('failed'));
+      else finish({ preview_id: 'p', digest: 'a'.repeat(64), status: 'READY', expires_at: new Date(Date.now() + 300000).toISOString(), selection: [{ ...file('A'), before: file('A'), after: file('A') }], affected_work_ids: [] });
+    });
+    expect(screen.queryByText('Preparing recovery preview...')).toBeNull();
+    if (outcome === 'success') expect(screen.getByRole('button', { name: 'Confirm restore' })).toBeTruthy();
+    else expect(screen.getByRole('alert')).toBeTruthy();
+  });
   it('blocks recovery while a directory policy result is unconfirmed', async () => {
     const { props, post } = fixture(); const command = { kind: 'configure' as const, sourceId: 'local', path: '/project/a', scopeId: 'scope-a',
       payload: { request_id: 'same-policy-request', expected_revision: 1, enabled: true, retention_days: 30, quota_bytes: 2048 * 1048576 } };

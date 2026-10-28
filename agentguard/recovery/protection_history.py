@@ -51,24 +51,27 @@ def shared_storage(service):
         "quota_kind": "SHARED_PHYSICAL_NOT_SCOPE_QUOTA"}
 
 
-def maybe_collect(service, scope_id, *, reserve_bytes=0, protect_versions=()):
+def maybe_collect(service, scope_id, *, reserve_bytes=0, protect_versions=(), protect_operations=()):
     scope = service.scope(scope_id)
     if (scope["last_collected_at"] is None or time.time() - scope["last_collected_at"] >= 300
             or (reserve_bytes and service._usage(scope_id) + reserve_bytes > scope["quota_bytes"])):
-        return service.collect(scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions)
+        return service.collect(scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions,
+                               protect_operations=protect_operations)
     return None
 
 
-def collect(service, scope_id, *, reserve_bytes=0, protect_versions=()):
+def collect(service, scope_id, *, reserve_bytes=0, protect_versions=(), protect_operations=()):
     with service.lock:
-        return service._collect(scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions)
+        return service._collect(scope_id, reserve_bytes=reserve_bytes, protect_versions=protect_versions,
+                                protect_operations=protect_operations)
 
 
-def _collect(service, scope_id, *, reserve_bytes=0, protect_versions=()):
+def _collect(service, scope_id, *, reserve_bytes=0, protect_versions=(), protect_operations=()):
     """Release content under pressure; compact details only after retention."""
     from .protection import encoded, now
     scope = service.scope(scope_id)
     cutoff = (datetime.now(UTC) - timedelta(days=scope["retention_days"])).isoformat()
+    protected_operations = set(protect_operations)
     with service.db.transaction() as conn:
         for preview in service._rows("""SELECT id FROM protection_previews WHERE scope_id=? AND
             ((expires_at<? AND status='READY') OR status='EXPIRED')""", (scope_id, now())):
@@ -77,7 +80,8 @@ def _collect(service, scope_id, *, reserve_bytes=0, protect_versions=()):
         # Release terminal dependencies before considering their versions.
         for op in service._rows("""SELECT * FROM protection_operations WHERE scope_id=?
             AND state IN ('SUCCEEDED','COMPENSATED','REJECTED') ORDER BY created_at""", (scope_id,)):
-            if op["created_at"] < cutoff or service._usage(scope_id) + reserve_bytes > scope["quota_bytes"]:
+            if op["id"] not in protected_operations and (
+                    op["created_at"] < cutoff or service._usage(scope_id) + reserve_bytes > scope["quota_bytes"]):
                 service._release(conn, "operation", op["id"])
         protected = set(protect_versions) | {scope["baseline_id"], scope["latest_id"]} | {r[0] for r in conn.execute("""SELECT id
             FROM protection_versions v WHERE scope_id=? AND (pinned=1 OR EXISTS

@@ -100,6 +100,8 @@ const DEFAULT_SESSION_BOOTSTRAP_RETRY: SessionBootstrapRetryPolicy = {
 class ConnectionFailure extends ApiRequestError {}
 type JsonResponse = { response: Response; body: unknown };
 const REQUEST_TIMEOUT_MS = 5000;
+const DISK_POST_TIMEOUT_MS = 60000;
+const DISK_POST_PATH = /^\/api\/v1\/(?:recovery\/previews|protection\/scopes(?:\/[^/?#]+\/capture)?)$/;
 const BOOTSTRAP_BUDGET_MS = 12000;
 
 export function createApiClient(
@@ -242,7 +244,7 @@ export function createApiClient(
           'X-Session-Token': sessionToken,
         },
         body: JSON.stringify(body),
-      });
+      }, method === 'POST' && DISK_POST_PATH.test(path) ? DISK_POST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     } catch (error) {
       if (error instanceof ApiRequestError) throw error;
       throw new ApiRequestError('API unreachable');

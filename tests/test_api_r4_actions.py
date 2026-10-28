@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from agentguard.api import r4_projection
 from agentguard.evidence.ledger import EvidenceLedger, verify_ledger
 from agentguard.evidence.models import EventFamily, EventType, EvidenceEvent
 from agentguard.policy.models import Decision, PolicyDecision
@@ -21,6 +22,7 @@ from agentguard.storage.db import StateDB
 from agentguard.supervision.service import SupervisionActionError, SupervisionService
 from tests.test_api_r4_contract import _get, _running_api
 from tests.test_recovery_drill import _service as _recovery_service
+from tests.verified_reads_wait import wait_for_verified
 
 
 def _decision(decision: Decision, *, checkpoint: bool = False) -> PolicyDecision:
@@ -913,6 +915,7 @@ def test_database_failure_response_does_not_leak_path_or_exception(tmp_path):
 @pytest.mark.parametrize("method", ["PATCH", "PUT"])
 def test_existing_edit_verbs_use_frozen_origins_and_token_boundary(tmp_path, method):
     from fastapi.testclient import TestClient
+
     from agentguard.api.server import create_app
 
     app = create_app(state_db_path=tmp_path / "state.db", config={"base_dir": str(tmp_path)})
@@ -923,3 +926,99 @@ def test_existing_edit_verbs_use_frozen_origins_and_token_boundary(tmp_path, met
         assert client.options("/api/v1/works/example", headers={**headers, "Origin": "https://untrusted.invalid"}).status_code == 400
         assert client.options("/api/v1/works/example", headers={**headers, "Access-Control-Request-Method": "DELETE"}).status_code == 400
         assert client.request(method, "/api/v1/works/example", json={}).status_code == 401
+
+
+@pytest.mark.parametrize("waiter_kind", ["api-helper", "shared-helper"])
+def test_post_commit_wait_rejects_late_publication_of_precommit_snapshot(tmp_path, monkeypatch, waiter_kind):
+    """A pass can finish after POST while still reading its older SQLite snapshot."""
+    db_path = tmp_path / "state.db"
+    session_id = _create_session(db_path)
+    gate, old_pinned, release_old, new_pinned, release_new = (
+        threading.Event() for _ in range(5)
+    )
+    fetched, completed = threading.Event(), threading.Event()
+    passes, results, failures = [], [], []
+    original_projection = r4_projection.R4ReadProjectionService.supervision
+    original_urlopen = urllib.request.urlopen
+
+    def pinned_projection(projector):
+        result = original_projection(projector)
+        if (gate.is_set() and projector._database.db_path == db_path
+                and threading.current_thread().name == "asg-verified-agent-reads"):
+            passes.append(result["items"][0]["status"])
+            if len(passes) == 1:
+                old_pinned.set()
+                assert release_old.wait(4), "old snapshot was not released"
+            elif len(passes) == 2:
+                new_pinned.set()
+                assert release_new.wait(4), "new snapshot was not released"
+        return result
+
+    def observed_urlopen(*args, **kwargs):
+        response = original_urlopen(*args, **kwargs)
+        if threading.current_thread().name == "phase31-fresh-pass-waiter":
+            fetched.set()
+        return response
+
+    monkeypatch.setattr(r4_projection.R4ReadProjectionService, "supervision", pinned_projection)
+    monkeypatch.setattr(urllib.request, "urlopen", observed_urlopen)
+    waiter = None
+    with _running_api(tmp_path, db_path) as (base_url, token, _root):
+        try:
+            action_ref = _action_ref(base_url, token, session_id)
+            gate.set()
+            assert old_pinned.wait(2)
+            status, body = _post(base_url, f"/api/v1/supervision/{session_id}/approve-once",
+                                 token, {"action_ref": action_ref})
+            assert status == 200
+            assert body["status"] == "APPROVED"
+
+            request_boundary = datetime.now(UTC).isoformat()
+
+            def await_fresh_state():
+                try:
+                    if waiter_kind == "api-helper":
+                        response = _get(base_url, "/api/v1/supervision", token)
+                    else:
+                        def fetch():
+                            request = urllib.request.Request(base_url + "/api/v1/supervision")
+                            request.add_header("X-Session-Token", token)
+                            with urllib.request.urlopen(request, timeout=5) as value:
+                                return value.status, json.loads(value.read())
+                        response = wait_for_verified(fetch)
+                    results.append(response[1])
+                except Exception as error:  # noqa: BLE001 -- propagate owned thread errors
+                    failures.append(error)
+                finally:
+                    completed.set()
+
+            waiter = threading.Thread(target=await_fresh_state, name="phase31-fresh-pass-waiter")
+            waiter.start()
+            assert fetched.wait(2), "waiter must observe before the old pass publishes"
+            release_old.set()
+            assert new_pinned.wait(2), "the next snapshot must begin after the committed mutation"
+            assert passes[:2] == ["AWAITING_APPROVAL", "APPROVED"]
+            assert not completed.wait(.15), "waiter accepted a precommit snapshot published after POST"
+            # Starting the next refresh must not relabel the saved old snapshot.
+            request = urllib.request.Request(base_url + "/api/v1/supervision")
+            request.add_header("X-Session-Token", token)
+            with original_urlopen(request, timeout=5) as value:
+                old_metadata = json.loads(value.read())["verification"]
+            assert old_metadata["started_at"] < request_boundary
+            assert old_metadata["checked_at"] >= request_boundary
+            release_new.set()
+            assert completed.wait(2)
+            assert failures == []
+            assert results[0]["verification"]["started_at"] >= request_boundary
+            item = next(item for item in results[0]["items"]
+                        if item["supervision_session_id"] == session_id)
+            assert item["status"] == "APPROVED"
+            assert item["manual_approval"] is True
+            assert item["action_ref"] is None
+            assert _event_count(db_path, session_id, "USER_APPROVED") == 1
+        finally:
+            release_old.set()
+            release_new.set()
+            if waiter is not None:
+                waiter.join(timeout=3)
+                assert not waiter.is_alive()

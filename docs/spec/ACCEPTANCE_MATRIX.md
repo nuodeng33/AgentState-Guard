@@ -1,5 +1,10 @@
 # Acceptance Matrix — AgentState Guard v1.0
 
+### 2026-10-29 final source ready — native gates open
+
+Started-at snapshot causality and512-file preview retention/deadline fixes integrated. Final backend1616passed49skipped, frontend448passed/build; Windows actual512-file UIpreview6.12s with health/Work responsive and no file changes. cdd9060 remains previous package; build new exactcandidate then finish MSI/nativeWindows/MuMu1/crash/provider scope. See [phase31](../phases/31-verified-read-snapshots.md). Original AppData sixfiles still original; upgrade-v3 testfixture retained.
+
+
 ### 2026-10-29 phase31 — implementation in progress
 
 Approved last-verified interface reads implemented with background full verification and explicit freshness/errors. Mutation authority remains current full verification. Baseline/rollback28cc7b0; candidate not yet packaged/native accepted. See [phase31](../phases/31-verified-read-snapshots.md). Full source/backend and current exact-commit package/native gates remain open.

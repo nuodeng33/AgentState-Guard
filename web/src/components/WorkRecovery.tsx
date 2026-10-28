@@ -35,6 +35,7 @@ export default function WorkRecovery({ client, visible, onClose, protectionComma
   const [submission, setSubmission] = useState<RecoveryCommand | null>(null);
   const [busy, setBusy] = useState(false); const busyRef = useRef(false);
   const [loading, setLoading] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState(''); // Stable code only; translated at render time.
   const [refresh, setRefresh] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -174,7 +175,7 @@ export default function WorkRecovery({ client, visible, onClose, protectionComma
   }
   async function makePreview() {
     if (scopeCommand || locked || loading || !selected.length || !contentReady || !scopeId || busyRef.current) return;
-    invalidate(); const current = epoch.current; busyRef.current = true; setBusy(true);
+    invalidate(); const current = epoch.current; busyRef.current = true; setBusy(true); setPreviewing(true);
     try {
       const result = await api.preview({ scope_id: scopeId, file_ids: selected,
         mode: undo ? 'undo_operation' : 'restore_version', ...(undo ? { operation_id: undo.id } : { version_id: versionId }) });
@@ -182,7 +183,7 @@ export default function WorkRecovery({ client, visible, onClose, protectionComma
       if (result.status !== 'READY' || !result.preview_id || !result.digest || !result.selection?.length) { setError(result.reason_code ?? 'PREVIEW_CONFLICT'); return; }
       setNow(Date.now()); setPreview(result);
     } catch (err) { if (current === epoch.current) setError(reason(err)); }
-    finally { busyRef.current = false; if (mounted.current) setBusy(false); }
+    finally { busyRef.current = false; if (mounted.current) { setBusy(false); setPreviewing(false); } }
   }
   async function openDiff(file: RecoveryFile) {
     if (!preview?.preview_id) return;
@@ -217,6 +218,7 @@ export default function WorkRecovery({ client, visible, onClose, protectionComma
       <p>{text('All protected directories. Recovery affects the selected directory, including other work that uses it.', '所有已保护目录。恢复会影响所选目录，包括使用该目录的其他工作。')}</p>
       <button type="button" disabled={busy} onClick={() => { reconcileOnRefresh.current = true; setRefresh(value => value + 1); }}>{text('Refresh records', '刷新记录')}</button>
       {error && <p role="alert">{message(error)}</p>}
+      {previewing && <p role="status">{text('Preparing recovery preview...', '正在准备恢复预览...')}</p>}
       {submission && <button type="button" disabled={busy} onClick={() => void apply()}>{text('Retry same submission', '重试同一提交')}</button>}
       {operation && <div role="status" data-testid="recovery-result"><strong>{stateLabel(operation.state)}</strong><code>{operation.id}</code>
         {operation.state === 'NEEDS_ATTENTION' && <p>{text('Resolve this operation before starting another recovery, then refresh records.', '请先处理此操作，再刷新记录后开始其他恢复。')}</p>}

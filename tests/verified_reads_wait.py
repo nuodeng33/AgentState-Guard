@@ -4,10 +4,11 @@ from datetime import UTC, datetime
 
 
 def wait_for_verified(fetch, *, after=None, timeout=5):
-    """Return the response only after a pass completed after this observation.
+    """Return the response only after a pass began after this observation.
 
     A previously successful nonempty snapshot is insufficient. Failures return
     their fresh INVALID/ERROR metadata so callers retain strict business asserts.
+    Completion time alone cannot exclude a snapshot opened before a mutation.
     """
     after = after or datetime.now(UTC).isoformat()
     deadline = time.monotonic() + timeout
@@ -16,7 +17,7 @@ def wait_for_verified(fetch, *, after=None, timeout=5):
         body = response[1] if isinstance(response, tuple) else response.json()
         verification = body.get("verification", {})
         state = verification.get("state")
-        if ((verification.get("checked_at") or "") >= after
+        if ((verification.get("started_at") or "") >= after
                 and state in {"VERIFIED", "STALE", "INVALID", "ERROR"}):
             if state in {"VERIFIED", "STALE"}:
                 assert (verification.get("verified_at") or "") >= after, body

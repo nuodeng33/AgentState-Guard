@@ -62,6 +62,7 @@ def test_http_cold_reads_do_not_wait_for_full_verification(tmp_path, monkeypatch
         assert first["verification"]["state"] == "PENDING"
         assert first["verification"]["verified_at"] is None
         assert first["verification"]["checked_at"] is None
+        assert first["verification"]["started_at"] is None
         for view in ("runtime", "supervision", "changes", "recovery", "agents"):
             assert client.get("/api/v1/" + view).json()["verification"]["state"] == "PENDING"
         observed = client.get(f"/api/v1/works/{work_id}/agents").json()
@@ -215,9 +216,11 @@ def test_slow_recovery_does_not_delay_fast_view_publication(tmp_path, monkeypatc
         assert service.read()["verification"]["state"] == "VERIFIED"
         assert service.read("recovery")["verification"]["state"] == "PENDING"
         fast_timestamp = service.read()["verification"]["verified_at"]
+        started_at = service.read()["verification"]["started_at"]
         release.set()
         _wait(service, lambda body: body["verification"]["state"] == "VERIFIED", "recovery")
         assert service.read()["verification"]["verified_at"] == fast_timestamp
+        assert service.read("recovery")["verification"]["started_at"] == started_at
     finally:
         release.set()
         service.close()

@@ -1,0 +1,305 @@
+{
+  "windows_core_ui": {
+    "result": "PASS",
+    "source": "C:\\Users\\Administrator\\Documents\\ChatGPT\\New project\\asg-native-20261023\\takeover-20261029\\source-v2",
+    "checks": {
+      "browser_pass": true,
+      "file_bytes_unchanged": true,
+      "core_stopped": true
+    },
+    "browser": {
+      "result": "PASS",
+      "checks": {
+        "selected_512": true,
+        "request_selected_512": true,
+        "concurrent_reads": true,
+        "preview_ready": true,
+        "confirm_enabled": true,
+        "pending_seen": true,
+        "pending_cleared": true,
+        "no_restore_request": true,
+        "no_page_errors": true,
+        "preview_duration_recorded": true
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/session",
+          "status": 200,
+          "elapsed_ms": 21.51769999999999
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/view",
+          "status": 200,
+          "elapsed_ms": 25.070600000000013
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0",
+          "status": 200,
+          "elapsed_ms": 26.27150000000006
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works",
+          "status": 200,
+          "elapsed_ms": 39.141399999999976
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/agent-appearances",
+          "status": 200,
+          "elapsed_ms": 46.79079999999999
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 47.39639999999997
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/agents",
+          "status": 200,
+          "elapsed_ms": 46.96010000000001
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/recovery/operations",
+          "status": 200,
+          "elapsed_ms": 22.883100000000013
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/protection/scopes",
+          "status": 200,
+          "elapsed_ms": 28.095800000000054
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/protection/scopes/scope-97991f3e-b37a-4a14-9c64-93de336412de/versions",
+          "status": 200,
+          "elapsed_ms": 80.38840000000005
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/view",
+          "status": 200,
+          "elapsed_ms": 23.06309999999985
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 21.845800000000054
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 19.983500000000276
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 30.652099999999336
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 27.452300000000832
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 15.807999999999083
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 68.20309999999881
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+          "status": 200,
+          "elapsed_ms": 37.26290000000154
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/recovery/previews",
+          "status": 200,
+          "elapsed_ms": 6119.454300000001
+        }
+      ],
+      "scope": "Real source Core and sandboxed Chrome; 512-file preview only; no restore",
+      "concurrent_reads": {
+        "health": {
+          "status": 200,
+          "elapsed_ms": 8.48530000000028
+        },
+        "work": {
+          "status": 200,
+          "elapsed_ms": 19.888600000002043
+        }
+      },
+      "page_errors": []
+    }
+  },
+  "browser": {
+    "result": "PASS",
+    "checks": {
+      "selected_512": true,
+      "request_selected_512": true,
+      "concurrent_reads": true,
+      "preview_ready": true,
+      "confirm_enabled": true,
+      "pending_seen": true,
+      "pending_cleared": true,
+      "no_restore_request": true,
+      "no_page_errors": true,
+      "preview_duration_recorded": true
+    },
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/session",
+        "status": 200,
+        "elapsed_ms": 21.51769999999999
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/view",
+        "status": 200,
+        "elapsed_ms": 25.070600000000013
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0",
+        "status": 200,
+        "elapsed_ms": 26.27150000000006
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works",
+        "status": 200,
+        "elapsed_ms": 39.141399999999976
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/agent-appearances",
+        "status": 200,
+        "elapsed_ms": 46.79079999999999
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 47.39639999999997
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/agents",
+        "status": 200,
+        "elapsed_ms": 46.96010000000001
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/recovery/operations",
+        "status": 200,
+        "elapsed_ms": 22.883100000000013
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/protection/scopes",
+        "status": 200,
+        "elapsed_ms": 28.095800000000054
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/protection/scopes/scope-97991f3e-b37a-4a14-9c64-93de336412de/versions",
+        "status": 200,
+        "elapsed_ms": 80.38840000000005
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/view",
+        "status": 200,
+        "elapsed_ms": 23.06309999999985
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 21.845800000000054
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 19.983500000000276
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 30.652099999999336
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 27.452300000000832
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 15.807999999999083
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 68.20309999999881
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/works/6fd34150-2c5c-4a6e-b3d9-c430dfe01dd0/execution-summary",
+        "status": 200,
+        "elapsed_ms": 37.26290000000154
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/recovery/previews",
+        "status": 200,
+        "elapsed_ms": 6119.454300000001
+      }
+    ],
+    "scope": "Real source Core and sandboxed Chrome; 512-file preview only; no restore",
+    "concurrent_reads": {
+      "health": {
+        "status": 200,
+        "elapsed_ms": 8.48530000000028
+      },
+      "work": {
+        "status": 200,
+        "elapsed_ms": 19.888600000002043
+      }
+    },
+    "page_errors": []
+  },
+  "profile": {
+    "elapsed_seconds": 5.875,
+    "selection_count": 512,
+    "status": "READY",
+    "scope": "Source profile on newly registered disposable project and database"
+  },
+  "source_zip_sha256": "b6e68fcd91309af7988ba07d6d9cbbbeca8c7210fabd7c524cffdddd17f21cfa",
+  "limits": "Source Core and sandboxed Chrome, not MSI/native Tauri. Profile elapsed5.875s under concurrent verification; no universal performance ratio. Original8s package timeout and first browser file-ordering harness failure preserved."
+}

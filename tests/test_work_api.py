@@ -35,7 +35,7 @@ def _read(client, path):
         response = client.get(path)
         body = response.json()
         verification = body.get("verification")
-        if not verification or (verification.get("checked_at") or "") >= after:
+        if not verification or (verification.get("started_at") or "") >= after:
             return response
         assert time.monotonic() < deadline, body
         time.sleep(0.01)

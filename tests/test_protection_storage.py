@@ -178,3 +178,63 @@ def test_stale_gc_plan_preserves_new_pending_checkpoint_dependency(store_db):
     result = execute_gc(conn, store, plan, dry_run=False)
     assert result["checkpoints_deleted"] == 0
     assert conn.execute("SELECT 1 FROM checkpoints WHERE id = ?", (cp_id,)).fetchone()
+
+
+def test_retain_verified_reads_full_content_once_and_reference_update_rolls_back(store_db, monkeypatch):
+    store, conn = store_db
+    payload = b"retain existing verified content"
+    sha = store.put(payload, conn)
+    conn.commit()
+    original_get = store.get
+    reads = []
+
+    def counted_get(value):
+        reads.append(value)
+        return original_get(value)
+
+    def no_recompression(_data):
+        raise AssertionError("retaining historical bytes must not recompress them")
+
+    monkeypatch.setattr(store, "get", counted_get)
+    monkeypatch.setattr("agentguard.storage.blob.gzip.compress", no_recompression)
+    conn.execute("BEGIN")
+    assert store.retain_verified(sha, conn) == payload
+    assert reads == [sha]
+    assert conn.execute("SELECT ref_count FROM blobs WHERE sha256=?", (sha,)).fetchone()[0] == 2
+    conn.rollback()
+    assert conn.execute("SELECT ref_count FROM blobs WHERE sha256=?", (sha,)).fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("damage", ["missing", "wrong-hash", "bad-gzip", "over-limit", "missing-metadata"])
+def test_retain_verified_does_not_admit_missing_or_invalid_storage(store_db, monkeypatch, damage):
+    store, conn = store_db
+    sha = store.put(b"retain this only if verified", conn)
+    path = store._blob_path(sha)
+    if damage == "missing":
+        path.unlink()
+    elif damage == "wrong-hash":
+        path.write_bytes(gzip.compress(b"changed"))
+    elif damage == "bad-gzip":
+        path.write_bytes(b"corrupt gzip")
+    elif damage == "over-limit":
+        monkeypatch.setattr(store, "MAX_BLOB_BYTES", 2)
+    else:
+        conn.execute("DELETE FROM blobs WHERE sha256=?", (sha,))
+    before = conn.execute("SELECT sha256,ref_count FROM blobs").fetchall()
+    assert store.retain_verified(sha, conn) is None
+    assert conn.execute("SELECT sha256,ref_count FROM blobs").fetchall() == before
+    assert store.retain_verified("../invalid-digest", conn) is None
+
+
+def test_retained_verified_blob_survives_a_preexisting_gc_plan(store_db):
+    store, conn = store_db
+    payload = b"keep a newly retained blob"
+    sha = store.put(payload, conn)
+    store.release(sha, conn)
+    conn.commit()
+    plan = plan_gc(conn, store)
+    assert sha in plan.blobs_to_remove
+    assert store.retain_verified(sha, conn) == payload
+    conn.commit()
+    assert execute_gc(conn, store, plan, dry_run=False)["blobs_removed"] == 0
+    assert store.get(sha) == payload

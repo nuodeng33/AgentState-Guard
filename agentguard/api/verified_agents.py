@@ -31,6 +31,7 @@ class VerifiedAgentReads:
         self._states: dict[str, str] = {}
         self._verified_at: dict[str, datetime] = {}
         self._checked_at: dict[str, datetime] = {}
+        self._started_at: dict[str, datetime] = {}
         self._refreshing = False
 
     def start(self) -> None:
@@ -66,6 +67,9 @@ class VerifiedAgentReads:
             if self._stop.is_set():
                 return
             self._refreshing = True
+        # This belongs to this pass, before opening its SQLite snapshot. A
+        # later completion cannot make an older transaction causally fresh.
+        started_at = self._clock()
         database = StateDB(self._db_path)
         try:
             # Bootstrap/migrations remain owned by Core, never by this reader.
@@ -78,7 +82,7 @@ class VerifiedAgentReads:
                 results = R4ReadProjectionService(
                     database, SnapshotStore(self._snapshots_dir), clock=self._clock,
                     cancelled=self._stop.is_set
-                ).verified_views(on_verified=self._publish)
+                ).verified_views(on_verified=lambda results: self._publish(results, started_at=started_at))
         except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
             results = {view: R4ReadProjectionService.unavailable(view)
                        for view in ("agents", "runtime", "supervision", "changes", "recovery")}
@@ -90,11 +94,12 @@ class VerifiedAgentReads:
             already_published = set(self._checked_at)
         self._publish({view: result for view, result in results.items()
                        if view == "recovery" or view not in already_published
-                       or result["reason_code"] in {"R4_LEDGER_INVALID", "R4_DATABASE_UNREACHABLE"}})
+                       or result["reason_code"] in {"R4_LEDGER_INVALID", "R4_DATABASE_UNREACHABLE"}},
+                      started_at=started_at)
         with self._lock:
             self._refreshing = False
 
-    def _publish(self, results: dict) -> None:
+    def _publish(self, results: dict, *, started_at: datetime) -> None:
         completed = self._clock()
         with self._lock:
             if self._stop.is_set():
@@ -107,6 +112,7 @@ class VerifiedAgentReads:
                          else "VERIFIED")
                 self._states[view] = state
                 self._checked_at[view] = completed
+                self._started_at[view] = started_at
                 self._projection[view] = result if state == "VERIFIED" else None
                 if state == "VERIFIED":
                     self._verified_at[view] = completed
@@ -117,8 +123,9 @@ class VerifiedAgentReads:
         with self._lock:
             state = self._states.get(view, "PENDING")
             result = copy.deepcopy((self._projection or {}).get(view)) if state == "VERIFIED" else None
-            verified_at, checked_at, refreshing = (
-                self._verified_at.get(view), self._checked_at.get(view), self._refreshing)
+            verified_at, checked_at, started_at, refreshing = (
+                self._verified_at.get(view), self._checked_at.get(view),
+                self._started_at.get(view), self._refreshing)
         if (state == "VERIFIED" and verified_at is not None
                 and (now - verified_at).total_seconds() > self._interval):
             state = "STALE"
@@ -155,6 +162,7 @@ class VerifiedAgentReads:
             "state": state,
             "verified_at": verified_at.isoformat() if verified_at else None,
             "checked_at": checked_at.isoformat() if checked_at else None,
+            "started_at": started_at.isoformat() if started_at else None,
             "refreshing": refreshing,
             "reason_code": reason,
         }

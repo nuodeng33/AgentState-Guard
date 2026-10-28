@@ -1,5 +1,15 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-10-29 final source ready — native gates open
+
+Started-at snapshot causality and512-file preview retention/deadline fixes integrated. Final backend1616passed49skipped, frontend448passed/build; Windows actual512-file UIpreview6.12s with health/Work responsive and no file changes. cdd9060 remains previous package; build new exactcandidate then finish MSI/nativeWindows/MuMu1/crash/provider scope. See [phase31](phases/31-verified-read-snapshots.md). Original AppData sixfiles still original; upgrade-v3 testfixture retained.
+
+
+### 2026-10-29 live checkpoint — cdd9060 plus pending fixes
+
+Current pushedcdd9060 has Windows/AndroidCI success; Core CI caught pre-mutation snapshot published after mutation, fixed in uncommitted started_at metadata/tests (114passed). Actual packaged512-file preview times out (8.735s diagnostic); Sol optimizing duplicateblob reads, Terra correcting bounded disk-operation deadline/progress. Original six AppData files unchanged. Upgrade seedupgrade-v3 passed; MuMu1 running/unpaired, final packages/native input not yet accepted. Continue from [phase31 current continuation](phases/31-verified-read-snapshots.md); do not reuse old PASS reports or reset work.
+
+
 ### 2026-10-29 active takeover — phase31
 
 Latest user authorizes necessary steps and requires continued work through functionality and actual native testing. Approved last-verified read architecture implemented; backend1599passed49skipped, frontend438passed plus final focused30/build passed. Actual Windows source34,526event reads and22-check workflow passed. Baseline28cc7b0; exact new CI/package/native gates still open. See [current phase](phases/31-verified-read-snapshots.md). Original business data stays isolated from tests; existing reports remain preserved. Backend Sol/medium, frontend/integration primary.

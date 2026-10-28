@@ -534,6 +534,32 @@ describe('existing edit methods', () => {
 
 
 describe('finite API response deadlines', () => {
+  it.each(['/api/v1/recovery/previews', '/api/v1/protection/scopes', '/api/v1/protection/scopes/scope-1/capture'])('allows slow disk POST %s', async path => {
+    vi.useFakeTimers();
+    try {
+      const { fetchImpl, calls } = mockFetch([() => jsonResponse({ token: 'a' }), () => new Promise(resolve => setTimeout(() => resolve(jsonResponse({ status: 'READY' })), 8735))]);
+      const pending = createApiClient(fetchImpl).post(path, {}).catch(error => error);
+      await vi.advanceTimersByTimeAsync(8735);
+      expect(await pending).toEqual({ status: 'READY' }); expect(calls).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it('bounds a stalled preview at 60 seconds without replay', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchImpl, calls } = mockFetch([() => jsonResponse({ token: 'a' }), () => new Promise(() => {})]);
+      const pending = createApiClient(fetchImpl).post('/api/v1/recovery/previews', {}).catch(error => error);
+      let done = false; void pending.then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(59999); expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1); expect(await pending).toMatchObject({ reasonCode: 'API_REQUEST_TIMEOUT' }); expect(calls).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(['/api/v1/recovery/previews/extra', '/api/v1/recovery/previews?x=1', '/api/v1/protection/scopes/x/capture/extra', '/api/v1/protection/scopes/x/y/capture'])('keeps 5 second deadline for similar path %s', async path => {
+    vi.useFakeTimers();
+    try {
+      const { fetchImpl } = mockFetch([() => jsonResponse({ token: 'a' }), () => new Promise(() => {})]);
+      expect(await timed(createApiClient(fetchImpl).post(path, {}))).toMatchObject({ reasonCode: 'API_REQUEST_TIMEOUT' });
+    } finally { vi.useRealTimers(); }
+  });
   function slowBody(status = 200) {
     const response = new Response(null, { status });
     vi.spyOn(response, 'json').mockImplementation(() => new Promise(() => {}));

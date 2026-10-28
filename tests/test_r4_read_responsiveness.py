@@ -54,6 +54,7 @@ def test_slow_ledger_verification_does_not_block_health_or_work_reads(tmp_path: 
             # Bounded emergency release lets the old blocking implementation fail cleanly.
             fallback = threading.Timer(.75, release.set)
             fallback.start()
+            after = datetime.now(UTC).isoformat()
             request = asyncio.create_task(client.get(path, headers=headers))
             display_read = not path.startswith("/api/v1/evidence/")
             try:
@@ -71,7 +72,6 @@ def test_slow_ledger_verification_does_not_block_health_or_work_reads(tmp_path: 
                 health = await client.get("/api/health")
                 works = await client.get("/api/v1/works", headers=headers)
                 independent_reads_finished_before_release = not release.is_set()
-                after = datetime.now(UTC).isoformat()
             finally:
                 release.set()
                 fallback.cancel()
@@ -86,7 +86,7 @@ def test_slow_ledger_verification_does_not_block_health_or_work_reads(tmp_path: 
                 while True:
                     ready = (await client.get(path, headers=headers)).json()
                     verification = ready["verification"]
-                    if (verification["checked_at"] or "") >= after:
+                    if (verification["started_at"] or "") >= after:
                         break
                     assert time.monotonic() < deadline, ready
                     await asyncio.sleep(.01)

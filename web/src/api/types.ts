@@ -16,6 +16,7 @@ export type ViewStatus = 'EMPTY' | 'UNKNOWN' | 'DEGRADED' | 'AVAILABLE' | 'UNREA
 export interface VerificationState {
   state: 'PENDING' | 'VERIFIED' | 'STALE' | 'INVALID' | 'ERROR';
   verified_at: string | null;
+  started_at?: string | null;
   checked_at: string | null;
   refreshing: boolean;
   reason_code: string;
