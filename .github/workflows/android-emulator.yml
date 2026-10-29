@@ -212,7 +212,9 @@ jobs:
 
       - name: Verify process alive
         run: |
-          adb shell "ps -A | grep agent" || echo "(process may have exited — not an error)"
+          PID=$(adb shell pidof com.agentstate.guard | tr -d '\r')
+          test -n "$PID" || { echo 'ASG process is absent after launch'; exit 1; }
+          echo "ASG process: $PID"
           adb shell dumpsys package com.agentstate.guard | grep -E "versionName|versionCode|firstInstallTime"
 
       - name: Check for crashes
@@ -226,8 +228,9 @@ jobs:
 
       - name: Check UI rendering
         run: |
-          adb shell dumpsys activity activities | grep -E "com.agentstate.guard|mResumedActivity" | head -5 || \
-            echo "(activity info not found in dumpsys)"
+          adb shell dumpsys activity activities > asg-activity.txt
+          grep -E '(mResumedActivity|topResumedActivity).*com[.]agentstate[.]guard/' asg-activity.txt || \
+            { echo 'ASG is not the resumed activity'; exit 1; }
           if adb shell dumpsys activity activities | grep -qi "ANR"; then
             echo "ANR DETECTED"
             adb shell dumpsys activity activities | grep -i "ANR"

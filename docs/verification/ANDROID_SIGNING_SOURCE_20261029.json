@@ -1,0 +1,27 @@
+{
+  "status": "SOURCE_VERIFIED_BUILD_PENDING",
+  "public_certificate_sha256": "2757011c7e91cf972acae69b72085d8270d9268da823b2874ec910b88a4e3279",
+  "private_key_in_git": false,
+  "local_password_protection": "DPAPI_CURRENT_USER",
+  "local_acl": "CURRENT_USER_AND_SYSTEM",
+  "github_signing_inputs": "ENCRYPTED_REPOSITORY_SECRETS",
+  "private_inputs_exposed_to_pr_jobs": false,
+  "signer_gate_tests": {
+    "tests": 9,
+    "passed": 9,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit": "/tmp/asg-android-signer-gate.xml"
+  },
+  "actual_sdk_signer_checks": {
+    "previous_ephemeral_identity": "REJECTED",
+    "dedicated_identity_sample": "ACCEPTED",
+    "sample_is_product_acceptance": false
+  },
+  "parallel_package": "com.agentstate.guard.acceptance",
+  "old_mobile_app_preserved": true,
+  "ci_native_compile": "PENDING",
+  "mumu_install_update_protocol": "PENDING",
+  "ui_camera_acceptance": "NOT_VERIFIED"
+}

@@ -4,9 +4,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val acceptanceStore = providers.environmentVariable("ASG_ACCEPTANCE_KEYSTORE_PATH").orNull
+val acceptancePassword = providers.environmentVariable("ASG_ACCEPTANCE_STORE_PASSWORD").orNull
+val hasAcceptanceSigning = !acceptanceStore.isNullOrBlank() && !acceptancePassword.isNullOrBlank()
+
 android {
     namespace = "com.agentstate.guard"
     compileSdk = 34
+    testBuildType = if (providers.gradleProperty("asgAcceptanceInstrumentation").orNull == "true") "acceptance" else "debug"
 
     defaultConfig {
         applicationId = "com.agentstate.guard"
@@ -17,7 +22,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("asgAcceptance") {
+            storeFile = acceptanceStore?.let { file(it) }
+            storePassword = acceptancePassword
+            keyAlias = "asg-acceptance"
+            keyPassword = acceptancePassword
+        }
+    }
     buildTypes {
+        getByName("debug") {
+            if (hasAcceptanceSigning) signingConfig = signingConfigs.getByName("asgAcceptance")
+        }
+        create("acceptance") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".acceptance"
+            versionNameSuffix = "-acceptance"
+            signingConfig = signingConfigs.getByName("asgAcceptance")
+            matchingFallbacks += listOf("debug")
+        }
         release { isMinifyEnabled = false }
     }
     compileOptions {
@@ -40,4 +63,12 @@ dependencies {
     testImplementation("org.json:json:20230227")
     androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
+}
+
+// Local debug/unit work remains usable without distribution credentials.
+// Installable acceptance artifacts must never fall back to an ephemeral key.
+tasks.matching { it.name == "validateSigningAcceptance" }.configureEach {
+    doFirst {
+        check(hasAcceptanceSigning) { "ASG acceptance signing inputs are required; ephemeral signing is forbidden." }
+    }
 }

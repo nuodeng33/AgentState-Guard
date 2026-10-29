@@ -20,3 +20,10 @@ reports/
 .env.*
 !web/.env.demo
 .claude/retry-guard-state.json
+
+# Local signing identities and OS-protected password blobs never belong in Git.
+.private/
+*.keystore
+*.jks
+*.p12
+*.dpapi

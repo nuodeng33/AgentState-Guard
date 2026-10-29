@@ -31,24 +31,77 @@ jobs:
       - name: Set SDK path
         run: |
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-      - name: Gradle build
+      # Signing material is never passed to pull-request code.
+      - name: Validate Android source
         working-directory: android
         run: |
           echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip" > gradle/wrapper/gradle-wrapper.properties
           gradle wrapper --gradle-version 8.7
           chmod +x gradlew
-          ./gradlew lintDebug --no-daemon
-          ./gradlew testDebugUnitTest --no-daemon
-          ./gradlew assembleDebug --no-daemon
-          APK=$(find . -name "*.apk" | head -1)
-          echo "APK=$APK"
-          test -n "$APK" || (echo "No APK found" && exit 1)
-          cp "$APK" ../agentstate-guard-debug.apk
-      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+          ./gradlew lintDebug testDebugUnitTest --no-daemon
+
+      - name: Build untrusted PR fixture only
+        if: github.event_name == 'pull_request'
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Prepare stable development signing
+        if: github.event_name == 'push'
+        env:
+          ASG_ACCEPTANCE_KEYSTORE_B64: ${{ secrets.ASG_ACCEPTANCE_KEYSTORE_B64 }}
+        run: |
+          test -n "$ASG_ACCEPTANCE_KEYSTORE_B64" || { echo 'ASG signing key is unavailable; refusing ephemeral distribution.'; exit 1; }
+          umask 077
+          printf '%s' "$ASG_ACCEPTANCE_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/asg-acceptance.p12"
+          test -s "$RUNNER_TEMP/asg-acceptance.p12"
+
+      - name: Build signed development and parallel acceptance APKs
+        if: github.event_name == 'push'
+        working-directory: android
+        env:
+          ASG_ACCEPTANCE_KEYSTORE_PATH: ${{ runner.temp }}/asg-acceptance.p12
+          ASG_ACCEPTANCE_STORE_PASSWORD: ${{ secrets.ASG_ACCEPTANCE_STORE_PASSWORD }}
+        run: |
+          test -n "$ASG_ACCEPTANCE_STORE_PASSWORD" || { echo 'ASG signing password is unavailable.'; exit 1; }
+          ./gradlew assembleDebug assembleAcceptance assembleAcceptanceAndroidTest -PasgAcceptanceInstrumentation=true --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../agentstate-guard-debug.apk
+          cp app/build/outputs/apk/acceptance/app-acceptance.apk ../agentstate-guard-acceptance.apk
+          cp app/build/outputs/apk/androidTest/acceptance/app-acceptance-androidTest.apk ../agentstate-guard-acceptance-test.apk
+
+      - name: Verify pinned APK signing identity
+        if: github.event_name == 'push'
+        run: |
+          python3 scripts/verify_android_signer.py --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner" --certificate android/acceptance-signing-certificate.sha256 --apk agentstate-guard-debug.apk --report artifacts/android-debug-signer.json
+          python3 scripts/verify_android_signer.py --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner" --certificate android/acceptance-signing-certificate.sha256 --apk agentstate-guard-acceptance.apk --report artifacts/android-acceptance-signer.json
+          python3 scripts/verify_android_signer.py --apksigner "$ANDROID_HOME/build-tools/34.0.0/apksigner" --certificate android/acceptance-signing-certificate.sha256 --apk agentstate-guard-acceptance-test.apk --report artifacts/android-acceptance-test-signer.json
+
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: github.event_name == 'push' && success()
         with:
           name: agentstate-guard-debug.apk
           path: agentstate-guard-debug.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: github.event_name == 'push' && success()
+        with:
+          name: agentstate-guard-acceptance.apk
+          path: agentstate-guard-acceptance.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        if: github.event_name == 'push' && success()
+        with:
+          name: agentstate-guard-acceptance-test.apk
+          path: agentstate-guard-acceptance-test.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
         if: always()
+        with:
+          name: android-signer-evidence
+          path: artifacts/android-*-signer.json
+          if-no-files-found: warn
 
       - name: Preserve actual Android unit results
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882

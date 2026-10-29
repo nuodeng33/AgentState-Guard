@@ -1,5 +1,9 @@
 # Current State
 
+### 2026-10-29 phase33 — fixed signing source, native build pending
+
+User authorized all necessary steps and requested unattended continuation. Dedicated development/acceptance signing identity is protected locally and stored as encrypted repository secrets; only its public fingerprint is in Git. Trusted push distributions require the fixed identity and an exact signer gate; PR jobs receive no signing material. Parallelcom.agentstate.guard.acceptance preserves the old mismatched-certificate app/data. Opt-in real-Core Android instrumentation compiles without UI injection and requires an explicit owned fixture; ordinary CI does not claim this fixture ran. Nine new signer gate tests and actual SDK wrong/right-identity checks passed; native Gradle compilation/current CI and MuMu install/update/protocol remain pending. See [phase33](phases/33-android-signing-continuity.md). Do not delete signing material during cleanup or infer any new UI/pairing pass.
+
 ### 2026-10-29 current product baseline d31e2a7 — native/mobile interaction incomplete
 
 All four exact-product workflows succeeded: Core40833591873, DesktopWindows40833592049, Android40833591922, Emulator40833591719. User selected existing native Codex login. Two separate actual scoped model turns passed: production CodexProvider exact file verification, then real Work/session/run APIs with exactly-once dispatch, duplicate UUID returning the same run, durable sequential output, captured file version and normal archive/shutdown. Temporary credential copies/owned WSL roots were removed; existing login files were only read.
