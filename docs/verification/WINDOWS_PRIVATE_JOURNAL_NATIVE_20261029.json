@@ -1,0 +1,150 @@
+{
+  "status": "PASS",
+  "source_sha": "d424b15e73796e5ba3f9064950a0e6a00003c877",
+  "executable_sha256": "1e7ea79a0ecd8b7914bf222f31470640797868229b79e12bc950a1c7bedee46b",
+  "started_utc": "2026-10-28T20:37:51.160402+00:00",
+  "finished_utc": "2026-10-28T20:38:41.534953+00:00",
+  "scope": "Official packaged Windows Core, real OS Job termination during partial restore, fresh ports and original safety/file/journal assertions; not UI or a fault seam.",
+  "script_sha256": "f4f7bd8bec88a6042d6fd764b0c743c0d23766e7e8a5a4acfb48d93b1b3286e1",
+  "windows_job_sha256": "2bccfdea270bf553b383079fb98e1e2abe4f697dd5ddc2f6570d8e857f308d9a",
+  "long_paths_enabled": 0,
+  "cases": [
+    {
+      "kind": "compensation",
+      "status": "PASS",
+      "root_length": 158,
+      "legacy_receipt_tmp_length": 264,
+      "checks": {
+        "baseline_has_all_test_files": true,
+        "pre_restore_exact_changed_bytes": true,
+        "post_kill_real_interruption_three_evidence": true,
+        "automatic_restart_reconcile_terminal": true,
+        "compensation_restores_all_changed_preimages": true,
+        "original_uuid_returns_same_operation": true,
+        "request_does_not_create_second_operation": true,
+        "target_step_events_not_replayed": true,
+        "repeated_request_and_reconcile_preserve_files": true,
+        "reconcile_keeps_terminal_state": true,
+        "second_restart_keeps_terminal_state": true,
+        "second_restart_preserves_files": true,
+        "second_restart_does_not_replay_steps": true,
+        "second_restart_worker_window_stable": true,
+        "sqlite_integrity": true,
+        "no_owned_processes_and_no_listener": true
+      },
+      "before_kill_state": "RUNNING",
+      "post_kill_step_states": {
+        "VERIFIED": 1,
+        "INTENT": 1,
+        "PLANNED": 510
+      },
+      "job_terminations": 3,
+      "all_jobs_empty": true,
+      "cleanup_connections": [
+        {
+          "port": 26796,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26796,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26796,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26796,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26691,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26796,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26796,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26796,
+          "state": "TIME_WAIT",
+          "pid": 0
+        }
+      ],
+      "raw_report_relative": "recovery-final-d424b15-long-private-v2\\compensate\\attempt-1\\report.json",
+      "raw_report_sha256": "270eab7b7a0e677edd2bb4398dbfed66917a2d888e40e762dec7c6e27e2d6e4b"
+    },
+    {
+      "kind": "external-edit-preserved",
+      "status": "PASS",
+      "root_length": 156,
+      "legacy_receipt_tmp_length": 262,
+      "checks": {
+        "baseline_has_all_test_files": true,
+        "pre_restore_exact_changed_bytes": true,
+        "post_kill_real_interruption_three_evidence": true,
+        "automatic_restart_reconcile_terminal": true,
+        "external_bytes_preserved": true,
+        "original_uuid_returns_same_operation": true,
+        "request_does_not_create_second_operation": true,
+        "target_step_events_not_replayed": true,
+        "repeated_request_and_reconcile_preserve_files": true,
+        "reconcile_keeps_terminal_state": true,
+        "second_restart_keeps_terminal_state": true,
+        "second_restart_preserves_files": true,
+        "second_restart_does_not_replay_steps": true,
+        "second_restart_worker_window_stable": true,
+        "sqlite_integrity": true,
+        "no_owned_processes_and_no_listener": true
+      },
+      "before_kill_state": "RUNNING",
+      "post_kill_step_states": {
+        "VERIFIED": 1,
+        "INTENT": 1,
+        "PLANNED": 510
+      },
+      "job_terminations": 3,
+      "all_jobs_empty": true,
+      "cleanup_connections": [
+        {
+          "port": 26993,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26876,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26972,
+          "state": "TIME_WAIT",
+          "pid": 0
+        },
+        {
+          "port": 26876,
+          "state": "TIME_WAIT",
+          "pid": 0
+        }
+      ],
+      "raw_report_relative": "recovery-final-d424b15-long-private-v2\\external\\attempt-1\\report.json",
+      "raw_report_sha256": "234fd03c0ead3f4cd6cc25845afb4026e23e9498a257e9c58029658b8ffdd17a"
+    }
+  ],
+  "prior_failures_preserved": [
+    "cc85317 external-only stopped before injection at long receipt path",
+    "d424 v1 observer used legacy MAX_PATH for real long receipt; independently demonstrated regular nonreparse file via extended I/O, fixed observer before v2",
+    "Old immediate exclusive-bind cleanup failures retained; current cleanup claims no owned processes and no listener, not absence of TIME_WAIT"
+  ]
+}

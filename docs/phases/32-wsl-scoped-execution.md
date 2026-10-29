@@ -13,3 +13,7 @@ AI advisory context verification moves to an owned request worker connection, pr
 Verification scope: source integration only. Actual model execution, final same-commit CI/MSI, native desktop interaction and final MuMu1 pairing are still open. Docker namespace refusal and unsupported Kimi confinement remain explicit. No user credentials copied, no merge/release, no Windows restart, no permanent bulk cleanup.
 
 Final current source validation:1749JUnit cases,1697passed52skipped0failure/error; parser verified. Frontend448passed55files and production build; Ruff/diff clean. New exact commit/package/native and model-task gates remain open.
+
+## Actual model/API and native package continuation
+
+User selected existing native Codex login. Current real model and actual managed Work/session/run APIs passed, with two distinct single-dispatch model tasks, exact file checks, durable output/file capture, duplicate UUID idempotency and owned cleanup. Four exact d31 workflows passed; actual local direct MSI upgrade and preserved records passed. Native GUI input/capture and MuMu1 signature continuity/pairing remain blocked and are not claimed complete. Signing choice requires user input; no old app removal. See [current evidence](../verification/NATIVE_MODEL_UPGRADE_20261029.json).

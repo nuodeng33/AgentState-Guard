@@ -1,5 +1,17 @@
 # Current State
 
+### 2026-10-29 current product baseline d31e2a7 — native/mobile interaction incomplete
+
+All four exact-product workflows succeeded: Core40833591873, DesktopWindows40833592049, Android40833591922, Emulator40833591719. User selected existing native Codex login. Two separate actual scoped model turns passed: production CodexProvider exact file verification, then real Work/session/run APIs with exactly-once dispatch, duplicate UUID returning the same run, durable sequential output, captured file version and normal archive/shutdown. Temporary credential copies/owned WSL roots were removed; existing login files were only read.
+
+Actual local d424 MSI was directly upgraded to d31 (exit0), old ProductCode removed, new registered, installed main/sidecar matching administrative MSI payload. Work, baseline, successful operation, repeated-request idempotency and actual file bytes passed reread. Installed main SHA45a043c7f698aaec5b0f82aed9f389382adebedefc23c7ed988861a1412315da; Core4743a374ee4dd47a17d1a01d4b7d1b1fa240be11f9bb105730e42bd1c7009856. First administrative extraction timeout from property-quoting form is retained; correctly quoted TARGETDIR succeeded. No uninstall/reinstall substituted for the upgrade.
+
+Installed native main/WebView accessibility loaded, but input failed with coordinate input geometry unavailable and fresh capture retries timed out. MuMu1 booted normally and its independent native capture also timed out. The bounded ASG test session ended; original six business files were restored byte-exact and never started. Test MSI remains installed/idle. MuMu2/5 remained unchanged.
+
+Mobile d31 APK verification passed but preserving-data update was rejected INSTALL_FAILED_UPDATE_INCOMPATIBLE. Old/new/local-debug certificates differ; current CI uses fresh ephemeral debug signing and no preserved key. Old application/data remain intact, no uninstall or signature bypass. User signing-identity decision is pending: fixed dedicated CI signing plus separate acceptance package, or provide the old keystore. No signing material was created/uploaded. Native desktop interaction, final pairing and wider unsupported-provider boundaries are not complete. No merge/release/reboot/bulk deletion. See [fresh evidence](verification/NATIVE_MODEL_UPGRADE_20261029.json).
+
+Historical d424 long-journal interruption reports are retained for their own artifact; both raw report SHA256 values were independently rechecked against local files. They are not rerun/represented as new d31 interruption tests. Product code remains exactly d31; this checkpoint is documentation/evidence only.
+
 ### 2026-10-29 scoped WSL connection source verified
 
 Current pending WSL scope proof/provider integration passed fresh real Ubuntu canaries, app-server initialize/config/read and read-only/write idle thread ACKs with owned empty CODEX_HOME, zero model turns and normal cleanup. Real EOF startup defect was missing default_permissions; launch now defaults to the issued read-only profile and rejects default drift. Final current fullbackend1697passed52skipped0failure/error (1749JUnit cases), project parser verified /tmp/asg-resume-final-20261029.xml. Full frontend448passed55files plus production build, scopedRuff and diff checks pass. Original C businessfiles still match allsix backup hashes. No model execution/new-package/native GUI/mobile completion inferred. See [phase32](phases/32-wsl-scoped-execution.md).

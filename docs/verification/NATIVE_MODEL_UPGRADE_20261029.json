@@ -1,0 +1,114 @@
+{
+  "product_commit": "d31e2a79a1aa8c50b1705e9d42ded7ae27afd7aa",
+  "overall_status": "INCOMPLETE",
+  "scope": "Fresh source/provider/API and local direct MSI upgrade; native input/mobile blocked",
+  "provider": {
+    "result": "PASS",
+    "model_turns_sent": 1,
+    "model_file_checks": {
+      "exact_bytes": true,
+      "sha256": "99bd0f3423e585edb9e55c7cc0808aa7c4312ac295ab214df8c812e82669657d",
+      "witness_preserved": true
+    },
+    "model_seconds": 10.92,
+    "owned_provider_pids_after_close": [],
+    "owned_root_cleanup": {
+      "removed": true
+    },
+    "scope": "Actual source integration using user-selected existing native Codex login"
+  },
+  "managed_api": {
+    "result": "PASS",
+    "model_turns_sent": 1,
+    "checks": {
+      "exact_file": true,
+      "witness_preserved": true,
+      "same_uuid_same_run": true,
+      "sent_once": true,
+      "durable_output": true,
+      "sequential_journal": true,
+      "actual_file_version": true
+    },
+    "seconds": 15.5,
+    "session_archived": true,
+    "runtime_closed": true,
+    "owned_root_cleanup": {
+      "removed": true
+    },
+    "scope": "Actual source integration using user-selected existing native Codex login"
+  },
+  "model": "gpt-6.1-sol",
+  "installation": {
+    "msi_sha256": "dc47e0782c3ced763551d62ec17a853aa3753335cd2b9d248f01474e9c404b6e",
+    "new_product_code": "{0E56F6F8-9443-42F3-991C-92CD18A9A9DC}",
+    "old_product_code": "{7F925592-4105-4C0F-BA58-2ACB1E895DC9}",
+    "exit_code": 0,
+    "elapsed_seconds": 0.53,
+    "reboot_requested": false,
+    "old_product_removed": true,
+    "new_product_registered": true,
+    "installed_matches_extracted_msi_payload": true
+  },
+  "payload_hashes": {
+    "agentstate-guard.exe": "45a043c7f698aaec5b0f82aed9f389382adebedefc23c7ed988861a1412315da",
+    "agentguard-sidecar.exe": "4743a374ee4dd47a17d1a01d4b7d1b1fa240be11f9bb105730e42bd1c7009856"
+  },
+  "upgrade_records": {
+    "result": "PASS",
+    "checks": {
+      "work_exactly_preserved": true,
+      "baseline_preserved": true,
+      "successful_operation_preserved": true,
+      "same_request_not_replayed": true,
+      "actual_file_preserved": true
+    },
+    "scope": "Old installed Core seed, direct MSI upgrade, new installed Core reread; no desktop UI claim"
+  },
+  "native": {
+    "main_webview_accessibility_loaded": true,
+    "input_status": "BLOCKED",
+    "click_error": "coordinate input geometry is unavailable",
+    "capture_error": "FrameArrived/window capture timed out",
+    "original_restored": true,
+    "original_database_started": false,
+    "owned_job_active_after": 0,
+    "test_window_closed": true
+  },
+  "mobile": {
+    "instance": 1,
+    "preserved_old_app_and_data": true,
+    "update_status": "REJECTED",
+    "reason": "INSTALL_FAILED_UPDATE_INCOMPATIBLE",
+    "capture_status": "BLOCKED",
+    "native_pairing_acceptance": "NOT_COMPLETED",
+    "signing_decision_pending": true
+  },
+  "protected_mumu_instances_unchanged": {
+    "2": true,
+    "5": true
+  },
+  "ci": {
+    "core": {
+      "run_id": 40833591873,
+      "conclusion": "success"
+    },
+    "windows": {
+      "run_id": 40833592049,
+      "conclusion": "success"
+    },
+    "android": {
+      "run_id": 40833591922,
+      "conclusion": "success"
+    },
+    "emulator": {
+      "run_id": 40833591719,
+      "conclusion": "success"
+    }
+  },
+  "cleanup": {
+    "bulk_permanent_deletion": false,
+    "original_data_preserved": true,
+    "signing_key_created_or_uploaded": false
+  },
+  "credential_source_modified_by_tests": false
+}
