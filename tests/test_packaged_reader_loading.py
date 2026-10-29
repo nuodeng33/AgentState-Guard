@@ -38,3 +38,19 @@ def test_domain_helper_loads_all_four_adjacent_raw_sources(tmp_path, monkeypatch
     source = protection_domains._helper_source()
     compile(source, 'packaged-domain-reader', 'exec')
     assert all(name in source for name in ['_asg_applications', '_asg_sessions', '_asg_processes'])
+
+
+def test_scope_probe_loads_its_independently_audited_raw_source(tmp_path, monkeypatch):
+    import ast
+
+    from agentguard.execution import scope_probe, scope_readiness
+
+    _bytecode_metadata(scope_probe, tmp_path, monkeypatch)
+    source = scope_readiness.probe_source()
+    tree = ast.parse(source)
+    compile(source, "packaged-scope-probe", "exec")
+    imports = {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    imports.update(alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
+    assert imports <= {"__future__", "errno", "hashlib", "json", "os", "re", "secrets", "signal", "socket",
+                       "stat", "subprocess", "sys", "tempfile", "selectors", "time"}
+    assert "def probe(" in source and "EXECUTION_SCOPE_CLEANUP_FAILED" in source

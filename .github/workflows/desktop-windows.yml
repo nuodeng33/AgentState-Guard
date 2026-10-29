@@ -119,6 +119,7 @@ jobs:
             --add-data "agentguard/discovery/session_metadata.py;agentguard/discovery" `
             --add-data "agentguard/discovery/probes/container_processes.py;agentguard/discovery/probes" `
             --add-data "agentguard/recovery/protection_helper.py;agentguard/recovery" `
+            --add-data "agentguard/execution/scope_probe.py;agentguard/execution" `
             desktop/src-tauri/desktop_sidecar.py
 
       - name: Verify packaged audited reader sources

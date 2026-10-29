@@ -292,8 +292,8 @@ def test_unix_codex_requires_verified_scope_and_does_not_guess_from_platform():
     assert client.initialize()["scope_enforcement"] == "UNAVAILABLE"
     with pytest.raises(ProviderError, match="SCOPE_UNAVAILABLE"):
         client.create_session("/work")
-    verified = CodexProvider(codex_rpc(initialize=initialize), scope_verified=True)
-    assert verified.initialize()["write"] is True
+    caller_flag = CodexProvider(codex_rpc(initialize=initialize), scope_verified=True)
+    assert caller_flag.initialize()["write"] is False
 
 
 def test_reply_failure_is_reported_and_cannot_reconsume_native_request():

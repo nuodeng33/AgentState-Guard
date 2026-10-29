@@ -13,6 +13,7 @@ from collections.abc import Callable
 from agentguard.core.sanitizer import sanitize_text
 
 from .protocol import ProtocolError, RpcProcess, RpcRemoteError
+from .scope_readiness import ScopeReadinessError, UnixScopeProof
 
 
 class ProviderError(ProtocolError):
@@ -264,32 +265,65 @@ class CodexProvider(ProviderClient):
     provider = "CODEX"
     request_methods = frozenset({"item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/tool/requestUserInput"})
 
-    def __init__(self, rpc: RpcProcess, on_event=None, *, scope_verified: bool = False):
+    def __init__(self, rpc: RpcProcess, on_event=None, *, scope_verified: bool = False,
+                 scope_proof: UnixScopeProof | None = None):
         super().__init__(rpc, on_event)
-        self._scope_verified = scope_verified is True
+        # The legacy Python-only boolean is accepted for compatibility, but can
+        # never grant authority. Runtime supplies only a bound registry receipt.
+        self._scoped = scope_proof is not None
+        self._scope_proof = (scope_proof if isinstance(scope_proof, UnixScopeProof)
+                             and scope_proof.authentic() else None)
+        self._scope_channel = object()
 
     def initialize(self, timeout=30) -> dict:
         result = self.rpc.request("initialize", {"clientInfo": {"name": "agentstate_guard", "version": "0.9.0.dev0"},
-                                                 "capabilities": {"experimentalApi": False}}, timeout=timeout)
+                                                 "capabilities": {"experimentalApi": self._scope_proof is not None}}, timeout=timeout)
         self.rpc.notify("initialized")
         platform = result.get("platformFamily", result.get("platformOs"))
-        ready = self._scope_verified and platform in {"unix", "linux", "macos"}
+        user_agent = result.get("userAgent", "")
+        version = re.search(r"/(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)", user_agent) if isinstance(user_agent, str) else None
+        ready = (self._scope_proof is not None and platform in {"unix", "linux"}
+                 and result.get("platformOs") == "linux" and version is not None
+                 and version.group(1) == self._scope_proof.version)
         sandbox_status = "verified" if ready else "unverified"
-        if platform == "windows":
+        if platform == "windows" and not self._scoped:
             try:
                 sandbox_status = self.rpc.request("windowsSandbox/readiness", {}, timeout=timeout).get("status", "unknown")
             except RpcRemoteError:
                 sandbox_status = "unknown"
             ready = sandbox_status == "ready"
-        user_agent = result.get("userAgent", "")
-        version = re.search(r"/(\d+\.\d+\.\d+)", user_agent) if isinstance(user_agent, str) else None
         self.capabilities = {"provider": self.provider, "protocol": "codex-app-server", "server_version": version.group(1) if version else None,
                              "create": True, "resume": True, "fork": True, "send": True, "stream": True, "cancel": True,
                              "read_only_supported": ready, "write": ready, "scope_enforcement": "PROVIDER_SANDBOX" if ready else "UNAVAILABLE",
                              "sandbox_status": sandbox_status, "client_fs": False, "client_terminal": False}
         if not ready:
-            self.capabilities["reason_code"] = "EXECUTION_PROVIDER_SCOPE_UNVERIFIED"
+            self.capabilities["reason_code"] = ("EXECUTION_PROVIDER_VERSION_CHANGED" if self._scope_proof is not None
+                                                else "EXECUTION_PROVIDER_SCOPE_UNVERIFIED")
         return dict(self.capabilities)
+
+    def _scoped_configuration(self, effective):
+        if self._scope_proof is None:
+            raise ProviderError("EXECUTION_SCOPE_PROOF_INVALID")
+        try:
+            self._scope_proof.validate_configuration(effective)
+        except ScopeReadinessError as error:
+            raise ProviderError(error.reason_code) from error
+        servers = effective.get("mcp_servers", {})
+        if not isinstance(servers, dict) or len(servers) > 128 or any(not isinstance(name, str) for name in servers):
+            raise ProviderError("EXECUTION_PROVIDER_CONFIG_UNVERIFIED")
+        return tuple(sorted(servers))
+
+    def _scoped_ack(self, result, cwd, read_only):
+        proof = self._scope_proof
+        profile = _object(result.get("activePermissionProfile"))
+        roots = result.get("runtimeWorkspaceRoots")
+        sandbox = _object(result.get("sandbox"))
+        if (proof is None or profile != {"id": proof.profile(read_only), "extends": ":read-only"}
+                or roots != [proof.root] or _path_key(cwd) != _path_key(proof.root)
+                or sandbox.get("networkAccess") is not False
+                or not read_only and (sandbox.get("excludeSlashTmp") is not True
+                                      or sandbox.get("excludeTmpdirEnvVar") is not True)):
+            raise ProviderError("EXECUTION_PROVIDER_PROFILE_NOT_ACKNOWLEDGED")
 
     def create_session(self, cwd: str, native_id=None, mode="NEW", read_only=False, *, native_session_id=None, timeout=30) -> dict:
         self._ready()
@@ -313,8 +347,19 @@ class CodexProvider(ProviderClient):
                      'features': {'apps': False, 'multi_agent': False}, 'web_search': 'disabled',
                      'sandbox_workspace_write': {'network_access': False, 'exclude_tmpdir_env_var': True,
                                                  'exclude_slash_tmp': True}}
-        params = {"cwd": cwd, "sandbox": "read-only" if read_only else "workspace-write",
-                  "approvalPolicy": "on-request", "approvalsReviewer": "user", 'config': overrides}
+        tool_names = ()
+        if self._scoped:
+            tool_names = self._scoped_configuration(effective)
+            overrides.pop('sandbox_workspace_write')
+            overrides['features'].update(remote_control=False, remote_plugin=False)
+            if _path_key(cwd) != _path_key(self._scope_proof.root):
+                raise ProviderError("EXECUTION_PROVIDER_SCOPE_MISMATCH")
+            params = {"cwd": cwd, "permissions": self._scope_proof.profile(read_only),
+                      "runtimeWorkspaceRoots": [self._scope_proof.root],
+                      "approvalPolicy": "on-request", "approvalsReviewer": "user", 'config': overrides}
+        else:
+            params = {"cwd": cwd, "sandbox": "read-only" if read_only else "workspace-write",
+                      "approvalPolicy": "on-request", "approvalsReviewer": "user", 'config': overrides}
         if mode == "NEW":
             params["ephemeral"] = False
         else:
@@ -336,11 +381,16 @@ class CodexProvider(ProviderClient):
             raise ProviderError("EXECUTION_PROVIDER_SESSION_ID_MISMATCH")
         if sandbox.get("networkAccess") is True or any(not isinstance(root, str) or not _within(root, cwd) for root in sandbox.get("writableRoots", [])):
             raise ProviderError("EXECUTION_PROVIDER_SCOPE_MISMATCH")
+        if self._scoped:
+            self._scoped_ack(result, cwd, read_only)
         policy = {"type": expected, "networkAccess": False}
         if not read_only:
             policy.update(writableRoots=[cwd], excludeSlashTmp=True, excludeTmpdirEnvVar=True)
         with self._lock:
             self._sessions[session_id] = {"cwd": cwd, "read_only": read_only, "sandbox_policy": policy}
+            if self._scoped:
+                self._sessions[session_id].update(scope_channel=self._scope_channel, native_id=session_id,
+                    profile=self._scope_proof.profile(read_only), tool_names=tool_names)
         return {"native_session_id": session_id, "cwd": returned_cwd, "read_only": read_only,
                 "capabilities": dict(self.capabilities), "scope_enforcement": "PROVIDER_SANDBOX"}
 
@@ -350,10 +400,26 @@ class CodexProvider(ProviderClient):
             raise ProviderError("EXECUTION_PROVIDER_SCOPE_MISMATCH")
         if not isinstance(text, str) or not text:
             raise ProviderError("EXECUTION_PROVIDER_INPUT_INVALID")
-        result = self.rpc.request("turn/start", {"threadId": native_session_id, "cwd": session["cwd"],
-                                                  "input": [{"type": "text", "text": text}],
-                                                  "approvalPolicy": "on-request", "approvalsReviewer": "user",
-                                                  "sandboxPolicy": session["sandbox_policy"]}, timeout=timeout)
+        params = {"threadId": native_session_id, "cwd": session["cwd"],
+                  "input": [{"type": "text", "text": text}],
+                  "approvalPolicy": "on-request", "approvalsReviewer": "user"}
+        if self._scoped:
+            proof = self._scope_proof
+            if (proof is None or not proof.authentic() or session.get('scope_channel') is not self._scope_channel
+                    or session.get('native_id') != native_session_id
+                    or session.get('profile') != proof.profile(session['read_only'])
+                    or _path_key(session['cwd']) != _path_key(proof.root)):
+                raise ProviderError("EXECUTION_SCOPE_PROOF_INVALID")
+            effective = self.rpc.request('config/read', {'cwd': session['cwd'], 'includeLayers': False}, timeout=timeout).get('config')
+            if not isinstance(effective, dict) or self._scoped_configuration(effective) != session['tool_names']:
+                raise ProviderError("EXECUTION_PROVIDER_CONFIG_CHANGED")
+            # The same private channel/thread retains its last fully checked
+            # creation/resume/fork ACK. No unsupported empty-rollout resume and
+            # no policy-changing settings call precedes this fixed-profile turn.
+            params.update(permissions=session['profile'], runtimeWorkspaceRoots=[proof.root])
+        else:
+            params['sandboxPolicy'] = session['sandbox_policy']
+        result = self.rpc.request("turn/start", params, timeout=timeout)
         turn = _object(result.get("turn"))
         turn_id = _id(turn.get("id"))
         if not isinstance(turn_id, str):
@@ -362,6 +428,18 @@ class CodexProvider(ProviderClient):
             with self._lock:
                 self._turns[native_session_id] = turn_id
         return {"native_turn_id": turn_id, "status": {"inProgress": "running", "completed": "completed", "failed": "failed", "interrupted": "interrupted"}.get(turn.get("status"), "unknown")}
+
+    def invalidate_scope(self):
+        if self._scoped:
+            with self._lock:
+                self._scope_proof = None
+                self._scope_channel = object()
+                self._sessions.clear()
+                self.capabilities = {}
+
+    def close(self):
+        self.invalidate_scope()
+        super().close()
 
     def cancel(self, native_session_id: str, native_turn_id=None) -> dict:
         self._session(native_session_id)
@@ -500,9 +578,9 @@ class KimiProvider(ProviderClient):
         return {"outcome": {"outcome": "cancelled"}}
 
 
-def provider_client(provider: str, rpc: RpcProcess, on_event=None, *, scope_verified=False) -> ProviderClient:
+def provider_client(provider: str, rpc: RpcProcess, on_event=None, *, scope_verified=False, scope_proof=None) -> ProviderClient:
     if provider == "CODEX":
-        return CodexProvider(rpc, on_event, scope_verified=scope_verified)
+        return CodexProvider(rpc, on_event, scope_verified=scope_verified, scope_proof=scope_proof)
     if provider == "KIMI_CODE":
         return KimiProvider(rpc, on_event)
     raise ProviderError("EXECUTION_PROVIDER_UNSUPPORTED")

@@ -17,6 +17,7 @@ REQUIRED_READERS = (
     "agentguard/discovery/session_metadata.py",
     "agentguard/discovery/probes/container_processes.py",
     "agentguard/recovery/protection_helper.py",
+    "agentguard/execution/scope_probe.py",
 )
 SCHEMA = "packaged-readers-1"
 

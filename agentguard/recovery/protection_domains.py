@@ -8,6 +8,7 @@ import json
 import os
 import queue
 import re
+import secrets
 import shutil
 import subprocess
 import threading
@@ -658,6 +659,53 @@ class DomainRegistry:
                     'env': dict(self._docker_env)}
         return {'argv': ['wsl.exe', '--distribution', source['label'], '--cd', payload['root'],
                          '--exec', 'env', key + '=' + identity['store_path'], entry_path, *arguments]}
+
+    @_locked
+    def prepare_execution(self, identity: dict, provider: str):
+        """Probe only a connected WSL Codex; all other authority stays unchanged."""
+        from agentguard.execution.scope_readiness import (
+            PROBE_BOOTSTRAP,
+            PreparedExecution,
+            issue_proof,
+            probe_source,
+            profile_arguments,
+        )
+
+        launch = self.execution_launch(identity, provider)
+        source, _payload = self._bound(identity['binding'])
+        if provider != 'CODEX' or source['kind'] != 'WSL':
+            return PreparedExecution(launch)
+        keys = ('source_id', 'kind', 'guid', 'disk_identity', 'epoch', 'label', 'connected', 'running')
+        before = {key: source.get(key) for key in keys}
+        challenge = secrets.token_hex(16)
+        script = probe_source()
+        # execution_launch has already validated and canonicalized the entry.
+        # Probe that exact executable, not the originally supplied alias.
+        prefix = ['wsl.exe', '--distribution', source['label'], '--cd', identity['binding']['root'],
+                  '--exec', 'env', 'CODEX_HOME=' + identity['store_path']]
+        arguments = launch.get('argv', [])
+        if (len(arguments) != len(prefix) + 4 or arguments[:len(prefix)] != prefix
+                or arguments[-3:] != ['app-server', '--listen', 'stdio://']):
+            raise DomainError('EXECUTION_SCOPE_TRANSPORT_UNVERIFIED')
+        program = arguments[len(prefix)]
+        request = {'program': program, 'root': identity['binding']['root'],
+                   'root_identity': identity['binding']['identity']['root'], 'challenge': challenge}
+        raw = _run(['wsl.exe', '--distribution', source['label'], '--exec', 'python3', '-I', '-B', '-u', '-c',
+                    PROBE_BOOTSTRAP, hashlib.sha256(script.encode()).hexdigest()],
+                   input_bytes=json.dumps(script, ensure_ascii=True).encode() + b'\n' +
+                               json.dumps(request, ensure_ascii=True).encode() + b'\n', timeout=40)
+        report = _unwrap(_decode_json(raw))
+        # Repeat program, store and root verification after the potentially slow
+        # OS canary, then check the pinned distribution/connection epoch too.
+        after_launch = self.execution_launch(identity, provider)
+        after_source, _payload = self._bound(identity['binding'])
+        after = {key: after_source.get(key) for key in keys}
+        if (before != after or launch != after_launch or not after_source.get('connected')
+                or not after_source.get('running')):
+            raise DomainError('EXECUTION_SCOPE_IDENTITY_CHANGED')
+        launch = {**launch, 'argv': [*launch['argv'], *profile_arguments(challenge)]}
+        proof = issue_proof(identity, before, launch, report, challenge)
+        return PreparedExecution(launch, proof)
 
     @_locked
     def scan(self, binding: dict) -> dict:

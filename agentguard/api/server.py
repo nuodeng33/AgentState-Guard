@@ -1104,28 +1104,30 @@ def create_app(
         provider = _ai_provider
         if provider is None or not callable(getattr(provider, "analyze", None)):
             return JSONResponse(unavailable, status_code=503)
-        current_db = None
-        try:
+        def verified_context():
+            # Authority remains a fresh full read. Its connection is opened and
+            # closed on the same worker, so history validation cannot stall all
+            # unrelated ASGI requests while analysis is being prepared.
             current_db = _get_db()
-            projector = R4ReadProjectionService(
-                current_db,
-                SnapshotStore(snapshots_dir),
-            )
-            context = {
-                "runtime": projector.runtime(),
-                "agents": projector.agents(),
-                "supervision": projector.supervision(),
-                "recovery": projector.recovery(),
-                "changes": projector.changes(),
-            }
+            try:
+                projector = R4ReadProjectionService(current_db, SnapshotStore(snapshots_dir))
+                return {
+                    "runtime": projector.runtime(),
+                    "agents": projector.agents(),
+                    "supervision": projector.supervision(),
+                    "recovery": projector.recovery(),
+                    "changes": projector.changes(),
+                }
+            finally:
+                current_db.close()
+
+        try:
+            context = await run_in_threadpool(verified_context)
         except (OSError, sqlite3.DatabaseError, RuntimeError, TypeError, ValueError):
             return JSONResponse(
                 {**unavailable, "reason_code": "AI_AUTHORITY_UNAVAILABLE"},
                 status_code=503,
             )
-        finally:
-            if current_db is not None:
-                current_db.close()
         try:
             result = await run_in_threadpool(provider.analyze, context)
         except Exception:  # noqa: BLE001 - external provider boundary fails closed.

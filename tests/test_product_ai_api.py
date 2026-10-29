@@ -127,3 +127,46 @@ def test_ai_analyze_uses_server_projections_and_returns_stable_advisory(tmp_path
         "model": "product-analysis-model",
         "analyzed_at": "2026-08-14T01:02:03Z",
     }
+
+
+def test_current_authority_verification_does_not_block_health_or_work(tmp_path, monkeypatch):
+    """Heavy real projection work must not monopolize the API event loop."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    from agentguard.api.r4_projection import R4ReadProjectionService
+
+    entered, release = threading.Event(), threading.Event()
+    original = R4ReadProjectionService.runtime
+    loop_presence = []
+
+    def delayed_authority(projector):
+        if threading.current_thread().name != 'asg-verified-agent-reads':
+            try:
+                asyncio.get_running_loop()
+                loop_presence.append(True)
+            except RuntimeError:
+                loop_presence.append(False)
+            entered.set()
+            assert release.wait(10), 'authority validation was never released'
+        return original(projector)
+
+    monkeypatch.setattr(R4ReadProjectionService, 'runtime', delayed_authority)
+    provider = RecordingAnalysisProvider()
+    with _running_api(tmp_path, provider) as (base_url, token), ThreadPoolExecutor(max_workers=2) as pool:
+        analysis = pool.submit(_request, base_url, '/api/ai/analyze', token, {})
+        try:
+            assert entered.wait(3)
+            def read_while_verifying():
+                assert _request(base_url, '/api/health')[0] == 200
+                assert _request(base_url, '/api/v1/works', token)[0] == 200
+                return True
+            assert pool.submit(read_while_verifying).result(timeout=2)
+            assert not provider.contexts  # no model/provider analysis before verification completes
+            assert not analysis.done()
+        finally:
+            release.set()
+        assert analysis.result(timeout=5)[0] == 200
+    assert loop_presence == [False]
+    assert len(provider.contexts) == 1
+    assert set(provider.contexts[0]) == {'runtime', 'agents', 'supervision', 'recovery', 'changes'}

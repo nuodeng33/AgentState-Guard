@@ -1,0 +1,257 @@
+{
+  "source_snapshot": "resume-default-readonly",
+  "base_source_zip_sha256": "46a651491b776530ddcabd527a2642a57f8cd993484f390fec253dc1ec1da27d",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "model_turns_sent": 0,
+  "rpc": [
+    {
+      "method": "initialize",
+      "request_safe": {},
+      "response_safe": {
+        "platformFamily": "unix",
+        "platformOs": "linux",
+        "userAgent": "agentstate_guard/0.164.0-alpha.11.1 (Ubuntu 26.4.0; x86_64) xterm-256color (agentstate_guard; 0.9.0.dev0)"
+      }
+    },
+    {
+      "method": "config/read",
+      "request_safe": {
+        "cwd": "/tmp/asg-managed-scope-6jljxqno/workspace"
+      },
+      "profile_ids": [
+        "asg_ro_112461a598ae1efd1a9e47b527794a2b",
+        "asg_write_112461a598ae1efd1a9e47b527794a2b"
+      ]
+    },
+    {
+      "method": "thread/start",
+      "request_safe": {
+        "cwd": "/tmp/asg-managed-scope-6jljxqno/workspace",
+        "permissions": "asg_ro_112461a598ae1efd1a9e47b527794a2b",
+        "runtimeWorkspaceRoots": [
+          "/tmp/asg-managed-scope-6jljxqno/workspace"
+        ],
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "user",
+        "ephemeral": false
+      },
+      "response_safe": {
+        "cwd": "/tmp/asg-managed-scope-6jljxqno/workspace",
+        "sandbox": {
+          "type": "readOnly",
+          "networkAccess": false
+        },
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "user",
+        "activePermissionProfile": {
+          "id": "asg_ro_112461a598ae1efd1a9e47b527794a2b",
+          "extends": ":read-only"
+        },
+        "runtimeWorkspaceRoots": [
+          "/tmp/asg-managed-scope-6jljxqno/workspace"
+        ]
+      },
+      "thread_status": {
+        "type": "idle"
+      }
+    },
+    {
+      "method": "config/read",
+      "request_safe": {
+        "cwd": "/tmp/asg-managed-scope-6jljxqno/workspace"
+      },
+      "profile_ids": [
+        "asg_ro_112461a598ae1efd1a9e47b527794a2b",
+        "asg_write_112461a598ae1efd1a9e47b527794a2b"
+      ]
+    },
+    {
+      "method": "thread/start",
+      "request_safe": {
+        "cwd": "/tmp/asg-managed-scope-6jljxqno/workspace",
+        "permissions": "asg_write_112461a598ae1efd1a9e47b527794a2b",
+        "runtimeWorkspaceRoots": [
+          "/tmp/asg-managed-scope-6jljxqno/workspace"
+        ],
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "user",
+        "ephemeral": false
+      },
+      "response_safe": {
+        "cwd": "/tmp/asg-managed-scope-6jljxqno/workspace",
+        "sandbox": {
+          "type": "workspaceWrite",
+          "writableRoots": [],
+          "networkAccess": false,
+          "excludeTmpdirEnvVar": true,
+          "excludeSlashTmp": true
+        },
+        "approvalPolicy": "on-request",
+        "approvalsReviewer": "user",
+        "activePermissionProfile": {
+          "id": "asg_write_112461a598ae1efd1a9e47b527794a2b",
+          "extends": ":read-only"
+        },
+        "runtimeWorkspaceRoots": [
+          "/tmp/asg-managed-scope-6jljxqno/workspace"
+        ]
+      },
+      "thread_status": {
+        "type": "idle"
+      }
+    }
+  ],
+  "phases": [
+    "actual registry/work/scope/program/store binding complete",
+    "production prepare_execution returned bound proof",
+    "real read-only and write thread ACKs verified idle; no turn sent"
+  ],
+  "source_hashes": {
+    "agentguard/execution/scope_probe.py": "4396d4c694b2f375d68fd911f42cdf5afea3148d637eb23f7577ab71358827b7",
+    "agentguard/execution/scope_readiness.py": "f97c8e86af1d8e9edeb8d17ba4d49156b1fbb8e1215c86a4c6799ff07585e3e4",
+    "agentguard/execution/providers.py": "cb69085bea84f01dd77623da6290e81bb9c842e6b526bfc6f0eb16b2201003a0",
+    "agentguard/execution/runtime.py": "da2e778e1d00aa12740741ac1e9a82f091dfae68532af57697949ed1efd0b006",
+    "agentguard/recovery/protection_domains.py": "0ad688b913b0f22b3b39f8b3713dc01ea69979db68273218e629ce1706ed1769"
+  },
+  "ubuntu_running_before_connection": false,
+  "source": {
+    "source_id": "wsl-ca8ac2d259d3d6144068f1d0",
+    "kind": "WSL",
+    "label": "Ubuntu",
+    "epoch": "5cb9c62759979915246198a345783dc8f4fc24661ae9965103b7bf89b4fc992c",
+    "running": true,
+    "connected": true,
+    "guid": "{36eaad2e-8d92-4239-b881-45e5acf49aa7}",
+    "disk_digest": "df797dca34b4d0bfa3d3a4815a4278f5eae469edba401d4a149456f3c5604c9d"
+  },
+  "owned_registry_helper_pid": 320,
+  "owned_paths": {
+    "base": "/tmp/asg-managed-scope-6jljxqno",
+    "root": "/tmp/asg-managed-scope-6jljxqno/workspace",
+    "store": "/tmp/asg-managed-scope-6jljxqno/store",
+    "identity": {
+      "dev": 151,
+      "ino": 17
+    }
+  },
+  "root_fs_metadata": {
+    "effective_uid": 1000,
+    "root_uid": 1000,
+    "root_mode": "0o700",
+    "root_dev": 151,
+    "filesystem": [
+      "tmpfs",
+      "/tmp"
+    ]
+  },
+  "binding": {
+    "work_id": "92724be3-3d72-4396-a312-8be2d0aeee63",
+    "scope_id": "scope-4f4e9b3a-2d9e-4971-b9f5-fd25ca3d8d2a",
+    "root_identity": {
+      "dev": 151,
+      "ino": 18
+    },
+    "identity_digest": "80ab921c2cccb71fbdca14ea9eeafa73b2065bf923cf64d8f172e9115d150777",
+    "program_identity": "file-stat-sha256:8715e3e10f15d818a12a6d8691aa898a5f01ad1a0fd5a3ecbaa477f780284e66",
+    "store_identity": "3679d4fded1a8a5077767d1223f60199",
+    "store_status": "AVAILABLE"
+  },
+  "probe_challenge": "112461a598ae1efd1a9e47b527794a2b",
+  "probe_response": {
+    "ok": true,
+    "result": {
+      "schema_version": "unix-scope-proof-1",
+      "challenge": "112461a598ae1efd1a9e47b527794a2b",
+      "version": "0.164.0-alpha.11.1",
+      "root_identity": {
+        "dev": 151,
+        "ino": 18
+      },
+      "profile_digest": "ec390c5f4b85e2ac9f2152b02fdab49dd4eefe7948703ef87ff08fca4fd2eb50",
+      "checks": {
+        "network_control": true,
+        "write_inside": true,
+        "write_outside": true,
+        "write_network": true,
+        "readonly_inside": true,
+        "readonly_outside": true,
+        "readonly_network": true
+      },
+      "cleanup": true
+    }
+  },
+  "prepare_ms": 1265.999999999849,
+  "proof": {
+    "identity_digest": "80ab921c2cccb71fbdca14ea9eeafa73b2065bf923cf64d8f172e9115d150777",
+    "source_digest": "c2bfc4872944a8f09312f8d39b59e818f1551be12103e978f2c0b6445fc9b8e9",
+    "launch_digest": "3bb6fa4ce5917346272b152d8eb7d5be38ecfcb0c6fed31550789f44280403c9",
+    "profile_digest": "ec390c5f4b85e2ac9f2152b02fdab49dd4eefe7948703ef87ff08fca4fd2eb50",
+    "version": "0.164.0-alpha.11.1",
+    "root": "/tmp/asg-managed-scope-6jljxqno/workspace"
+  },
+  "provider_startup_stderr": [
+    "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/asg-managed-scope-6jljxqno/store\"))\n"
+  ],
+  "capabilities": {
+    "provider": "CODEX",
+    "protocol": "codex-app-server",
+    "server_version": "0.164.0-alpha.11.1",
+    "create": true,
+    "resume": true,
+    "fork": true,
+    "send": true,
+    "stream": true,
+    "cancel": true,
+    "read_only_supported": true,
+    "write": true,
+    "scope_enforcement": "PROVIDER_SANDBOX",
+    "sandbox_status": "verified",
+    "client_fs": false,
+    "client_terminal": false
+  },
+  "sessions": [
+    {
+      "read_only": true,
+      "native_id": "01a18679-353b-7891-a59b-9d9e30216201"
+    },
+    {
+      "read_only": false,
+      "native_id": "01a18679-3695-7ee0-a7aa-5925b72178a9"
+    }
+  ],
+  "owned_provider_pids_before_close": [
+    {
+      "pid": 527,
+      "state": "S",
+      "ppid": 526,
+      "start": 122589,
+      "comm": "codex"
+    },
+    {
+      "pid": 572,
+      "state": "S",
+      "ppid": 527,
+      "start": 122651,
+      "comm": "git"
+    },
+    {
+      "pid": 582,
+      "state": "S",
+      "ppid": 572,
+      "start": 122652,
+      "comm": "git"
+    },
+    {
+      "pid": 584,
+      "state": "S",
+      "ppid": 582,
+      "start": 122653,
+      "comm": "git-remote-http"
+    }
+  ],
+  "result": "PASS",
+  "owned_provider_pids_after_close": [],
+  "owned_root_cleanup": {
+    "removed": true
+  }
+}

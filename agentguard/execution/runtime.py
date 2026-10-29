@@ -162,9 +162,33 @@ class ExecutionRuntime:
             return self.provider_factory(session, on_message)
         from .protocol import RpcProcess
         from .providers import CodexProvider, KimiProvider
-        launch = self.domains.execution_launch(json.loads(session['identity_json']), session['provider'])
-        process = RpcProcess(**launch, on_message=on_message)
-        return (CodexProvider if session['provider'] == 'CODEX' else KimiProvider)(process, on_event=on_message)
+        from .scope_readiness import PreparedExecution, UnixScopeProof
+        identity = json.loads(session['identity_json'])
+        prepared = self.domains.prepare_execution(identity, session['provider'])
+        if not isinstance(prepared, PreparedExecution) or (
+                prepared.proof is not None and (not isinstance(prepared.proof, UnixScopeProof)
+                or not prepared.proof.matches(identity, prepared.launch))):
+            raise WorkError('EXECUTION_SCOPE_PROOF_INVALID')
+        process = RpcProcess(**prepared.launch, on_message=on_message)
+        if session['provider'] == 'CODEX':
+            return CodexProvider(process, on_event=on_message, scope_proof=prepared.proof)
+        return KimiProvider(process, on_event=on_message)
+
+    def _validate_selection(self, service, session):
+        try:
+            return service.validate_selection(session['application_id'], session['store_id'], session['scope_id'],
+                                              expected=json.loads(session['identity_json']))
+        except (OSError, RuntimeError, ValueError, sqlite3.Error):
+            with self.lock:
+                channel = self.channels.get(session['id'])
+                provider = channel.get('provider') if channel else None
+            if getattr(provider, '_scoped', False):
+                provider.invalidate_scope()
+                provider.rpc.close()
+                # Leave buffered output attached: the existing channel monitor
+                # persists it before retiring a closed connection. RPC close may
+                # join a callback, so it must run outside the runtime lock.
+            raise
 
     def _connect(self, session_id):
         channel = None
@@ -173,7 +197,7 @@ class ExecutionRuntime:
                 session = service.one('work_sessions', session_id)
                 if session['state'] != 'CONNECTING':
                     return
-                service.validate_selection(session['application_id'], session['store_id'], session['scope_id'], expected=json.loads(session['identity_json']))
+                self._validate_selection(service, session)
                 with self.lock:
                     if len(self.channels) >= 8:
                         raise WorkError('EXECUTION_CONNECTION_LIMIT', 503)
@@ -228,7 +252,7 @@ class ExecutionRuntime:
                 session, run = service.one('work_sessions', session_id), service.one('work_runs', run_id)
                 if run['state'] != 'QUEUED':
                     return
-                service.validate_selection(session['application_id'], session['store_id'], session['scope_id'], expected=json.loads(session['identity_json']))
+                self._validate_selection(service, session)
                 with self.lock:
                     channel = self.channels.get(session_id)
                     if not channel or channel['generation'] != run['generation'] or not channel['provider']:
@@ -416,7 +440,7 @@ class ExecutionRuntime:
         if not channel or not channel['provider'] or not run['native_turn_id'] or session['provider'] != 'CODEX':
             raise WorkError('RUN_RECONCILIATION_UNAVAILABLE')
         with self.service() as service:
-            service.validate_selection(session['application_id'], session['store_id'], session['scope_id'], expected=json.loads(session['identity_json']))
+            self._validate_selection(service, session)
         turn = None
         cursor = None
         for _ in range(10):
@@ -478,7 +502,7 @@ class ExecutionRuntime:
         try:
             with self.service() as service:
                 session = service.one('work_sessions', session_id)
-                service.validate_selection(session['application_id'], session['store_id'], session['scope_id'], expected=json.loads(session['identity_json']))
+                self._validate_selection(service, session)
                 row = service.conn.execute('SELECT payload_json FROM work_run_events WHERE run_id=? AND seq=? AND action_ref=?', (run_id, command.event_seq, command.action_ref)).fetchone()
                 action = json.loads(row[0])
                 with self.lock:
@@ -528,6 +552,9 @@ class ExecutionRuntime:
             if self.channels.get(channel['session_id']) is channel:
                 self.channels.pop(channel['session_id'], None)
         if channel['provider']:
+            invalidate = getattr(channel['provider'], 'invalidate_scope', None)
+            if invalidate is not None:
+                invalidate()
             channel['provider'].rpc.close()
 
     def close_session(self, session_id):

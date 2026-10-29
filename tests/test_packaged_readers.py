@@ -57,7 +57,7 @@ def test_exact_raw_checkout_bytes_are_verified_without_pyinstaller(tmp_path, mon
     monkeypatch.setattr(builtins, "__import__", guarded)
     result = verify_packaged_readers(executable, root, reader_factory=lambda _: FakeArchive(members))
     assert result["result"] == "PASS"
-    assert len(result["readers"]) == 4
+    assert len(result["readers"]) == 5
     for item in result["readers"]:
         assert item["sha256"] == hashlib.sha256(members[item["path"]]).hexdigest()
         assert item["size_bytes"] == len(members[item["path"]])

@@ -1,5 +1,9 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-10-29 scoped WSL connection source verified
+
+Current pending WSL scope proof/provider integration passed fresh real Ubuntu canaries, app-server initialize/config/read and read-only/write idle thread ACKs with owned empty CODEX_HOME, zero model turns and normal cleanup. Real EOF startup defect was missing default_permissions; launch now defaults to the issued read-only profile and rejects default drift. Final current fullbackend1697passed52skipped0failure/error (1749JUnit cases), project parser verified /tmp/asg-resume-final-20261029.xml. Full frontend448passed55files plus production build, scopedRuff and diff checks pass. Original C businessfiles still match allsix backup hashes. No model execution/new-package/native GUI/mobile completion inferred. See [phase32](phases/32-wsl-scoped-execution.md).
+
 ### 2026-10-29 current takeover — private journal path fix ready for package
 
 Goal remains full ASG functionality and real native acceptance, not complete. Latest human explicitly returned control ("可以了，你可以接手了"); the prior physicalEscape stop is revoked for ASG/MuMu1 only. Do not ask for permission again. Current native control remains technically blocked: AX text reads work, screenshot FrameArrived times out, clicks report coordinate geometry unavailable, Tab/F6 do not change pane focus. Alternative cua uses the same Sky capture and also fails. A diagnostic (not approval) question asks user to manually open New Work; do not invent that action if no reply. Backend work continues.

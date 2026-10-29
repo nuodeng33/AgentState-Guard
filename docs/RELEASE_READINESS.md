@@ -1,5 +1,9 @@
 # Release readiness — 2026-10-23
 
+### 2026-10-29 scoped WSL connection source verified
+
+Current pending WSL scope proof/provider integration passed fresh real Ubuntu canaries, app-server initialize/config/read and read-only/write idle thread ACKs with owned empty CODEX_HOME, zero model turns and normal cleanup. Real EOF startup defect was missing default_permissions; launch now defaults to the issued read-only profile and rejects default drift. Final current fullbackend1697passed52skipped0failure/error (1749JUnit cases), project parser verified /tmp/asg-resume-final-20261029.xml. Full frontend448passed55files plus production build, scopedRuff and diff checks pass. Original C businessfiles still match allsix backup hashes. No model execution/new-package/native GUI/mobile completion inferred. See [phase32](phases/32-wsl-scoped-execution.md).
+
 ### 2026-10-26 independent revalidation — native acceptance still open
 
 The user withdrew trust in earlier diagnostic/acceptance conclusions. Historical reports remain preserved but do not establish current acceptance. Fresh source fixes cover discovery-refresh failure, Work loading generations, UTC cache purity and over-capacity row-cache admission. Independent full regression: 1590 passed / 49 skipped; frontend 432 passed / 54 files; production build/typecheck, focused60, Ruff and diff checks passed. Fresh Windows source Core plus sandboxed production browser rendered the archived task body in346.86ms after the click and verified its hash; Core exited normally and original six business files/archive stayed unchanged. This is source browser evidence, not native MSI acceptance.

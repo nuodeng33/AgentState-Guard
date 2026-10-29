@@ -65,7 +65,8 @@ try {
             'agentguard/discovery/application_probe.py',
             'agentguard/discovery/session_metadata.py',
             'agentguard/discovery/probes/container_processes.py',
-            'agentguard/recovery/protection_helper.py'
+            'agentguard/recovery/protection_helper.py',
+            'agentguard/execution/scope_probe.py'
         )) {
             $sourcePath = Join-Path $root $reader
             $destinationPath = [IO.Path]::GetDirectoryName($reader).Replace('\', '/')

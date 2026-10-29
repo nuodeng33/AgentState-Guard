@@ -1,5 +1,9 @@
 # Implementation Log
 
+### 2026-10-29 scoped WSL connection source verified
+
+Current pending WSL scope proof/provider integration passed fresh real Ubuntu canaries, app-server initialize/config/read and read-only/write idle thread ACKs with owned empty CODEX_HOME, zero model turns and normal cleanup. Real EOF startup defect was missing default_permissions; launch now defaults to the issued read-only profile and rejects default drift. Final current fullbackend1697passed52skipped0failure/error (1749JUnit cases), project parser verified /tmp/asg-resume-final-20261029.xml. Full frontend448passed55files plus production build, scopedRuff and diff checks pass. Original C businessfiles still match allsix backup hashes. No model execution/new-package/native GUI/mobile completion inferred. See [phase32](phases/32-wsl-scoped-execution.md).
+
 ### 2026-10-29 private journal Windows path fix
 
 Verified-root private I/O fixes receipt/tmp260 failure without policy/ACL changes. Windows3.11 native17passed, fullbackend1631passed52skipped; source actual recovery/fault-seam external-edit PASS. New official package/actual interruption remains open. Rollback productcc85317; tests9df9b8a preserve CI resource isolation. See [phase31](phases/31-verified-read-snapshots.md).
