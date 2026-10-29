@@ -1,5 +1,9 @@
 # Rollback Ledger
 
+### Phase34 source — Device Link I/O responsive, native follow-up pending
+
+Actual enable5906ms exposed the generic5s UI deadline and ASGI blocking. Lifecycle calls now use serialized request workers, status materializes a coherent candidate snapshot, and only exact known lifecycle POSTs receive finite60s with visible existing progress/no replay. Source full1711passed52skipped, frontend455passed55files/build, related70passed, focused22passed1skipped; suites remain distinct. A1f91 CI controlled-change timing fixture correction retains strict post-write started_at/business assertions and uses the same20ms fixture cadence as other R4 suites. Android signing identity stays pinned; trusted-push versions now advance for genuine acceptance updates. See [phase34](phases/34-responsive-device-link.md). Exact next CI/phone protocol/update and native UI gates remain open.
+
 ### 2026-10-29 phase33 — fixed signing source, native build pending
 
 User authorized all necessary steps and requested unattended continuation. Dedicated development/acceptance signing identity is protected locally and stored as encrypted repository secrets; only its public fingerprint is in Git. Trusted push distributions require the fixed identity and an exact signer gate; PR jobs receive no signing material. Parallelcom.agentstate.guard.acceptance preserves the old mismatched-certificate app/data. Opt-in real-Core Android instrumentation compiles without UI injection and requires an explicit owned fixture; ordinary CI does not claim this fixture ran. Nine new signer gate tests and actual SDK wrong/right-identity checks passed; native Gradle compilation/current CI and MuMu install/update/protocol remain pending. See [phase33](phases/33-android-signing-continuity.md). Do not delete signing material during cleanup or infer any new UI/pairing pass.

@@ -61,6 +61,7 @@ jobs:
         env:
           ASG_ACCEPTANCE_KEYSTORE_PATH: ${{ runner.temp }}/asg-acceptance.p12
           ASG_ACCEPTANCE_STORE_PASSWORD: ${{ secrets.ASG_ACCEPTANCE_STORE_PASSWORD }}
+          ASG_ANDROID_VERSION_CODE: ${{ github.run_number }}
         run: |
           test -n "$ASG_ACCEPTANCE_STORE_PASSWORD" || { echo 'ASG signing password is unavailable.'; exit 1; }
           ./gradlew assembleDebug assembleAcceptance assembleAcceptanceAndroidTest -PasgAcceptanceInstrumentation=true --no-daemon

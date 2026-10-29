@@ -64,7 +64,7 @@ class RealCorePairingInstrumentedTest {
             }
             throw AssertionError("Owned Core fixture phase timeout: $phase")
         }
-        val repository = DeviceLinkRepository(store, signer, DeviceEndpointRediscovery { it.endpoint })
+        val repository = DeviceLinkRepository(store, signer, BoundDeviceRediscovery())
         var retainForRestart = false
         try {
             if (stage == "cleanup") {

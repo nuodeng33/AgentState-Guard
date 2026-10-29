@@ -4,6 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val ciVersionCode = providers.environmentVariable("ASG_ANDROID_VERSION_CODE").orNull?.let {
+    it.toIntOrNull()?.takeIf { code -> code in 1..2100000000 }
+        ?: throw GradleException("ASG Android version code must be a positive Android version integer")
+}
 val acceptanceStore = providers.environmentVariable("ASG_ACCEPTANCE_KEYSTORE_PATH").orNull
 val acceptancePassword = providers.environmentVariable("ASG_ACCEPTANCE_STORE_PASSWORD").orNull
 val hasAcceptanceSigning = !acceptanceStore.isNullOrBlank() && !acceptancePassword.isNullOrBlank()
@@ -17,8 +21,8 @@ android {
         applicationId = "com.agentstate.guard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.9.0-dev"
+        versionCode = ciVersionCode ?: 1
+        versionName = ciVersionCode?.let { "0.9.0-dev.$it" } ?: "0.9.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

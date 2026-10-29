@@ -81,6 +81,9 @@ def _running_change_api(
         assessment_provider=provider,
         discovery_service=discovery_service,
     )
+    # Match other R4 API fixtures: keep strict post-write started_at checks,
+    # without making a five-second watchdog race the five-second product cadence.
+    app.state.verified_agents._interval = 0.02
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
     )

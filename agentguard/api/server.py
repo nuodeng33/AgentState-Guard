@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import secrets
@@ -1197,10 +1198,17 @@ def create_app(
         except (OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
             device_link_controller = UnavailableDeviceLinkController()
     app.state.device_link_controller = device_link_controller
+    device_link_control_lock = asyncio.Lock()
+
+    async def _device_link_control(action):
+        # LAN inspection, the fixed firewall helper and listener joins are I/O.
+        # Serialize lifecycle transitions without occupying the ASGI event loop.
+        async with device_link_control_lock:
+            return await run_in_threadpool(action)
 
     @app.on_event("shutdown")
     async def shutdown_device_link():
-        device_link_controller.disable()
+        await _device_link_control(device_link_controller.disable)
 
     def _device_link_error(error):
         return JSONResponse(
@@ -1221,7 +1229,7 @@ def create_app(
         from ..device_link.errors import DeviceLinkError
 
         try:
-            return device_link_controller.enable()
+            return await _device_link_control(device_link_controller.enable)
         except DeviceLinkError as error:
             return _device_link_error(error)
 
@@ -1230,7 +1238,7 @@ def create_app(
         from ..device_link.errors import DeviceLinkError
 
         try:
-            return device_link_controller.disable()
+            return await _device_link_control(device_link_controller.disable)
         except DeviceLinkError as error:
             return _device_link_error(error)
 
@@ -1239,7 +1247,7 @@ def create_app(
         from ..device_link.errors import DeviceLinkError
 
         try:
-            return device_link_controller.refresh_network()
+            return await _device_link_control(device_link_controller.refresh_network)
         except DeviceLinkError as error:
             return _device_link_error(error)
 
@@ -1248,7 +1256,7 @@ def create_app(
         from ..device_link.errors import DeviceLinkError
 
         try:
-            return device_link_controller.create_pairing_invitation()
+            return await _device_link_control(device_link_controller.create_pairing_invitation)
         except DeviceLinkError as error:
             return _device_link_error(error)
 

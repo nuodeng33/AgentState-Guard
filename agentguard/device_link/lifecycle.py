@@ -30,31 +30,34 @@ class DeviceLinkController:
         self.identity = identity
 
     def status(self) -> dict[str, object]:
+        candidate = self._candidate
+        enabled = self._enabled and candidate is not None
+        reason = self._last_reason_code
         result = {
             "schema_version": "device-link-lifecycle-1",
-            "enabled": self._enabled,
+            "enabled": enabled,
             "status": (
                 "ENABLED"
-                if self._enabled
+                if enabled
                 else "DEGRADED"
-                if self._last_reason_code is not None
+                if reason is not None
                 else "DISABLED"
             ),
             "endpoint": (
-                f"https://{self._candidate.address}:8788"
-                if self._enabled and self._candidate is not None
+                f"https://{candidate.address}:8788"
+                if enabled and candidate is not None
                 else None
             ),
-            "address": self._candidate.address
-            if self._enabled and self._candidate
+            "address": candidate.address
+            if enabled and candidate
             else None,
-            "subnet": self._candidate.subnet
-            if self._enabled and self._candidate
+            "subnet": candidate.subnet
+            if enabled and candidate
             else None,
             "reason_code": (
                 "DEVICE_LINK_ENABLED"
-                if self._enabled
-                else self._last_reason_code or "DEVICE_LINK_DISABLED"
+                if enabled
+                else reason or "DEVICE_LINK_DISABLED"
             ),
         }
         firewall_status = getattr(self._firewall, "status", None)
@@ -90,11 +93,12 @@ class DeviceLinkController:
         }
 
     def create_pairing_invitation(self) -> dict[str, object]:
-        if not self._enabled or self._candidate is None or self.gateway is None:
+        candidate, gateway = self._candidate, self.gateway
+        if not self._enabled or candidate is None or gateway is None:
             raise DeviceLinkError(
                 409, "DEVICE_LINK_DISABLED", "Enable Device Link before pairing"
             )
-        return self.gateway.create_pairing_invitation(self._candidate.address, 8788)
+        return gateway.create_pairing_invitation(candidate.address, 8788)
 
     def enable(self) -> dict[str, object]:
         if self._enabled:

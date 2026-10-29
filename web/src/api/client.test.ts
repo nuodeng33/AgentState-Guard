@@ -534,7 +534,7 @@ describe('existing edit methods', () => {
 
 
 describe('finite API response deadlines', () => {
-  it.each(['/api/v1/recovery/previews', '/api/v1/protection/scopes', '/api/v1/protection/scopes/scope-1/capture'])('allows slow disk POST %s', async path => {
+  it.each(['/api/v1/recovery/previews', '/api/v1/protection/scopes', '/api/v1/protection/scopes/scope-1/capture', '/api/v1/device-link/enable', '/api/v1/device-link/disable', '/api/v1/device-link/network/refresh'])('allows slow bounded I/O POST %s', async path => {
     vi.useFakeTimers();
     try {
       const { fetchImpl, calls } = mockFetch([() => jsonResponse({ token: 'a' }), () => new Promise(resolve => setTimeout(() => resolve(jsonResponse({ status: 'READY' })), 8735))]);
@@ -543,17 +543,17 @@ describe('finite API response deadlines', () => {
       expect(await pending).toEqual({ status: 'READY' }); expect(calls).toHaveLength(2);
     } finally { vi.useRealTimers(); }
   });
-  it('bounds a stalled preview at 60 seconds without replay', async () => {
+  it.each(['/api/v1/recovery/previews', '/api/v1/device-link/enable'])('bounds stalled I/O POST %s at 60 seconds without replay', async path => {
     vi.useFakeTimers();
     try {
       const { fetchImpl, calls } = mockFetch([() => jsonResponse({ token: 'a' }), () => new Promise(() => {})]);
-      const pending = createApiClient(fetchImpl).post('/api/v1/recovery/previews', {}).catch(error => error);
+      const pending = createApiClient(fetchImpl).post(path, {}).catch(error => error);
       let done = false; void pending.then(() => { done = true; });
       await vi.advanceTimersByTimeAsync(59999); expect(done).toBe(false);
       await vi.advanceTimersByTimeAsync(1); expect(await pending).toMatchObject({ reasonCode: 'API_REQUEST_TIMEOUT' }); expect(calls).toHaveLength(2);
     } finally { vi.useRealTimers(); }
   });
-  it.each(['/api/v1/recovery/previews/extra', '/api/v1/recovery/previews?x=1', '/api/v1/protection/scopes/x/capture/extra', '/api/v1/protection/scopes/x/y/capture'])('keeps 5 second deadline for similar path %s', async path => {
+  it.each(['/api/v1/recovery/previews/extra', '/api/v1/recovery/previews?x=1', '/api/v1/protection/scopes/x/capture/extra', '/api/v1/protection/scopes/x/y/capture', '/api/v1/device-link/pairings', '/api/v1/device-link/enable/extra', '/api/v1/device-link/network/refresh?x=1'])('keeps 5 second deadline for similar path %s', async path => {
     vi.useFakeTimers();
     try {
       const { fetchImpl } = mockFetch([() => jsonResponse({ token: 'a' }), () => new Promise(() => {})]);

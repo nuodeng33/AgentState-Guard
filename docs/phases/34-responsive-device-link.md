@@ -1,0 +1,19 @@
+# Phase34 — responsive Device Link operations and real version upgrades
+
+Requirement: ASG-GUI-001/ASG-REL-003, continue unattended functional acceptance without adapting OS/security to the software. Base signing1f91c19; preserve legacy app/data, original desktop backup, protected MuMu2/5, private signing identity and failed evidence.
+
+Actual installed Windows Core LAN preflight succeeded through the production physical-private-LAN selector, fixed elevation helper and real TLS listener. Enable took5906ms, exceeding the UI's generic5s POST budget. LAN/firewall/listener calls also ran synchronously on the ASGI loop. Three controlled lifecycle gates reproduced blocked health/Work reads; three frontend lifecycle deadline regressions reproduced false API_REQUEST_TIMEOUT. No mocked network readiness is presented as native evidence.
+
+Lifecycle I/O now runs on request workers behind one per-app asynchronous sequencing lock; shutdown and invitation creation use that same ordering. Status copies candidate/enabled/reason so concurrent shutdown cannot produce mixed enabled/empty-address data. A deterministic mixed-snapshot regression failed before its fix. Real physical LAN/subnet/firewall/TLS guards, pairing authority and writer full verification remain unchanged.
+
+Only the exact enable/disable/network-refresh POSTs join prior disk operations at a finite60s whole-response budget. GET/other mutations remain5s, bootstrap/SSE unchanged, no automatic mutation resend. Existing visible busy labels remain. This accommodates genuine setup work while independent reads remain responsive; it does not claim the firewall operation itself became instantaneous.
+
+Trusted push Android artifacts now use positive bounded github.run_number as versionCode and visible development version suffix. This allows a genuine later version update of the stable-signed acceptance package rather than treating an identical-version reinstall as an upgrade. Local/PR fixtures stayversion1 without signing credentials. Release distribution policy is not introduced.
+
+The1f91 CoreCI Python3.12 run40890607093/job123506053390 failed an old controlled-change observer fixture: five-second fresh-start watchdog raced the default five-second reader interval. Other R4 fixtures already use20ms. This fixture now matches them while retaining every target, approval, rejection and strict started_at assertion. No product timeout or authority check was weakened for this failure. The exact local pre-fix case took6.02s and passed, preserving its timing-dependent nature; raw CI failure log and prior reports remain retained. Corrected related70tests passed.
+
+Source verification: one full JUnit1763cases,1711passed52skipped0failure/error (/tmp/asg-phase34-full.xml), separately related70pass; focused lifecycle/firewall22pass1skip; full frontend455pass55files and production build; Ruff/YAML/trusted-secret boundary/Bash syntax/diff checks passed. No totals from different runs are represented as one suite. Product code was unchanged by the final fixture-only correction. Exact next CI/native artifacts still required.
+
+Opt-in phone instrumentation now uses the real production BoundDeviceRediscovery too. Same-address recovery does not prove a successful broadcast/new-address discovery; record those scopes separately. A phone protocol fixture must use actual private LAN/TLS, real AndroidKeyStore and source QR decoder, no UI injection or fake transport. Current independent acceptance APK installation under pinned signing succeeded while legacycom.agentstate.guard metadata/UID remained unchanged; paired version-update and protocol stages remain to be executed.
+
+Original C business data stays restored/untouched. No Windows reboot, global security/network changes, uninstallation/data wipe, merged release or private-key disclosure. Native desktop/camera UI remains unverified if its control tool cannot provide frames/geometry.
