@@ -1,7 +1,4 @@
-/* AgentState Guard product console theme — dark security operations console.
-   Shared visual language with the Android app (same token names and values).
-   Color is a secondary channel; labels always carry the meaning. */
-
+/* Desktop navigation and shared product surfaces. */
 @import './tokens.css';
 
 /* Legacy names used across Guard pages, mapped onto the shared tokens. */
@@ -19,7 +16,7 @@
   --success: var(--st-running);
   --success-bg: rgba(141, 211, 160, 0.1);
   --success-border: rgba(141, 211, 160, 0.34);
-  --warning: #e7c27a;
+  --warning: var(--st-waiting);
   --warning-bg: rgba(231, 194, 122, 0.1);
   --warning-border: rgba(231, 194, 122, 0.36);
   --danger: var(--st-failed);
@@ -105,7 +102,7 @@ code {
   min-height: 100vh;
   display: flex;
   flex-direction: row;
-  background: radial-gradient(120% 80% at 50% 0%, #20252a 0%, var(--bg-space) 55%, var(--bg-space-edge) 100%);
+  background: var(--bg-space);
 }
 
 .app-main {
@@ -954,27 +951,34 @@ code {
 }
 
 /* Work navigation stays at left; all auxiliary pages are inside Settings. */
-.work-sidebar { position: sticky; top: 0; height: 100dvh; width: 244px; flex: 0 0 244px; display: flex; flex-direction: column; gap: 18px; padding: 20px 12px 12px; border-right: 1px solid var(--border-1); background: var(--bg-surface-1); color: var(--text-1); z-index: 20; }
-.work-sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 12px; font-size: 13px; font-weight: 600; }
-.work-sidebar-brand .brand-mark { color: var(--work); flex: none; }
-.work-sidebar button { font: inherit; text-align: left; color: inherit; border: 0; cursor: pointer; }
-.work-sidebar button:disabled { opacity: .45; cursor: not-allowed; }
-.work-sidebar button:focus-visible, .settings-sections button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.work-sidebar-create { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 12px; border-radius: var(--r-control); background: var(--bg-surface-2); }
-.work-sidebar-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
-.work-sidebar-home { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: var(--r-control); background: transparent; }
-.work-sidebar-search { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border-1); border-radius: var(--r-control); background: var(--bg-inset); color: var(--text-1); font: inherit; font-size: 12px; }
-.work-sidebar-search:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.work-sidebar-no-match { padding: 4px 10px; margin: 0; color: var(--text-3); font-size: 12px; }
-.work-sidebar-list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 3px; }
-.work-sidebar-list button { flex: none; width: 100%; padding: 10px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: var(--r-control); background: transparent; font-size: 13px; }
-.work-sidebar button:hover:not(:disabled), .work-sidebar [aria-current="page"] { background: var(--bg-surface-2); }
-.work-sidebar-profile { position: relative; margin-top: auto; flex: none; }
-.work-profile-trigger { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 8px; border-radius: var(--r-control); background: transparent; font-size: 13px; }
-.work-profile-trigger > span:nth-child(2) { flex: 1; }
-.work-local-avatar { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--bg-surface-3); color: var(--text-2); font-size: 12px; }
-.work-profile-popover { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; padding: 5px; border: 1px solid var(--border-2); border-radius: var(--r-card); background: var(--bg-surface-2); box-shadow: var(--e-3); }
-.work-profile-popover button { display: flex; align-items: center; gap: 10px; padding: 10px; width: 100%; border-radius: var(--r-control); background: transparent; }
+
+.work-sidebar { position:sticky; top:0; height:100dvh; width:226px; flex:0 0 226px; display:flex; flex-direction:column; gap:10px; padding:17px 12px 10px; border-inline-end:1px solid var(--border-1); background:var(--sidebar-base); color:var(--text-1); z-index:20; }
+.work-sidebar-brand { display:flex; align-items:center; gap:9px; padding:2px 4px 10px; font-size:14px; line-height:22px; letter-spacing:-.025em; }
+.workspace-brand-glyph { display:grid; place-items:center; width:30px; height:30px; border-radius:8px; background:var(--accent-control); color:var(--control-on-accent); box-shadow:inset 0 0 0 1px #fff2; }
+.workspace-brand-glyph .brand-mark { width:20px; height:20px; color:inherit; }
+.work-sidebar button { font:inherit; text-align:start; color:inherit; border:0; cursor:pointer; }
+.work-sidebar button:disabled { opacity:.45; cursor:not-allowed; }
+.work-sidebar button:focus-visible, .settings-sections button:focus-visible { outline:2px solid var(--focus-color); outline-offset:1px; }
+.work-sidebar-create, .work-sidebar-home, .work-sidebar-list button, .work-profile-trigger { display:flex; align-items:center; gap:9px; width:100%; min-height:35px; padding:6px 10px; border-radius:7px; background:transparent; }
+.work-sidebar .work-sidebar-create { font-weight:600; background:var(--bg-surface-1); box-shadow:inset 0 0 0 1px var(--border-2),var(--e-1); }
+.work-sidebar-nav { flex:1; min-height:0; display:flex; flex-direction:column; gap:6px; }
+.work-sidebar-nav .app-nav-icon,.work-sidebar-create .app-nav-icon { flex:none; width:17px; height:17px; color:var(--work); }
+.work-sidebar-search-field { position:relative; display:flex; align-items:center; margin:8px 1px; }
+.work-sidebar-search-field .app-nav-icon { position:absolute; inset-inline-start:9px; width:14px; height:14px; color:var(--text-3); pointer-events:none; }
+.work-sidebar-search { width:100%; min-width:0; height:31px; padding:4px 8px 4px 29px; border:1px solid var(--border-2); border-radius:7px; background:var(--bg-surface-1); color:var(--text-1); }
+.work-sidebar-search::placeholder {color:var(--text-3)}
+.work-sidebar-search:focus-visible { outline:2px solid var(--focus-color); outline-offset:0; }
+.work-sidebar-no-match { padding:4px 9px; margin:0; font-size:12px; color:var(--text-3); }
+.work-sidebar-list { overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:2px; padding:2px; }
+.work-sidebar-list button { flex:none; font-size:13px; min-height:33px; }
+.work-sidebar-list button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.work-sidebar button:hover:not(:disabled) {background:var(--bg-surface-3)}
+.work-sidebar button[aria-current="page"] {background:var(--sidebar-selection);color:var(--sidebar-ink);font-weight:600}
+.work-sidebar-profile { position:relative; margin-top:auto; padding-top:9px; border-top:1px solid var(--border-2); }
+.work-profile-trigger > span:nth-child(2) { flex:1; }
+.work-local-avatar { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; font-size:12px; font-weight:600; color:var(--sidebar-ink); background:var(--sidebar-selection); }
+.work-profile-popover { position:absolute; bottom:calc(100% + 4px); inset-inline:0; padding:5px; border:1px solid var(--border-2); border-radius:10px; background:var(--bg-surface-1); box-shadow:var(--e-3); }
+.work-profile-popover button { display:flex; align-items:center; gap:10px; width:100%; padding:8px; background:transparent; border-radius:5px; }
 .settings-sections { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; max-width: 1180px; padding: 12px 32px 18px; margin: 0 auto; }
 .settings-sections button { padding: 8px 12px; border: 0; border-radius: var(--r-control); color: var(--text-2); background: transparent; font: inherit; font-size: 13px; cursor: pointer; }
 .settings-sections button:hover, .settings-sections [aria-current="page"] { color: var(--text-1); background: var(--bg-surface-2); }

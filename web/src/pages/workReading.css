@@ -1,50 +1,63 @@
 .work-origin-line {
-  display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .9rem;
-  margin-block: .65rem 1.05rem;
+  display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .75rem;
+  margin-block: .7rem 1rem;
 }
 .work-origin-line small, .work-origin-line summary { font-size: .765rem; color: var(--text-2); }
 .work-origin-line summary { cursor: pointer; }
 .work-origin-line code { display: block; font-size: .72rem; overflow-wrap: anywhere; }
 .work-page .work-origin-line .work-compare-source {
-  gap: .3rem; min-height: 28px; padding: 1px 0;
-  color: var(--agent); background: transparent; border: 0; border-bottom: 1px solid currentColor; border-radius: 0;
-  font-size: .8rem;
+  gap: .35rem; min-height: 28px; padding: 1px 7px;
+  color: var(--work); background: transparent; border-color: transparent; border-radius: var(--r-control);
+  font-size: .8rem; white-space: normal;
 }
-.work-page .work-reading-overlay {
-  --reading-ink: #2b332e; --reading-muted: #62695f;
-  --text-1: var(--reading-ink); --text-2: #454d45; --text-3: var(--reading-muted);
-  --work: #805b24; --agent: #315f55; --bg-inset: #f0ede4; --bg-surface-1: #faf8f0;
-  --bg-surface-2: #f1eee4; --bg-surface-3: #e9e4d7; --border-1: #d9d5c8; --border-2: #c3c1b2;
-  background: var(--bg-surface-1); color: var(--reading-ink);
+.work-page .work-origin-line .work-compare-source:hover:not(:disabled) {
+  background: var(--work-tint);
 }
-.work-reading-overlay .work-card-body h2 {
-  font-family: Georgia, "Noto Serif CJK SC", "Songti SC", SimSun, serif;
-  font-weight: 560; line-height: 1.32; text-wrap: pretty;
+.work-source-reading {
+  --compare-gutter: clamp(16px, 3vw, 52px);
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  background: var(--bg-inset);
 }
-.work-reader .work-card-body .work-prose { line-height: 1.84; }
-.work-reader .work-quiet { color: var(--reading-ink); }
-.work-reader-document:not([hidden]) { display: flex; flex: 1; min-height: 0; }
-.work-reader .work-quiet:hover { color: #254b3f; background: #eae8db; }
-.work-source-reading { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #e9e7dd; }
-.source-reading-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 15px clamp(16px,3.3vw,58px) 9px; }
-.source-reading-bar h2, .source-sheet > h3 { display: flex; align-items: center; gap: 7px; margin: 0; }
-.source-reading-bar h2 { font-size: 15px; font-weight: 620; }
-.source-spread { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); flex: 1; gap: clamp(12px,2vw,32px); min-height: 0; padding: 0 clamp(16px,3.3vw,58px) clamp(12px,2vw,32px); }
-.source-sheet { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #fffcf4; border: 1px solid #d0cbbe; border-top: 3px solid #b49150; }
-.source-sheet[data-side="artifact"] { border-top-color: #578575; }
-.source-sheet > h3 { padding: 13px clamp(14px,2vw,36px); border-bottom: 1px solid #dedacd; color: var(--work); font-size: 13px; font-weight: 610; }
-.source-sheet[data-side="artifact"] > h3 { color: var(--agent); }
-.work-reader .source-sheet .work-card-body { padding: clamp(18px,2.2vw,38px) clamp(15px,2vw,36px); }
-.work-reader .source-sheet .work-card-body h2 { font-size: clamp(21px,2vw,32px); }
+.source-reading-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 16px var(--compare-gutter) 12px;
+}
+.source-reading-bar h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.source-spread {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 1; gap: clamp(12px, 1.7vw, 24px); min-height: 0;
+  padding: 0 var(--compare-gutter) clamp(12px, 2vw, 24px);
+}
+.source-sheet {
+  min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-surface-1); border: 1px solid var(--border-2);
+  border-radius: var(--r-card); box-shadow: var(--e-1);
+}
+.source-sheet > h3 {
+  display: flex; align-items: center; gap: 7px; margin: 0;
+  padding: 11px clamp(14px, 2vw, 36px); border-bottom: 1px solid var(--border-2);
+  background: var(--bg-surface-2); color: var(--text-2); font-size: 13px; font-weight: 630;
+}
+.work-source-reading .source-sheet .work-card-body { padding: clamp(20px, 2.5vw, 42px) clamp(17px, 2.8vw, 44px) 56px; }
+.work-source-reading .source-sheet .work-card-body h2 { font-size: clamp(22px, 2vw, 31px); }
 .source-sheet .work-reader-kind { display: none; }
 .source-switches { display: none; }
 @media (max-width: 700px) {
-  .source-reading-bar { padding: 12px; }
-  .source-switches { display: inline-flex; gap: 2px; }
-  .work-page .source-switches button { min-height: 36px; border-radius: 3px; border: 1px solid transparent; padding: 4px 8px; color: var(--reading-ink); background: transparent; }
-  .work-page .source-switches button[aria-pressed="true"] { background: #fcf9ef; border-color: #bdb8a9; }
-  .source-spread { grid-template-columns: minmax(0,1fr); padding: 0 10px 10px; }
+  .work-source-reading { --compare-gutter: 12px; }
+  .source-reading-bar { padding-block: 10px; gap: 9px; }
+  .source-switches {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; width: 100%;
+    padding: 3px; border-radius: var(--r-control); background: var(--bg-surface-3);
+  }
+  .work-page .source-switches button {
+    min-height: 36px; padding: 4px 8px; border: 1px solid transparent; border-radius: var(--r-control);
+    color: var(--text-2); background: transparent; white-space: normal; line-height: 1.25;
+  }
+  .work-page .source-switches button[aria-pressed="true"] {
+    background: var(--bg-surface-1); border-color: var(--border-2); color: var(--work); font-weight: 650;
+  }
+  .source-spread { grid-template-columns: minmax(0, 1fr); }
   .work-source-reading[data-selected="requirement"] .source-sheet[data-side="artifact"],
   .work-source-reading[data-selected="artifact"] .source-sheet[data-side="requirement"] { display: none; }
-  .work-reader .source-sheet .work-card-body { min-height: 0; padding-bottom: 40px; }
+  .work-source-reading .source-sheet .work-card-body { padding-bottom: 40px; }
 }

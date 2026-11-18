@@ -1,58 +1,52 @@
-/* ASG design tokens — graphite space, brass for Work, sea-glass for agents.
-   Status is always carried by text; color only supports it. */
-@import '@fontsource-variable/spline-sans';
-@import '@fontsource-variable/spline-sans-mono';
-
+/* Semantic desktop colors. Controls, selection and focus follow system appearance. */
 :root {
-  color-scheme: dark;
-  --bg-space: #1c2023;
-  --bg-space-edge: #15181a;
-  --bg-surface-1: #23282b;
-  --bg-surface-2: #2a3034;
-  --bg-surface-3: #333a3f;
-  --bg-inset: #181b1e;
-
-  --text-1: #ece7dc;
-  --text-2: #bfc0b9;
-  --text-3: #929996;
-  --text-disabled: #646b6c;
-  --text-on-work: #221d12;
-
-  --work: #d3b97e;
-  --work-strong: #e6cf98;
-  --work-shell: rgba(211, 185, 126, 0.62);
-  --work-shell-inner: rgba(211, 185, 126, 0.22);
-  --work-tint: rgba(211, 185, 126, 0.1);
-  --work-line: rgba(211, 185, 126, 0.34);
-  --agent: #7cc6bc;
-  --agent-line: rgba(124, 198, 188, 0.42);
-
-  --st-running: #8dd3a0;
-  --st-waiting: #b9a6f4;
-  --st-failed: #f08a7e;
-  --st-done: #bfc0b9;
-  --st-idle: #929996;
-  --st-unknown: #a9b4bc;
-
-  --border-1: rgba(236, 231, 220, 0.07);
-  --border-2: rgba(236, 231, 220, 0.13);
-  --border-3: rgba(236, 231, 220, 0.24);
-  --focus-color: #f5e7b8;
-  --focus-ring: 0 0 0 2px var(--bg-space), 0 0 0 4px var(--focus-color);
-
-  --font-ui: "Spline Sans Variable", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
-  --font-code: "Spline Sans Mono Variable", ui-monospace, "Cascadia Mono", Consolas, monospace;
-
-  --r-mark: 3px;
-  --r-control: 9px;
-  --r-card: 14px;
-  --r-panel: 20px;
+  color-scheme: light dark;
+  --bg-space: #f7f8fa;
+  --bg-space-edge: #edf0f4;
+  --bg-surface-1: #ffffff;
+  --bg-surface-2: #f2f3f6;
+  --bg-surface-3: #e6e9ef;
+  --bg-inset: #f1f3f6;
+  --text-1: #1c1d21;
+  --text-2: #454952;
+  --text-3: #626671;
+  --text-disabled: #8b8e96;
+  --text-on-work: #fff;
+  --work: #0063c9;
+  --work-strong: #0056b9;
+  --work-shell: #598bd1;
+  --work-shell-inner: #d6e6fd;
+  --work-tint: #e4efff;
+  --work-line: #8eabce;
+  --agent: #365fa0;
+  --agent-line: #839bbb;
+  --st-running: #187646;
+  --st-waiting: #7d4c06;
+  --st-failed: #b5302e;
+  --st-done: #50575f;
+  --st-idle: #626671;
+  --st-unknown: #606975;
+  --border-1: #e3e5e9;
+  --border-2: #ced1d7;
+  --border-3: #b7bdc6;
+  --focus-color: #0067d2;
+  --sidebar-base: #f0f2f6;
+  --sidebar-selection: #d9e7fc;
+  --sidebar-ink: #134e94;
+  --toolbar-base: #fafbfc;
+  --accent-control: #0067d2;
+  --control-on-accent: #fff;
+  --e-1: 0 1px 2px #1c26480a;
+  --e-2: 0 4px 14px #19283d16, 0 1px 2px #19283d12;
+  --e-3: 0 12px 36px #14203926, 0 2px 6px #14203912;
+  --focus-ring: 0 0 0 2px var(--bg-surface-1), 0 0 0 4px var(--focus-color);
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-code: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+  --r-mark: 4px;
+  --r-control: 7px;
+  --r-card: 12px;
+  --r-panel: 14px;
   --r-pill: 999px;
-
-  --e-1: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 28px -14px rgba(6, 8, 9, 0.7);
-  --e-2: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 22px 48px -18px rgba(6, 8, 9, 0.8);
-  --e-3: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 28px 64px -20px rgba(4, 5, 6, 0.85);
-
   --hover-intent: 250ms;
   --dur-quick: 140ms;
   --dur-base: 220ms;
@@ -63,7 +57,50 @@
   --ease-retract: cubic-bezier(0.6, 0, 0.8, 0.35);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-space: #1d1e22;
+    --bg-space-edge: #18191c;
+    --bg-surface-1: #25262a;
+    --bg-surface-2: #2e3035;
+    --bg-surface-3: #3a3c43;
+    --bg-inset: #202126;
+    --text-1: #f3f3f5;
+    --text-2: #d4d6dc;
+    --text-3: #a8adb7;
+    --text-disabled: #838892;
+    --text-on-work: #101c30;
+    --work: #83b5ff;
+    --work-strong: #a8ccff;
+    --work-shell: #7a9ecf;
+    --work-shell-inner: #304565;
+    --work-tint: #293e5c;
+    --work-line: #6283ad;
+    --agent: #9bbcff;
+    --agent-line: #7590b9;
+    --st-running: #78d79d;
+    --st-waiting: #efbd67;
+    --st-failed: #ff9994;
+    --st-done: #d0d4dd;
+    --st-idle: #a8adb7;
+    --st-unknown: #b5bac4;
+    --border-1: #383a40;
+    --border-2: #484b53;
+    --border-3: #595d68;
+    --focus-color: #88bcff;
+    --sidebar-base: #22242a;
+    --sidebar-selection: #2e4669;
+    --sidebar-ink: #c7dfff;
+    --toolbar-base: #27292e;
+    --accent-control: #166ac6;
+    --control-on-accent: #fff;
+    --e-1: 0 1px 2px #0003;
+    --e-2: 0 4px 16px #0004;
+    --e-3: 0 14px 36px #0007;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root { --dur-quick: 1ms; --dur-base: 1ms; --dur-expand: 1ms; --dur-retract: 1ms; }
-  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 0s !important; transition-delay: 0s !important; }
 }

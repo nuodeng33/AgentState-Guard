@@ -5,10 +5,10 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
-  min-height: 32px;
+  min-height: 36px;
   padding: 2px 12px;
   border-bottom: 1px solid var(--border-1);
-  background: var(--bg-surface-1);
+  background: var(--toolbar-base);
   color: var(--text-2);
   font-family: var(--font-ui);
 }
@@ -58,7 +58,7 @@
   padding: 4px;
   border: 1px solid var(--border-2);
   border-radius: var(--r-control);
-  background: var(--bg-surface-2);
+  background: var(--bg-surface-1);
   color: var(--text-1);
   box-shadow: var(--e-2);
 }

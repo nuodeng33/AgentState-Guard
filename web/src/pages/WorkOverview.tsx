@@ -77,17 +77,19 @@ export default function WorkOverview({ items, more, onOpen, onCreate, onMore }: 
       </section>}
 
       {featured && <section className="work-home-feature" aria-labelledby={featuredId}>
+        <span className="work-home-feature-icon"><Icon name="board" size={24} /></span>
         <div className="work-home-feature-body">
           <p className="work-home-context">{previous ? copy.lastOpened : copy.recentlyUpdated}</p>
           <h2 id={featuredId}>{featured.title}</h2>
           <div className="work-home-meta">
             {featured.owner && <span>{featured.owner}</span>}
+            <span>{t.requirement} v{featured.requirement_version}</span>
             {!previous && updated(featured)}
           </div>
         </div>
         <a className="work-home-action" href={`?work=${encodeURIComponent(featured.id)}`}
           aria-labelledby={`${actionId} ${featuredId}`} onClick={event => open(event, featured.id)}>
-          <span id={actionId}>{previous ? copy.resume : copy.open}</span><span aria-hidden="true">→</span>
+          <span id={actionId}>{previous ? copy.resume : copy.open}</span><span className="work-home-chevron"><Icon name="back" size={15} /></span>
         </a>
       </section>}
 
@@ -95,13 +97,13 @@ export default function WorkOverview({ items, more, onOpen, onCreate, onMore }: 
         <h2 id={indexId}>{copy.index}</h2>
         <ul className="work-home-list">{index.map(item => <li key={item.id}>
           <a href={`?work=${encodeURIComponent(item.id)}`} onClick={event => open(event, item.id)}>
-            <Icon name="board" size={16} />
+            <span className="work-home-row-icon"><Icon name="board" size={18} /></span>
             <div className="work-home-row-content">
               <strong>{item.title}</strong>
               {item.owner && <span>{item.owner}</span>}
             </div>
             {updated(item)}
-            <span className="work-home-row-arrow" aria-hidden="true">→</span>
+            <span className="work-home-row-arrow work-home-chevron"><Icon name="back" size={15} /></span>
           </a>
         </li>)}</ul>
         {more && <button className="work-home-more" type="button" onClick={onMore}>{t.more}</button>}

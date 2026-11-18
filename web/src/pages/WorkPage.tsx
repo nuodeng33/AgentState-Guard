@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
 import { agentProgramName } from '../components/AgentIdentity';
 import { WorkMenuBar } from '../components/WorkMenuBar';
@@ -10,6 +10,8 @@ import { forgetSelectedCard, lastSelectedCard, recordOpenedWork, recordSelectedC
 import WorkSourceReading from './WorkSourceReading';
 import type { WorkArtifactEntry, WorkContentEntry } from './workContentTypes';
 import WorkDesk from './WorkDesk';
+import { frameTwoCards } from './workbenchViewport';
+import { workExcerpt } from './workExcerpt';
 import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
@@ -24,6 +26,7 @@ import type { ProtectionScopeCommand } from '../api/protection';
 import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExecutionStatus';
 import { AgentFilm, Icon, Prose } from './WorkVisuals';
 import './work.css';
+import './workWindow.css';
 
 type Summary = WorkIndexItem & { revision: number };
 type Work = Summary & { requirement: string; tasks: WorkContentEntry[]; artifacts: WorkArtifactEntry[] };
@@ -31,6 +34,7 @@ export type Card = { kind: 'requirement' | 'task' | 'artifact'; ref_id: string; 
   x: number; y: number; width: number; height: number; scroll: number };
 type SpaceNode = Pick<Card, 'kind' | 'ref_id' | 'version' | 'x' | 'y'>;
 type Viewport = { x: number; y: number; zoom: number };
+type CardLocation = { id: string; framePair: boolean };
 export type Board = { schema_version: 1; viewport: Viewport; cards: Card[];
   surface?: 'space' | 'board'; space?: { viewport: Viewport; nodes: SpaceNode[] } };
 type View = { revision: number; state: Board | null };
@@ -171,6 +175,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const [draft, setDraft] = useState({ title: '', owner: '', body: '', artifact: '' });
   const [focus, setFocus] = useState<string | null>(null); const [requirementVersion, setRequirementVersion] = useState(1);
   const readingOpener = useRef<HTMLElement | null>(null);
+  const readerOffsets = useRef(new Map<string, number>());
   const comparisonOpener = useRef<HTMLButtonElement | null>(null);
   const [comparison, setComparison] = useState<{ workId: string; artifact: string; version: number; fromReader: boolean } | null>(null);
   const comparing = comparison?.workId === work?.id && comparison?.artifact === focus ? comparison : null;
@@ -193,12 +198,13 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const [deskContents, setDeskContents] = useState({ open: true, allTasks: false, allArtifacts: false });
   const surfaceReturn = useRef(false);
   const spaceEntry = useRef<HTMLButtonElement>(null);
-  const cardToLocate = useRef<string | null>(null);
+  const cardToLocate = useRef<CardLocation | null>(null);
   const [locatedId, setLocatedId] = useState<string | null>(null);
   const libraryButton = useRef<HTMLButtonElement>(null);
   const [navOpen, setNavOpen] = useState(false);
   const navButton = useRef<HTMLButtonElement>(null);
   const sidebarId = useId();
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [relationshipsOpen, setRelationshipsOpen] = useState(false);
@@ -368,7 +374,11 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     const keyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !busy) { e.preventDefault(); if (focus) leaveReader(); else closeForm(); }
       if (e.key !== 'Tab' || !overlay.current) return;
-      const nodes = Array.from(overlay.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'));
+      const candidates = overlay.current.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], summary, [tabindex="0"]',
+      );
+      const nodes = Array.from(candidates).filter(node => !node.closest('[inert], [hidden]') &&
+        (typeof node.checkVisibility !== 'function' || node.checkVisibility({ checkVisibilityCSS: true })));
       const first = nodes[0], last = nodes[nodes.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
       if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
@@ -412,7 +422,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     if (locate) queueCardLocation(key(card));
     return card;
   }
-  function revealCard(id: string) {
+  function revealCard({ id, framePair }: CardLocation) {
     const b = boardRef.current, el = canvas.current, card = b?.cards.find(item => key(item) === id);
     if (!b || !el || !card) return false;
     const item = Array.from(el.querySelectorAll<HTMLElement>('[data-card]')).find(node => node.dataset.card === id);
@@ -422,7 +432,12 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       el.scrollTop = 0;
     } else {
       const width = el.clientWidth || el.getBoundingClientRect().width;
-      if (width > 0) {
+      const detail = workRef.current;
+      const pair = framePair && b.cards.length === 2 && detail && b.cards.every(item => hasCardContent(detail, item))
+        ? frameTwoCards(b.cards, width, el.clientHeight || el.getBoundingClientRect().height, b.viewport.zoom)
+        : null;
+      if (pair) changeBoard({ ...b, viewport: pair });
+      else if (width > 0) {
         const zoom = bound(Math.min(b.viewport.zoom, (width - 40) / card.width), .25, 2);
         changeBoard({ ...b, viewport: { zoom, x: bound(width / 2 - (card.x + card.width / 2) * zoom, -100000, 100000), y: bound(20 - card.y * zoom, -100000, 100000) } });
       }
@@ -439,12 +454,13 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     if (session) session.selectedCard = selected;
     recordSelectedCard(workId, selected);
   }
-  function queueCardLocation(id: string) {
+  function queueCardLocation(id: string, framePair = false) {
     const card = boardRef.current?.cards.find(item => key(item) === id);
     if (!card) return;
     selectCard(card);
-    cardToLocate.current = id;
-    if (revealCard(id)) cardToLocate.current = null;
+    const location = { id, framePair };
+    cardToLocate.current = location;
+    if (revealCard(location)) cardToLocate.current = null;
   }
   function openRelated(kind: Card['kind'], ref: string, version: number | null) {
     if (canvas.current && getComputedStyle(canvas.current).getPropertyValue('--work-board-stack').trim() === '1') setLibraryOpen(false);
@@ -468,8 +484,10 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   useEffect(() => { if (board?.surface === 'board' && fitOnBoardOpen.current && canvas.current) {
     fitOnBoardOpen.current = false; fit();
   } }, [board]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (board?.surface === 'board' && cardToLocate.current && revealCard(cardToLocate.current)) cardToLocate.current = null;
+  }, [board, locatedId, deliveryPanel, sessionPanel]);
+  useEffect(() => {
     if (board?.surface === 'space' && surfaceReturn.current) {
       surfaceReturn.current = false;
       const original = surfaceOpener.current;
@@ -596,9 +614,11 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const agentEdges = agentNodes.flatMap(node => (node.agent.task_ids ?? []).map(id => [`agent:${node.agent.agent_id}`, `task:${id}:`] as const));
   const highlighted = hover ? new Set([hover, ...[...edges, ...agentEdges].flatMap(([a, b]) => a === hover ? [b] : b === hover ? [a] : [])]) : null;
   function showOnBoard(node: Pick<SpaceNode, 'kind' | 'ref_id' | 'version'>, locate = true, origin: 'space' | 'desk' = 'space', opener = key(node)) {
-    const card = addCard(node.kind, node.ref_id, node.version, locate), current = boardRef.current;
+    const enteringBoard = boardRef.current?.surface !== 'board';
+    const card = addCard(node.kind, node.ref_id, node.version, false), current = boardRef.current;
     if (!current || !card) return;
-    if (current.surface !== 'board') {
+    if (locate) queueCardLocation(key(card), enteringBoard);
+    if (enteringBoard) {
       if (spaceSurface.current) spaceScroll.current = spaceSurface.current.scrollTop;
       surfaceOpener.current = { id: opener, origin };
       changeBoard({ ...current, surface: 'board' });
@@ -627,7 +647,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     selectCard(card);
     if (available < 300) {
       if (deliveryPanel) { setDeliveryPanel(false); deliveryReturnsToSession.current = false; } else closeSessions();
-      cardToLocate.current = key(card);
+      cardToLocate.current = { id: key(card), framePair: false };
       return;
     }
     const zoom = bound(Math.min(current.viewport.zoom, available / card.width), .25, 2);
@@ -703,6 +723,10 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const suppressSpaceClick = useRef(false);
   function spaceEnd(e: PointerEvent) { suppressSpaceClick.current = !!spaceDrag.current?.moved; spaceDrag.current = null; e.stopPropagation(); }
   const renderContent = (card: Card, reading = false, allowCompare = true) => {
+    const bookmark = reading && allowCompare
+      ? JSON.stringify([work!.id, key(card), card.kind === 'task' ? work!.revision : null])
+      : null;
+    const scrollPosition = bookmark ? readerOffsets.current.get(bookmark) ?? card.scroll : card.scroll;
     const linked = reading && card.kind === 'task' ? agents.items.filter(agent => agent.task_ids?.includes(card.ref_id)) : [];
     const context = reading && card.kind === 'task' && <div className="work-reader-context">
       <span>{locale === 'zh-CN' ? '关联智能体' : 'Linked agents'}</span>
@@ -710,7 +734,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       {!linked.length && !agents.loading && !agents.failed && <span className="work-reader-muted">{locale === 'zh-CN' ? '尚未关联' : 'None linked'}</span>}
       {!linked.length && (agents.loading || agents.failed) && <button className="work-quiet" onClick={() => { setFocus(null); openAgents(); }}>{t.agents}</button>}
     </div>;
-    return <CardContent client={client} work={work!} card={card} reading={reading} readingContext={context}
+    return <CardContent client={client} work={work!} card={card} reading={reading} readingContext={context} scrollPosition={scrollPosition}
       onOpenRun={(target, opener) => { selectCard(card); openSessions(target, opener); }}
       onCompare={card.kind !== 'artifact' || !allowCompare ? undefined : (version, opener) => {
         if (reading) comparisonOpener.current = opener;
@@ -719,7 +743,14 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
         selectCard(card);
         setFocus(key(card));
       }}
-      onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
+      onScroll={scroll => {
+        if (bookmark) {
+          const offsets = readerOffsets.current;
+          offsets.delete(bookmark);
+          offsets.set(bookmark, scroll);
+          if (offsets.size > 64) offsets.delete(offsets.keys().next().value as string);
+        } else if (!reading) updateCard(key(card), { scroll });
+      }} />;
   };
   const layoutLocked = busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel);
   function openForm(kind: NonNullable<typeof form>, opener = document.activeElement as HTMLElement | null) {
@@ -742,10 +773,14 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const currentSurface = locale === 'zh-CN' ? (inSpace ? '关系空间' : '聚合工作台') : (inSpace ? 'Relationship space' : 'Workbench');
   const cardTitle = (card: Card) => card.kind === 'requirement' ? t.requirement : card.kind === 'task' ?
     work?.tasks.find(task => task.id === card.ref_id)?.title ?? t.task : work?.artifacts.find(artifact => artifact.id === card.ref_id && artifact.version === card.version)?.title ?? t.artifact;
-  return <div className="work-layout" aria-hidden={!visible} data-nav-open={navOpen || undefined}>
+  return <div className="work-layout" aria-hidden={!visible} data-nav-open={navOpen || undefined} data-sidebar-hidden={sidebarHidden || undefined}>
     <div className="work-command-bar" ref={commandBar}>
     <button type="button" className="work-mobile-works" ref={navButton} aria-expanded={navOpen} aria-controls={sidebarId} disabled={layoutLocked}
       onClick={() => { if (navOpen) closeNav(); else { setNavOpen(true); requestAnimationFrame(() => document.getElementById(sidebarId)?.querySelector('input')?.focus()); } }}><Icon name="library" size={16} />{t.title}</button>
+    <button type="button" className="work-sidebar-toggle" aria-controls={sidebarId} aria-expanded={!sidebarHidden} disabled={layoutLocked}
+      title={locale === 'zh-CN' ? '显示或隐藏侧栏' : 'Toggle sidebar'} aria-label={locale === 'zh-CN' ? '显示或隐藏侧栏' : 'Toggle sidebar'}
+      onClick={() => setSidebarHidden(value => !value)}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65">
+        <rect x="2.75" y="4" width="18.5" height="16" rx="3"/><path d="M9 4v16M5.5 8h1m-1 3h1"/></svg></button>
     <WorkMenuBar onNewWork={() => openForm('work')} disabled={layoutLocked}
       onSave={work && layoutReady && status !== 'conflict' && status !== 'saving' ? () => void saveView() : undefined}
       onAllWork={work ? back : undefined}
@@ -783,7 +818,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
         <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
       {inSpace && <div className="work-desk-surface" ref={spaceSurface}>
         <WorkDesk key={work.id} work={work} canOpen={layoutReady} contents={deskContents} onContents={setDeskContents}
-          previewArtifact={artifact => <CardContent client={client} work={work} reading={false} compactPreview
+          previewArtifact={(artifact, mode) => <CardContent client={client} work={work} reading={false} compactPreview excerpt={mode === 'excerpt'}
             card={{ kind: 'artifact', ref_id: artifact.id, version: artifact.version, x: 0, y: 0, width: 0, height: 0, scroll: 0 }}
             onScroll={() => {}} />}
           continueButton={spaceEntry} onContinue={continueBoard}
@@ -876,7 +911,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
                 const session = sessions.current.get(work.id);
                 if (session?.selectedCard === closed) delete session.selectedCard;
                 if (locatedId === closed) setLocatedId(null);
-                if (cardToLocate.current === closed) cardToLocate.current = null;
+                if (cardToLocate.current?.id === closed) cardToLocate.current = null;
                 changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== closed) });
                 libraryButton.current?.focus();
               }}><Icon name="close" size={16} /></button>
@@ -971,11 +1006,13 @@ function readCardContent(client: ApiClient, path: string, scope: string): Promis
   if (cache.size > 64) cache.delete(cache.keys().next().value as string);
   return request;
 }
-function CardContent({ client, work, card, reading, readingContext, onScroll, onCompare, onOpenRun, compactPreview = false }: {
+function CardContent({ client, work, card, reading, readingContext, onScroll, onCompare, onOpenRun, compactPreview = false, excerpt = false, scrollPosition = card.scroll }: {
   client: ApiClient; work: Work; card: Card; reading: boolean; readingContext?: ReactNode; onScroll: (scroll: number) => void;
   onCompare?: (version: number, opener: HTMLButtonElement) => void;
   onOpenRun?: (target: ExecutionTarget, opener: HTMLButtonElement) => void;
   compactPreview?: boolean;
+  excerpt?: boolean;
+  scrollPosition?: number;
 }) {
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [content, setContent] = useState<Content | null>(null); const [error, setError] = useState<'contentBusy' | 'contentMissing' | 'contentConnection' | 'contentFailed' | null>(null); const [retry, setRetry] = useState(0);
@@ -993,8 +1030,16 @@ function CardContent({ client, work, card, reading, readingContext, onScroll, on
     });
     return () => { live = false; };
   }, [client, work.id, card.kind, card.ref_id, card.version, retry, card.kind === 'task' ? work.revision : 0]);
-  useEffect(() => { if (body.current && content && Math.abs(body.current.scrollTop - card.scroll) > 1) body.current.scrollTop = card.scroll; }, [content, card.scroll]);
-  return <div className="work-card-body" ref={body} tabIndex={0} role="region" aria-label={t[card.kind]} onScroll={e => { if (content && Math.abs(e.currentTarget.scrollTop - card.scroll) > 1) onScroll(e.currentTarget.scrollTop); }}>
+  useEffect(() => { if (body.current && content && Math.abs(body.current.scrollTop - scrollPosition) > 1) body.current.scrollTop = scrollPosition; }, [content, scrollPosition]);
+  if (excerpt && content) {
+    const lines = workExcerpt(content.body, content.title);
+    return <div className="work-card-body">{lines.length
+      ? lines.map((line, index) => <p key={index}>{line}</p>)
+      : <p>{locale === 'zh-CN' ? '暂无正文节选' : 'No excerpt available'}</p>}</div>;
+  }
+  return <div className="work-card-body" ref={body} tabIndex={0} role="region" aria-label={t[card.kind]} onScroll={e => {
+    if (content && (reading || Math.abs(e.currentTarget.scrollTop - scrollPosition) > 1)) onScroll(e.currentTarget.scrollTop);
+  }}>
     {error ? <p role="alert">{t[error]} <button onClick={() => setRetry(n => n + 1)}>{t.retry}</button></p> : content ? <>
       {reading && <div className="work-reader-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</div>}
       {!compactPreview && <h2>{content.title ?? `${work.title} · ${t.requirement}`}</h2>}

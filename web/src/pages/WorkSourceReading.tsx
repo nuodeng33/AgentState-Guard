@@ -18,7 +18,7 @@ export default function WorkSourceReading({ artifactVersion, requirementVersion,
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
   return <div className="work-source-reading" data-selected={selected}>
     <div className="source-reading-bar">
-      <h2 ref={heading} tabIndex={-1}><Icon name="link" size={18} />{zh ? '对照阅读' : 'Compare documents'}</h2>
+      <h2 ref={heading} tabIndex={-1}>{zh ? '对照阅读' : 'Compare documents'}</h2>
       <div className="source-switches" role="group" aria-label={zh ? '选择文稿' : 'Choose document'}>
         {(['artifact', 'requirement'] as const).map(side =>
           <button key={side} type="button" aria-pressed={side === selected} aria-controls={id + side}
@@ -26,11 +26,11 @@ export default function WorkSourceReading({ artifactVersion, requirementVersion,
       </div>
     </div>
     <div className="source-spread">
-      <section id={id + 'artifact'} className="source-sheet" data-side="artifact" aria-label={labels.artifact}>
-        <h3><Icon name="artifact" size={16} />{labels.artifact}</h3>{artifact}
+      <section id={id + 'artifact'} className="source-sheet" data-side="artifact" aria-labelledby={id + 'artifact-title'}>
+        <h3 id={id + 'artifact-title'}><Icon name="artifact" size={16} />{labels.artifact}</h3>{artifact}
       </section>
-      <section id={id + 'requirement'} className="source-sheet" data-side="requirement" aria-label={labels.requirement}>
-        <h3><Icon name="requirement" size={16} />{labels.requirement}</h3>{requirement}
+      <section id={id + 'requirement'} className="source-sheet" data-side="requirement" aria-labelledby={id + 'requirement-title'}>
+        <h3 id={id + 'requirement-title'}><Icon name="requirement" size={16} />{labels.requirement}</h3>{requirement}
       </section>
     </div>
   </div>;

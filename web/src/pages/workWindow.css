@@ -1,0 +1,25 @@
+
+.work-layout .work-command-bar { align-items:stretch; background:var(--toolbar-base); }
+.work-command-bar .work-sidebar-toggle { width:46px; flex:none; display:grid; place-items:center; border:0; border-bottom:1px solid var(--border-1); color:var(--text-2); cursor:pointer; background:var(--toolbar-base); }
+.work-sidebar-toggle:hover { color:var(--work); }
+.work-sidebar-toggle:focus-visible { outline:2px solid var(--focus-color); outline-offset:-4px; }
+.work-layout .work-toolbar { min-height:48px; padding:5px clamp(12px,2vw,26px); background:var(--toolbar-base); gap:8px; }
+.work-toolbar .work-heading { border:0; padding-inline-start:10px; }
+.work-toolbar .work-heading > span { color:var(--text-3); }
+.work-toolbar .work-heading h1 { font-size:15px; font-weight:640; }
+.work-layout .work-page .work-back { color:var(--work); font-weight:520; }
+.work-layout .work-tools { min-height:40px; background:var(--bg-surface-1); }
+.work-layout .work-dock { min-height:36px; padding:2px 12px; background:var(--toolbar-base); justify-content:space-between; }
+.work-layout .work-dock .work-dock-group { border:0; margin:0; padding:0; }
+.work-layout .work-dock .work-icon-button { min-height:29px; }
+.work-layout .work-execution-status { color:var(--text-2); }
+.work-layout .work-execution-status > button {color:var(--text-2);background:var(--bg-surface-2);border-color:var(--border-2)}
+.work-layout .work-command-bar .work-menu-trigger:hover {background:var(--bg-surface-2)}
+@media(min-width:761px) {
+ .work-layout[data-sidebar-hidden] > .work-layout-content > .work-sidebar { display:none; }
+}
+@media(max-width:760px) {
+ .work-command-bar .work-sidebar-toggle {display:none}
+ .work-layout .work-toolbar {padding:4px 9px}
+ .work-layout .work-dock {padding:3px 7px}
+}

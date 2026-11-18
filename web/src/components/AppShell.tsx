@@ -66,22 +66,22 @@ export function WorkSidebar({ id, items = [], activeId, onOpen, onCreate, onNavi
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
   }, [profileOpen]);
   return <aside id={id} className="work-sidebar" aria-label={t('nav.work')}>
-    <div className="work-sidebar-brand"><ShieldNodesMark /><span>{t('app.brand.name')}</span></div>
+    <div className="work-sidebar-brand"><span className="workspace-brand-glyph"><ShieldNodesMark /></span><strong>{t('app.brand.name')}</strong></div>
     {onCreate && <button type="button" className="work-sidebar-create" disabled={navigationLocked}
-      onClick={event => onCreate(event.currentTarget)}><span aria-hidden="true">＋</span>{t('sidebar.newWork')}</button>}
+      onClick={event => onCreate(event.currentTarget)}><NavIcon name="compose" />{t('sidebar.newWork')}</button>}
     <nav className="work-sidebar-nav" aria-label={t('app.nav.primary')}>
       <button type="button" className="work-sidebar-home" disabled={navigationLocked}
         aria-current={page === 'work' && !activeId ? 'page' : undefined} onClick={() => onNavigate('work')}>
         <NavIcon name="work" />{t('nav.work')}
       </button>
-      {onOpen && <input type="search" className="work-sidebar-search" aria-label={t('sidebar.searchWork')}
+      {onOpen && <label className="work-sidebar-search-field"><NavIcon name="search" /><input type="search" className="work-sidebar-search" aria-label={t('sidebar.searchWork')}
         placeholder={t('sidebar.searchWork')} value={search} disabled={navigationLocked}
-        onChange={event => setSearch(event.target.value)} />}
+        onChange={event => setSearch(event.target.value)} /></label>}
       <div className="work-sidebar-list">
         {query && !filteredItems.length && <p className="work-sidebar-no-match">{t('sidebar.noMatches')}</p>}
         {filteredItems.map(item => <button type="button" key={item.id} title={item.title}
           disabled={navigationLocked} aria-current={page === 'work' && item.id === activeId ? 'page' : undefined}
-          onClick={() => onOpen?.(item.id)}>{item.title}</button>)}
+          onClick={() => onOpen?.(item.id)}><NavIcon name="folder" /><span>{item.title}</span></button>)}
         {hasMore && onMore && <button type="button" disabled={navigationLocked} onClick={onMore}>{t('sidebar.moreWorks')}</button>}
       </div>
     </nav>
@@ -157,6 +157,7 @@ function ShieldNodesMark() {
 }
 
 type IconName =
+  | 'compose' | 'search' | 'folder'
   | 'work'
   | 'home'
   | 'environment'
@@ -181,11 +182,17 @@ function NavIcon({ name }: { name: IconName }) {
     strokeLinejoin: 'round',
   } as const;
   switch (name) {
+    case 'compose':
+      return <svg {...common}><path d="M12 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-6"/><path d="m10 14 1-4L18.5 2.5l3 3L14 13z"/></svg>;
+    case 'search':
+      return <svg {...common}><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>;
+    case 'folder':
+      return <svg {...common}><path d="M3 7V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>;
     case 'work':
       return (
         <svg {...common}>
-          <circle cx="12" cy="12" r="7.5" />
-          <circle cx="12" cy="12" r="3" />
+          <rect x="3" y="4" width="18" height="16" rx="3" />
+          <path d="M9 4v16m4-11h4m-4 4h3" />
         </svg>
       );
     case 'home':
