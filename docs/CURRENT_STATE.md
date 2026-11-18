@@ -1,5 +1,7 @@
 # Current State
 
+The [desktop workbench handoff](SESSION_HANDOFF.md) records the November search, reading and Windows installer work. The phase checkpoints below describe their dated builds.
+
 ### Phase34 source — Device Link I/O responsive, native follow-up pending
 
 Actual enable5906ms exposed the generic5s UI deadline and ASGI blocking. Lifecycle calls now use serialized request workers, status materializes a coherent candidate snapshot, and only exact known lifecycle POSTs receive finite60s with visible existing progress/no replay. Source full1711passed52skipped, frontend455passed55files/build, related70passed, focused22passed1skipped; suites remain distinct. A1f91 CI controlled-change timing fixture correction retains strict post-write started_at/business assertions and uses the same20ms fixture cadence as other R4 suites. Android signing identity stays pinned; trusted-push versions now advance for genuine acceptance updates. See [phase34](phases/34-responsive-device-link.md). Exact next CI/phone protocol/update and native UI gates remain open.

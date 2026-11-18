@@ -57,7 +57,18 @@
     background: var(--bg-surface-1); border-color: var(--border-2); color: var(--work); font-weight: 650;
   }
   .source-spread { grid-template-columns: minmax(0, 1fr); }
-  .work-source-reading[data-selected="requirement"] .source-sheet[data-side="artifact"],
-  .work-source-reading[data-selected="artifact"] .source-sheet[data-side="requirement"] { display: none; }
+  .work-source-reading .source-sheet[data-current="false"] { display: none; }
   .work-source-reading .source-sheet .work-card-body { padding-bottom: 40px; }
 }
+
+.work-comparison-notice { margin: 8px clamp(12px, 3vw, 36px) 0; color: var(--text-2); font-size: 13px; }
+
+.work-review-provenance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 8px 14px;
+  margin: 0 0 12px;
+}
+.work-review-provenance div { min-width: 0; }
+.work-review-provenance dt { color: var(--text-3); }
+.work-review-provenance dd { margin: 2px 0 0; color: var(--text-1); overflow-wrap: anywhere; }

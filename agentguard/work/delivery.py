@@ -174,7 +174,10 @@ class DeliveryService:
         ids = encoded([item['id'] for item in items[:limit]])
         decisions = {}
         for table, key in (('work_reviews', 'reviews'), ('work_acceptances', 'acceptances')):
-            cursor = self.conn.execute(f'SELECT * FROM {table} WHERE submission_id IN (SELECT value FROM json_each(?)) ORDER BY created_at,id', (ids,))
+            cursor = self.conn.execute(
+                f'SELECT * FROM {table} WHERE work_id=? AND submission_id IN (SELECT value FROM json_each(?)) ORDER BY created_at,id',
+                (work_id, ids),
+            )
             columns = [col[0] for col in cursor.description]
             for row in cursor:
                 record = dict(zip(columns, row))

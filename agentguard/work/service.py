@@ -382,13 +382,18 @@ class WorkService:
 
         return self._command("task", [work_id, task_id], command, apply)
 
-    def list(self, limit=50, offset=0):
+    def list(self, limit=50, offset=0, *, q: str | None = None):
+        term = (q or "").strip().casefold()
         with self.db.transaction(immediate=False) as conn:
-            cursor = conn.execute(
-                """SELECT id, title, owner, revision, requirement_version,
-                created_at, updated_at FROM works ORDER BY created_at DESC, id LIMIT ? OFFSET ?""",
-                (limit, offset),
-            )
+            sql = """SELECT id, title, owner, revision, requirement_version,
+                     created_at, updated_at FROM works"""
+            if term:
+                # SQLite's lower() only folds ASCII. instr() treats the query as literal text.
+                conn.create_function("work_title_casefold", 1, str.casefold, deterministic=True)
+                sql += " WHERE instr(work_title_casefold(title), ?) > 0"
+            sql += " ORDER BY created_at DESC, id LIMIT ? OFFSET ?"
+            params = (term, limit, offset) if term else (limit, offset)
+            cursor = conn.execute(sql, params)
             names = [col[0] for col in cursor.description]
             return [dict(zip(names, row)) for row in cursor]
 
@@ -497,6 +502,27 @@ class WorkService:
                 "source_session_id": row[7],
             }
 
+    @staticmethod
+    def _review_record(conn, work_id: str, review_id: str):
+        cursor = conn.execute(
+            """SELECT r.id, r.submission_id, s.requirement_version, r.reviewer,
+                      r.decision, r.created_at, r.body, s.refs_json
+               FROM work_reviews r
+               JOIN work_submissions s ON s.id=r.submission_id AND s.work_id=r.work_id
+               WHERE r.work_id=? AND r.id=?""",
+            (work_id, review_id),
+        )
+        row = cursor.fetchone()
+        return dict(zip((col[0] for col in cursor.description), row)) if row else None
+
+    def review(self, work_id: str, review_id: str):
+        with self.db.transaction(immediate=False) as conn:
+            record = self._review_record(conn, work_id, review_id)
+            if record is None:
+                raise WorkError("WORK_REVIEW_NOT_FOUND", 404)
+            record["refs"] = json.loads(record.pop("refs_json"))
+            return record
+
     def view(self, work_id: str):
         with self.db.transaction(immediate=False) as conn:
             self._work(conn, work_id)
@@ -519,9 +545,8 @@ class WorkService:
             revision = row[0] if row else 0
             if revision != command.expected_revision:
                 raise WorkError("WORK_VIEW_CONFLICT")
-            groups = [command.state.cards]
-            if command.state.space is not None:
-                groups.append(command.state.space.nodes)
+            space_nodes = command.state.space.nodes if command.state.space is not None else ()
+            groups = (command.state.cards, space_nodes)
             for references in groups:
                 seen = set()
                 for card in references:
@@ -543,6 +568,11 @@ class WorkService:
                             ON a.id=v.artifact_id WHERE a.work_id=? AND a.id=? AND v.version=?""",
                             (work_id, str(card.ref_id), card.version),
                         ).fetchone()
+                    elif card.kind == "review":
+                        valid = (
+                            card.version is None
+                            and self._review_record(conn, work_id, str(card.ref_id)) is not None
+                        )
                     else:
                         valid = (
                             card.version is None

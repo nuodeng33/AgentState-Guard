@@ -74,16 +74,20 @@ class Viewport(BaseModel):
     zoom: float = Field(default=1, ge=0.25, le=2)
 
 
-class ViewNode(BaseModel):
+class ViewReference(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    kind: Literal["requirement", "task", "artifact"]
     ref_id: UUID
     version: int | None = Field(default=None, strict=True, ge=1)
     x: float = Field(ge=-100_000, le=100_000)
     y: float = Field(ge=-100_000, le=100_000)
 
 
-class ViewCard(ViewNode):
+class ViewNode(ViewReference):
+    kind: Literal["requirement", "task", "artifact"]
+
+
+class ViewCard(ViewReference):
+    kind: Literal["requirement", "task", "artifact", "review"]
     width: float = Field(default=400, ge=300, le=1400)
     height: float = Field(default=430, ge=220, le=1400)
     scroll: float = Field(default=0, ge=0, le=10_000_000)

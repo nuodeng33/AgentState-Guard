@@ -3,10 +3,11 @@ import { ApiActionError, ApiRequestError, type ApiClient } from '../api/client';
 import { executionBase, normalizeRunEvent, runIsActive, type ExecutionPage, type ProtectionScope, type RunEvent } from '../api/execution';
 import { useI18n } from '../i18n/I18nProvider';
 import type { WorkRunOutput, WorkSessionMemory } from './WorkSessions';
+import type { WorkArtifactRef } from '../pages/workContentTypes';
 import './WorkDelivery.css';
 
 type Artifact = { id: string; title: string; version: number; requirement_version: number };
-type ArtifactRef = { artifact_id: string; version: number };
+type ArtifactRef = WorkArtifactRef;
 type FileRef = { scope_id: string; version_id: string };
 type Review = { id: string; decision: 'APPROVED' | 'CHANGES_REQUESTED'; body: string; reviewer: string; created_at: string };
 type Acceptance = { id: string; decision: 'ACCEPTED' | 'REJECTED'; basis: string; owner: string; created_at: string };
@@ -22,7 +23,9 @@ type DecisionDraft = { reviewer: string; reviewBody: string; reviewDecision: Rev
 type Props = { client: ApiClient; workId: string; revision: number; requirementVersion: number; owner: string;
   artifacts: Artifact[]; output: WorkRunOutput | null; visible: boolean; memory: WorkSessionMemory;
   onClose: () => void; onRevision: (revision: number) => void; onChanged: () => Promise<void>;
-  onOpenRequirement: (version: number) => void; onShowArtifact: (id: string, version: number) => void };
+  onOpenRequirement: (version: number) => void; onShowArtifact: (id: string, version: number) => void;
+  onShowReview?: (reviewId: string, submissionId: string, artifact: ArtifactRef | null, isCurrent: () => boolean) => Promise<void>;
+};
 const code = (value: unknown) => typeof value === 'string' && /^[A-Z0-9_]{1,64}$/.test(value) ? value : '';
 const artifactKey = (ref: ArtifactRef) => `${ref.artifact_id}:${ref.version}`;
 const fileKey = (ref: FileRef) => `${ref.scope_id}:${ref.version_id}`;
@@ -31,7 +34,7 @@ function readDraft<T>(memory: WorkSessionMemory, key: string, fallback: T): T {
 }
 
 export default function WorkDelivery({ client, workId, revision, requirementVersion, owner, artifacts, output,
-  visible, memory, onClose, onRevision, onChanged, onOpenRequirement, onShowArtifact }: Props) {
+  visible, memory, onClose, onRevision, onChanged, onOpenRequirement, onShowArtifact, onShowReview }: Props) {
   const { locale } = useI18n(); const label = (en: string, cn: string) => locale === 'zh-CN' ? cn : en;
   const draftKey = `${workId}:delivery:${output?.run.id ?? 'work'}`;
   const initialDraft = (): Draft => ({ title: '', mode: 'original', body: '', eventSeqs: [],
@@ -40,6 +43,14 @@ export default function WorkDelivery({ client, workId, revision, requirementVers
   const [tab, setTab] = useState<'prepare' | 'records'>('prepare');
   const [submissions, setSubmissions] = useState<Submission[]>([]); const [hasMore, setHasMore] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [openingReview, setOpeningReview] = useState(false);
+  const reviewSequence = useRef(0);
+  const reviewContext = useRef({ visible, selectedId, tab });
+  reviewContext.current = { visible, selectedId, tab };
+  useEffect(() => {
+    setOpeningReview(false);
+    return () => { reviewSequence.current++; };
+  }, [visible, selectedId, tab]);
   const [decision, setDecision] = useState<DecisionDraft>({ reviewer: '', reviewBody: '', reviewDecision: 'CHANGES_REQUESTED',
     acceptanceOwner: '', basis: '', acceptanceDecision: 'REJECTED' });
   const [scopes, setScopes] = useState<ProtectionScope[]>([]); const [scopeIds, setScopeIds] = useState<string[]>([]);
@@ -194,6 +205,24 @@ export default function WorkDelivery({ client, workId, revision, requirementVers
         setNotice(label('Delivery submitted', '交付已提交')); void loadSubmissions(false, typeof receipt.submission_id === 'string' ? receipt.submission_id : undefined);
       });
   }
+  async function openReview(reviewId: string, artifact: ArtifactRef | null) {
+    if (!selected || !onShowReview || openingReview) return;
+    const submission = selected.id;
+    const seq = ++reviewSequence.current;
+    const isCurrent = () => live.current && reviewSequence.current === seq &&
+      reviewContext.current.visible && reviewContext.current.selectedId === submission && reviewContext.current.tab === 'records';
+    setOpeningReview(true);
+    setError('');
+    try {
+      await onShowReview(reviewId, submission, artifact, isCurrent);
+    } catch (err) {
+      if (isCurrent()) setError(err instanceof ApiRequestError && err.status === 404
+        ? label('This review or its linked version is unavailable.', '这条复核或其关联版本已不可用。')
+        : label('Could not open this review. Try again.', '未能打开复核，请重试。'));
+    } finally {
+      if (isCurrent()) setOpeningReview(false);
+    }
+  }
   function review(event: FormEvent) {
     event.preventDefault(); if (!selected || !decision.reviewer.trim() || !decision.reviewBody.trim()) return;
     const target = selected.id;
@@ -287,7 +316,24 @@ export default function WorkDelivery({ client, workId, revision, requirementVers
           {selected.refs.files.map(ref => <code className="work-delivery-reference" key={fileKey(ref)}>{ref.scope_id} · {ref.version_id}</code>)}
           <h4>{label('Review feedback', '复核反馈')}</h4>
           {!selected.reviews.length && <p>{label('No reviews', '暂无复核')}</p>}
-          {selected.reviews.map(item => <div className="work-delivery-decision" key={item.id}><strong>{item.decision === 'APPROVED' ? label('Review approved', '复核通过') : label('Changes requested', '要求修改')} · {item.reviewer}</strong><p>{item.body}</p><small>{item.created_at}</small></div>)}
+          {selected.reviews.map(item => <div className="work-delivery-decision" key={item.id}>
+            <strong>{item.decision === 'APPROVED' ? label('Review approved', '复核通过') : label('Changes requested', '要求修改')} · {item.reviewer}</strong>
+            <p>{item.body}</p>
+            <small>{item.created_at}</small>
+            {onShowReview && <div className="work-review-actions" role="group" aria-label={label('Read review by ', '阅读复核 · ') + item.reviewer}>
+              {selected.refs.artifacts.length
+                ? selected.refs.artifacts.map(ref => {
+                  const name = artifacts.find(artifact => artifact.id === ref.artifact_id && artifact.version === ref.version)?.title ?? ref.artifact_id;
+                  return <button type="button" key={artifactKey(ref)} disabled={openingReview}
+                    onClick={() => void openReview(item.id, ref)}>
+                    {label('Read review with', '并读复核与')} {name} v{ref.version}
+                  </button>;
+                })
+                : <button type="button" disabled={openingReview} onClick={() => void openReview(item.id, null)}>
+                  {label('Read review with requirement', '并读复核与要求')} v{selected.requirement_version}
+                </button>}
+            </div>}
+          </div>)}
           <form onSubmit={review}><fieldset className="work-delivery-fields" disabled={busy}><label>{label('Reviewer', '复核人')}<input required maxLength={120} value={decision.reviewer} onChange={event => updateDecision({ reviewer: event.target.value })} /></label><label>{label('Review decision', '复核决定')}<select value={decision.reviewDecision} onChange={event => updateDecision({ reviewDecision: event.target.value as Review['decision'] })}><option value="CHANGES_REQUESTED">{label('Changes requested', '要求修改')}</option><option value="APPROVED">{label('Approved', '通过')}</option></select></label><label>{label('Feedback', '反馈')}<textarea required rows={4} maxLength={65536} value={decision.reviewBody} onChange={event => updateDecision({ reviewBody: event.target.value })} /></label><button disabled={busy || !decision.reviewer.trim() || !decision.reviewBody.trim()}>{label('Record review', '记录复核')}</button></fieldset></form>
           <h4>{label('Owner acceptance', '负责人验收')}</h4>
           {!current && <p>{label('Historical submission. Acceptance is unavailable for the current requirement.', '历史交付无法用于当前要求验收。')}</p>}

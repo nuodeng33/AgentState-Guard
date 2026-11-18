@@ -75,10 +75,10 @@ class PendingInstructionMixin:
                     raise WorkError('WORK_REQUIREMENT_NOT_FOUND', 404)
                 versions.append([ref, item[0]])
             elif ref['kind'] == 'review':
-                item = self.conn.execute('SELECT body FROM work_reviews WHERE id=? AND work_id=?', (ref['ref_id'], work_id)).fetchone()
-                if item is None:
+                review = self.work._review_record(self.conn, work_id, ref['ref_id'])
+                if review is None:
                     raise WorkError('CONTEXT_NOT_IN_WORK', 422)
-                versions.append([ref, item[0]])
+                versions.append([ref, review['body']])
             else:
                 item = self.conn.execute('SELECT digest,available FROM protection_versions WHERE id=? AND scope_id=?', (ref.get('version_id'), ref['ref_id'])).fetchone()
                 if item is None or not item[1]:

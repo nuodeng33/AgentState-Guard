@@ -58,6 +58,31 @@ def _work(client):
     return response.json()["work_id"]
 
 
+def test_work_title_search_filters_before_pagination_and_keeps_list_order(tmp_path):
+    client = _client(tmp_path)
+    path = "/api/v1/works"
+    titles = ("旧 ÉQUIPE 工作%_计划", "中间工作", "新 Équipe 工作计划", "置顶无关项目")
+    for title in titles:
+        response = client.post(
+            path, json=_request(title=title, owner="ÉQUIPE", requirement="工作%_计划")
+        )
+        assert response.status_code == 201, response.text
+
+    def results(**params):
+        response = client.get(path, params=params)
+        assert response.status_code == 200, response.text
+        return [item["title"] for item in response.json()["items"]]
+
+    assert results(limit=1) == [titles[3]]
+    assert results(q="  ", limit=1) == [titles[3]]
+    assert results(q=" ÉQuiPE 工作 ", limit=1) == [titles[2]]
+    assert results(q="équipe 工作", limit=1, offset=1) == [titles[0]]
+    assert results(q="工作") == [titles[2], titles[1], titles[0]]
+    assert results(q="%") == [titles[0]]
+    assert results(q="_") == [titles[0]]
+    assert results(q="没有匹配项") == []
+
+
 def test_work_readers_remain_available_during_an_uncommitted_writer(tmp_path):
     client = _client(tmp_path)
     work_id = _work(client)
@@ -649,6 +674,102 @@ def test_view_and_artifact_cannot_reference_another_work(tmp_path):
         ).status_code
         == 422
     )
+
+
+def test_exact_review_detail_and_board_cards_survive_reopening(tmp_path):
+    client = _client(tmp_path)
+    root = f"/api/v1/works/{_work(client)}"
+    other_root = f"/api/v1/works/{_work(client)}"
+
+    def create(path, **values):
+        response = client.post(path, json=_request(**values))
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    artifact = create(
+        root + "/artifacts", expected_revision=1, requirement_version=1,
+        title="交付", body="保存的交付正文",
+    )
+    ref = {"artifact_id": artifact["artifact_id"], "version": artifact["version"]}
+    submission = create(
+        root + "/submissions", expected_revision=2, requirement_version=1,
+        artifact_refs=[ref], responsibility="交付人",
+    )
+    submission_id = submission["submission_id"]
+    review_path = root + f"/submissions/{submission_id}/reviews"
+    review = create(
+        review_path, expected_revision=3, reviewer="复核人",
+        decision="CHANGES_REQUESTED", body="  保留格式的复核正文\n",
+    )
+    create(
+        review_path, expected_revision=4, reviewer="另一位复核人",
+        decision="APPROVED", body="后续复核",
+    )
+    create(root + "/requirements", expected_revision=5, body="新版要求")
+    create(
+        root + "/artifacts", expected_revision=6, requirement_version=2,
+        artifact_id=artifact["artifact_id"], title="新版交付", body="后续版本",
+    )
+
+    review_id = review["review_id"]
+    detail_path = root + f"/reviews/{review_id}"
+    response = client.get(detail_path)
+    assert response.status_code == 200, response.text
+    detail = response.json()
+    assert detail["created_at"]
+    assert detail == {
+        "id": review_id, "submission_id": submission_id, "requirement_version": 1,
+        "reviewer": "复核人", "decision": "CHANGES_REQUESTED",
+        "created_at": detail["created_at"], "body": "  保留格式的复核正文\n",
+        "refs": {"artifacts": [ref], "files": []},
+    }
+
+    # The original tables do not have a composite foreign key for the review/submission.
+    # Even an inconsistent saved review cannot expose a different Work's submission.
+    mismatched_id = str(uuid4())
+    with sqlite3.connect(tmp_path / "state.db") as conn:
+        conn.execute(
+            "INSERT INTO work_reviews VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (mismatched_id, other_root.rsplit("/", 1)[1], submission_id,
+             "复核人", "APPROVED", "错误归属", detail["created_at"]),
+        )
+    for path in (other_root + f"/reviews/{review_id}", root + f"/reviews/{uuid4()}",
+                 other_root + f"/reviews/{mismatched_id}"):
+        rejected = client.get(path)
+        assert rejected.status_code == 404, rejected.text
+        assert rejected.json()["reason_code"] == "WORK_REVIEW_NOT_FOUND"
+
+    view_path = root + "/view"
+    reference = {"kind": "review", "ref_id": review_id, "version": None, "x": 10, "y": 20}
+    card = {**reference, "width": 520, "height": 540, "scroll": 30}
+    for path, state in (
+        (other_root + "/view", {"cards": [card]}),
+        (other_root + "/view", {"cards": [{**card, "ref_id": mismatched_id}]}),
+        (view_path, {"cards": [{**card, "ref_id": str(uuid4())}]}),
+        (view_path, {"cards": [{**card, "version": 1}]}),
+        (view_path, {"space": {"nodes": [reference]}}),
+    ):
+        rejected = client.post(path, json=_request(expected_revision=0, state=state))
+        assert rejected.status_code == 422, rejected.text
+    assert client.get(view_path).json() == {"revision": 0, "state": None}
+
+    request = _request(expected_revision=0, state={"surface": "board", "cards": [card]})
+    response = client.post(view_path, json=request)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"revision": 1}
+
+    reopened = _client(tmp_path)
+    assert reopened.get(view_path).json()["state"]["cards"] == [card]
+    assert reopened.get(detail_path).json() == detail
+    assert reopened.post(view_path, json=request).json() == {"revision": 1}
+    removed = reopened.post(view_path, json=_request(
+        expected_revision=1, state={"surface": "board", "cards": []},
+    ))
+    assert removed.status_code == 200, removed.text
+    assert reopened.get(view_path).json()["state"]["cards"] == []
+    assert reopened.get(detail_path).json() == detail
+    assert reopened.get(root).json()["revision"] == 7
+    assert len(reopened.get(root + "/submissions").json()["items"][0]["reviews"]) == 2
 
 
 def test_relation_space_and_board_survive_restart_without_changing_work(tmp_path):

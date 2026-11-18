@@ -14,6 +14,9 @@ import type { Locale } from './locale';
 export type MessageKey =
   | 'sidebar.searchWork'
   | 'sidebar.noMatches'
+  | 'sidebar.searching'
+  | 'sidebar.searchFailed'
+  | 'sidebar.moreResults'
   | 'sidebar.profile'
   | 'sidebar.newWork'
   | 'sidebar.moreWorks'
@@ -335,7 +338,10 @@ export type Messages = Record<MessageKey, string>;
 
 const enUS: Messages = {
   'sidebar.searchWork': 'Search work',
-  'sidebar.noMatches': 'No matching loaded work',
+  'sidebar.noMatches': 'No work matches this title',
+  'sidebar.searching': 'Searching…',
+  'sidebar.searchFailed': 'Couldn’t load search results',
+  'sidebar.moreResults': 'More results',
   'sidebar.profile': 'Workspace account',
   'sidebar.newWork': 'New work',
   'sidebar.moreWorks': 'More work',
@@ -669,7 +675,10 @@ const enUS: Messages = {
 
 const zhCN: Messages = {
   'sidebar.searchWork': '查找工作',
-  'sidebar.noMatches': '已加载工作中没有匹配项',
+  'sidebar.noMatches': '没有找到标题匹配的工作',
+  'sidebar.searching': '正在查找…',
+  'sidebar.searchFailed': '未能读取搜索结果',
+  'sidebar.moreResults': '更多匹配结果',
   'sidebar.profile': '工作区头像',
   'sidebar.newWork': '新建工作',
   'sidebar.moreWorks': '更多工作',

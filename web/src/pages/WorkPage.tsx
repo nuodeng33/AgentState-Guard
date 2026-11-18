@@ -8,7 +8,7 @@ import { workspaceCopy } from './workspaceCopy';
 import WorkOverview, { type WorkIndexItem } from './WorkOverview';
 import { forgetSelectedCard, lastSelectedCard, recordOpenedWork, recordSelectedCard } from './workRecency';
 import WorkSourceReading from './WorkSourceReading';
-import type { WorkArtifactEntry, WorkContentEntry } from './workContentTypes';
+import type { WorkArtifactEntry, WorkArtifactRef, WorkContentEntry, WorkReview } from './workContentTypes';
 import WorkDesk from './WorkDesk';
 import { frameTwoCards } from './workbenchViewport';
 import { workExcerpt } from './workExcerpt';
@@ -30,9 +30,11 @@ import './workWindow.css';
 
 type Summary = WorkIndexItem & { revision: number };
 type Work = Summary & { requirement: string; tasks: WorkContentEntry[]; artifacts: WorkArtifactEntry[] };
-export type Card = { kind: 'requirement' | 'task' | 'artifact'; ref_id: string; version: number | null;
+export type Card = { kind: 'requirement' | 'task' | 'artifact' | 'review'; ref_id: string; version: number | null;
   x: number; y: number; width: number; height: number; scroll: number };
-type SpaceNode = Pick<Card, 'kind' | 'ref_id' | 'version' | 'x' | 'y'>;
+type SpaceNode = Pick<Card, 'ref_id' | 'version' | 'x' | 'y'> & { kind: Exclude<Card['kind'], 'review'> };
+type ReviewTarget = { kind: 'artifact' | 'requirement'; ref_id: string; version: number };
+type Comparison = { workId: string; primary: Card; companion: Card; fromReader: boolean; temporary?: boolean };
 type Viewport = { x: number; y: number; zoom: number };
 type CardLocation = { id: string; framePair: boolean };
 export type Board = { schema_version: 1; viewport: Viewport; cards: Card[];
@@ -62,6 +64,8 @@ function hasCardContent(work: Work, card: Card): boolean {
         Number.isSafeInteger(card.version) && card.version >= 1 && card.version <= work.requirement_version;
     case 'task':
       return card.version === null && work.tasks.some(task => task.id === card.ref_id);
+    case 'review':
+      return card.version === null && Boolean(card.ref_id);
     case 'artifact':
       return work.artifacts.some(artifact => artifact.id === card.ref_id && artifact.version === card.version);
   }
@@ -119,6 +123,16 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [items, setItems] = useState<Summary[]>([]); const [more, setMore] = useState(false);
   const [work, setWork] = useState<Work | null>(null); const workRef = useRef<Work | null>(null);
+  const [knownReviews, setKnownReviews] = useState<{ workId: string; items: Map<string, WorkReview> } | null>(null);
+  const recordReview = useCallback((workId: string, review: WorkReview) => {
+    if (workRef.current?.id !== workId) return;
+    setKnownReviews(previous => {
+      if (previous?.workId === workId && previous.items.get(review.id) === review) return previous;
+      const items = previous?.workId === workId ? new Map(previous.items) : new Map<string, WorkReview>();
+      items.set(review.id, review);
+      return { workId, items };
+    });
+  }, []);
   useEffect(() => { if (work) recordOpenedWork(work.id, items); }, [work?.id, items]);
   const agents = useWorkAgents(client, work?.id, visible);
   const appearances = useAgentAppearances(client, work?.id, agents.items.map(agent => agent.agent_id).join('\0'));
@@ -177,8 +191,9 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const readingOpener = useRef<HTMLElement | null>(null);
   const readerOffsets = useRef(new Map<string, number>());
   const comparisonOpener = useRef<HTMLButtonElement | null>(null);
-  const [comparison, setComparison] = useState<{ workId: string; artifact: string; version: number; fromReader: boolean } | null>(null);
-  const comparing = comparison?.workId === work?.id && comparison?.artifact === focus ? comparison : null;
+  const [comparison, setComparison] = useState<Comparison | null>(null);
+  const comparisonReturn = useRef<string | null>(null);
+  const comparing = comparison && comparison.workId === work?.id && key(comparison.primary) === focus ? comparison : null;
   const readerCovered = sessionPanel || deliveryPanel;
   function leaveReader() {
     setComparison(null);
@@ -263,7 +278,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }
   async function openWork(id: string) {
     setLocatedId(null);
-    cardToLocate.current = null; surfaceOpener.current = null; surfaceReturn.current = false;
+    cardToLocate.current = null; surfaceOpener.current = null; surfaceReturn.current = false; comparisonReturn.current = null;
     fitOnBoardOpen.current = false;
     const previous = workRef.current && sessions.current.get(workRef.current.id);
     if (previous && previous.id !== id) void saveView(previous);
@@ -387,9 +402,18 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     return () => { document.removeEventListener('keydown', keyboard); };
   }, [form, focus, busy, visible, comparing, readerCovered]);
   useEffect(() => {
-    if (focus || !readingOpener.current) return;
-    const opener = readingOpener.current; readingOpener.current = null;
-    if (!editor && !agentPanel && opener.isConnected) opener.focus({ preventScroll: true });
+    if (focus) return;
+    const opener = readingOpener.current;
+    const backToCard = comparisonReturn.current;
+    readingOpener.current = null;
+    comparisonReturn.current = null;
+    if (editor || agentPanel) return;
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
+    else if (backToCard) {
+      const item = Array.from(canvas.current?.querySelectorAll<HTMLElement>('[data-card]') ?? [])
+        .find(node => node.dataset.card === backToCard);
+      item?.querySelector('button')?.focus({ preventScroll: true });
+    }
   }, [focus, editor, agentPanel]);
   function closeLibrary() { setLibraryOpen(false); libraryButton.current?.focus({ preventScroll: true }); }
   function closeNav() { setNavOpen(false); navButton.current?.focus({ preventScroll: true }); }
@@ -577,7 +601,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     } else changeBoard({ ...current, surface: 'board' });
   }
   const layoutReady = Boolean(work && sessions.current.get(work.id)?.hydrated);
-  const active = board?.cards.find(c => key(c) === focus);
+  const active = board?.cards.find(c => key(c) === focus) ?? comparing?.primary;
   const locatedCard = board?.cards.find(card => key(card) === locatedId) ??
     board?.cards.find(card => work && hasCardContent(work, card)) ?? board?.cards[0];
   const locatedKey = locatedCard ? key(locatedCard) : '';
@@ -634,7 +658,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       if (boardRef.current) changeBoard(withSpace(boardRef.current, detail));
     } catch (err) { if (mounted.current && workRef.current?.id === id && sequence === loadSequence.current) setError(message(err)); }
   }
-  function compareOnBoard(kind: Card['kind'], refId: string, version: number) {
+  function compareOnBoard(kind: 'artifact' | 'requirement', refId: string, version: number) {
     if (focus) {
       setComparison(null); setFocus(null); readingOpener.current = null;
     }
@@ -654,6 +678,56 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     changeBoard({ ...current, viewport: { x: 12 - card.x * zoom, y: 24 - card.y * zoom, zoom } });
   }
   function compareRequirement(version: number) { compareOnBoard('requirement', work!.id, version); }
+
+  function pairReview(reviewId: string, target: ReviewTarget, fromReader: boolean, opener?: HTMLButtonElement) {
+    const current = boardRef.current, detail = workRef.current;
+    if (!current || !detail || !sessions.current.get(detail.id)?.hydrated) return false;
+    const frame = { x: 0, y: 0, width: 400, height: 430, scroll: 0 };
+    const primary: Card = { ...frame, kind: 'review', ref_id: reviewId, version: null };
+    const companion: Card = { ...frame, ...target };
+    if (!hasCardContent(detail, companion)) return false;
+
+    const existingPrimary = current.cards.find(card => key(card) === key(primary));
+    const existingCompanion = current.cards.find(card => key(card) === key(companion));
+    const missing = Number(!existingPrimary) + Number(!existingCompanion);
+    const temporary = current.cards.length + missing > 40;
+    const reviewCard = existingPrimary ?? (temporary ? primary : addCard('review', reviewId, null, false)!);
+    const companionCard = existingCompanion ?? (temporary ? companion : addCard(target.kind, target.ref_id, target.version, false)!);
+
+    if (!fromReader) {
+      readingOpener.current = opener ?? null;
+      if (!opener) comparisonReturn.current = temporary && !existingPrimary ? locatedKey : key(reviewCard);
+      const latest = boardRef.current!;
+      if (latest.surface !== 'board') {
+        if (spaceSurface.current) spaceScroll.current = spaceSurface.current.scrollTop;
+        surfaceOpener.current = null;
+        changeBoard({ ...latest, surface: 'board' });
+      }
+      if (!temporary || existingPrimary) queueCardLocation(key(reviewCard), true);
+    } else if (opener) comparisonOpener.current = opener;
+
+    setComparison({ workId: detail.id, primary: reviewCard, companion: companionCard, fromReader, temporary });
+    setFocus(key(reviewCard));
+    return true;
+  }
+
+  async function openDeliveryReview(reviewId: string, submissionId: string, artifact: WorkArtifactRef | null, isCurrent: () => boolean) {
+    const detail = workRef.current;
+    if (!detail) return;
+    const review = await readReviewContent(client, detail.id, reviewId);
+    if (!isCurrent() || workRef.current?.id !== detail.id) return;
+    if (review.submission_id !== submissionId) throw new ApiRequestError('Unexpected review submission');
+    if (artifact ? !review.refs.artifacts.some(ref => ref.artifact_id === artifact.artifact_id && ref.version === artifact.version) : review.refs.artifacts.length) {
+      throw new ApiRequestError('Review reference unavailable', 404);
+    }
+    const target: ReviewTarget = artifact
+      ? { kind: 'artifact', ref_id: artifact.artifact_id, version: artifact.version }
+      : { kind: 'requirement', ref_id: detail.id, version: review.requirement_version };
+    if (!pairReview(reviewId, target, false)) throw new ApiRequestError('Review workspace unavailable');
+    setDeliveryPanel(false);
+    deliveryReturnsToSession.current = false;
+  }
+
   function fitSpace() { const current = boardRef.current, el = spaceCanvas.current; if (!current?.space?.nodes.length || !el) return;
     if (!visibleNodes.length) return;
     const bounds = [...visibleNodes, ...agentNodes].map(node => {
@@ -739,10 +813,14 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       onCompare={card.kind !== 'artifact' || !allowCompare ? undefined : (version, opener) => {
         if (reading) comparisonOpener.current = opener;
         else readingOpener.current = opener;
-        setComparison({ workId: work!.id, artifact: key(card), version, fromReader: reading });
+        setComparison({ workId: work!.id, primary: card, companion: { ...card, kind: 'requirement', ref_id: work!.id, version, scroll: 0 }, fromReader: reading });
         selectCard(card);
         setFocus(key(card));
       }}
+      onReviewRead={card.kind === 'review' ? recordReview : undefined}
+      onReviewTarget={card.kind === 'review' && allowCompare ? (target, opener) => {
+        if (!pairReview(card.ref_id, target, reading, opener)) setError(t.contentMissing);
+      } : undefined}
       onScroll={scroll => {
         if (bookmark) {
           const offsets = readerOffsets.current;
@@ -771,8 +849,17 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     }
   }, [form, layoutLocked, visible]);
   const currentSurface = locale === 'zh-CN' ? (inSpace ? '关系空间' : '聚合工作台') : (inSpace ? 'Relationship space' : 'Workbench');
-  const cardTitle = (card: Card) => card.kind === 'requirement' ? t.requirement : card.kind === 'task' ?
+  const cardTitle = (card: Card) => card.kind === 'review' ? t.review : card.kind === 'requirement' ? t.requirement : card.kind === 'task' ?
     work?.tasks.find(task => task.id === card.ref_id)?.title ?? t.task : work?.artifacts.find(artifact => artifact.id === card.ref_id && artifact.version === card.version)?.title ?? t.artifact;
+  function locatorTitle(card: Card) {
+    if (card.kind !== 'review') return cardTitle(card);
+    const review = knownReviews?.workId === work?.id ? knownReviews?.items.get(card.ref_id) : undefined;
+    if (!review) return t.review;
+    const decision = reviewDecisionLabel(review.decision, locale === 'zh-CN');
+    const text = Array.from(workExcerpt(review.body)[0] ?? '');
+    const excerpt = text.length > 36 ? text.slice(0, 36).join('') + '…' : text.join('');
+    return [t.review, review.reviewer, decision, excerpt, reviewTimeLabel(review.created_at, locale)].filter(Boolean).join(' · ');
+  }
   return <div className="work-layout" aria-hidden={!visible} data-nav-open={navOpen || undefined} data-sidebar-hidden={sidebarHidden || undefined}>
     <div className="work-command-bar" ref={commandBar}>
     <button type="button" className="work-mobile-works" ref={navButton} aria-expanded={navOpen} aria-controls={sidebarId} disabled={layoutLocked}
@@ -795,7 +882,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     </div>
     <div className="work-layout-content">
     {navOpen && <div className="work-mobile-shade" aria-hidden="true" onClick={closeNav} />}
-    <WorkSidebar id={sidebarId} page="work" items={items} activeId={work?.id} onOpen={id => { if (navOpen) closeNav(); if (id !== work?.id) void openWork(id); }}
+    <WorkSidebar client={client} id={sidebarId} page="work" items={items} activeId={work?.id} onOpen={id => { if (navOpen) closeNav(); if (id !== work?.id) void openWork(id); }}
       onCreate={opener => { openForm('work', navOpen ? navButton.current : opener); setNavOpen(false); }} onNavigate={next => { if (navOpen) closeNav(); if (next === 'work') back(); else onNavigate?.(next); }}
       hasMore={more} onMore={() => void list(true).catch(() => setError(t.failed))}
       navigationLocked={layoutLocked} />
@@ -813,7 +900,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       {!inSpace && <div className="work-tools"><button className="work-quiet" onClick={returnToSpace}><Icon name="back" />{t.returnSpace}</button><button className="work-quiet" ref={libraryButton} onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}><Icon name="library" />{t.addRelated}</button>
         {Boolean(board?.cards.length) && <select className="work-card-locator" aria-label={locale === 'zh-CN' ? '定位已打开的卡片' : 'Locate an open card'} value={locatedKey} onChange={event => queueCardLocation(event.target.value)}>
           <option value="" disabled>{locale === 'zh-CN' ? `${board!.cards.length} 张卡片` : `${board!.cards.length} open ${board!.cards.length === 1 ? 'card' : 'cards'}`}</option>
-          {board!.cards.map(card => <option key={key(card)} value={key(card)}>{cardTitle(card)}{card.version !== null ? ` · v${card.version}` : ''}</option>)}
+          {board!.cards.map(card => <option key={key(card)} value={key(card)}>{locatorTitle(card)}{card.version !== null ? ` · v${card.version}` : ''}</option>)}
         </select>}
         <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
       {inSpace && <div className="work-desk-surface" ref={spaceSurface}>
@@ -951,7 +1038,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={`sessions:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
-    {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowArtifact={(id, version) => {
+    {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowReview={openDeliveryReview} onShowArtifact={(id, version) => {
       if (workRef.current?.id !== work.id) return;
       compareOnBoard('artifact', id, version);
     }} onRevision={revision => {
@@ -965,7 +1052,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     {active && work && <div className="work-overlay work-reading-overlay" style={readerCovered ? { display: 'none' } : undefined} ref={overlay} role="dialog" aria-modal="true" aria-label={t.focus}>
       <section className={`work-reader${comparing ? ' is-comparing' : ''}`}>
         <header>
-          <button className="work-quiet" autoFocus onClick={leaveReader}><Icon name="back" />{comparing?.fromReader ? (locale === 'zh-CN' ? '返回成果' : 'Back to artifact') : t.returnBoard}</button>
+          <button className="work-quiet" autoFocus onClick={leaveReader}><Icon name="back" />{comparing?.fromReader ? (active.kind === 'review' ? (locale === 'zh-CN' ? '返回复核' : 'Back to review') : (locale === 'zh-CN' ? '返回成果' : 'Back to artifact')) : t.returnBoard}</button>
           <span className="work-reader-project" title={work.title}>{work.title}</span>
           <div className="work-reader-actions">
             {active.kind === 'task' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'task', taskId: active.ref_id }); }}>{locale === 'zh-CN' ? '编辑任务' : 'Edit task'}</button>}
@@ -973,10 +1060,15 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
           </div>
         </header>
         {(!comparing || comparing.fromReader) && <div className="work-reader-document" hidden={!!comparing}>{renderContent(active, true)}</div>}
-        {comparing && <WorkSourceReading key={key(active)} artifactVersion={active.version!} requirementVersion={comparing.version}
-          artifact={renderContent(active, true, false)}
-          requirement={<CardContent client={client} work={work} card={{ ...active, kind: 'requirement', ref_id: work.id, version: comparing.version, scroll: 0 }}
-            reading={false} onScroll={() => {}} />} />}
+        {comparing?.temporary && <p className="work-comparison-notice" role="status">{locale === 'zh-CN' ? '工作台最多容纳 40 张卡片。本次对照中放不下的文稿仅供阅读。' : 'The workbench limit is 40 cards. Any documents over that limit are available for this comparison.'}</p>}
+        {comparing && <WorkSourceReading key={key(active) + '|' + key(comparing.companion)}
+          initialSide={active.kind === 'review' ? 'review' : 'requirement'}
+          left={{ side: active.kind === 'review' ? 'review' : 'artifact',
+            label: active.kind === 'review' ? t.review : t.artifact + ' v' + active.version,
+            content: renderContent(active, true, false) }}
+          right={{ side: comparing.companion.kind === 'artifact' ? 'artifact' : 'requirement',
+            label: (comparing.companion.kind === 'artifact' ? t.artifact : (locale === 'zh-CN' ? '对应要求' : 'Original requirement')) + ' v' + comparing.companion.version,
+            content: <CardContent client={client} work={work} card={comparing.companion} reading={false} onScroll={() => {}} /> }} />}
       </section>
     </div>}
     {form && <div className="work-overlay" ref={overlay} role="dialog" aria-modal="true" aria-label={form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}><form className="work-form" onSubmit={submit}>
@@ -993,22 +1085,54 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
 }
 
 const contentReads = new WeakMap<ApiClient, Map<string, Promise<Content>>>();
-function readCardContent(client: ApiClient, path: string, scope: string): Promise<Content> {
+function readCardContent(client: ApiClient, path: string, scope: string, validate?: (value: Content) => Content): Promise<Content> {
   let cache = contentReads.get(client);
   if (!cache) { cache = new Map(); contentReads.set(client, cache); }
   const existing = cache.get(scope);
   if (existing) return existing;
   const request = readWorkOnce<Content>(client, path, scope).then(value => {
     if (!value || typeof value.body !== 'string') throw new Error('Invalid content');
-    return value;
+    return validate ? validate(value) : value;
   }).catch(error => { if (cache!.get(scope) === request) cache!.delete(scope); throw error; });
   cache.set(scope, request);
   if (cache.size > 64) cache.delete(cache.keys().next().value as string);
   return request;
 }
-function CardContent({ client, work, card, reading, readingContext, onScroll, onCompare, onOpenRun, compactPreview = false, excerpt = false, scrollPosition = card.scroll }: {
+function reviewRoute(workId: string, reviewId: string) {
+  return '/api/v1/works/' + encodeURIComponent(workId) + '/reviews/' + encodeURIComponent(reviewId);
+}
+
+function asReview(value: Content, id: string): WorkReview {
+  const review = value as Partial<WorkReview>;
+  if (review.id !== id || typeof review.submission_id !== 'string' || !Number.isSafeInteger(review.requirement_version) ||
+      !review.requirement_version || review.requirement_version < 1 || typeof review.reviewer !== 'string' ||
+      typeof review.created_at !== 'string' || (review.decision !== 'APPROVED' && review.decision !== 'CHANGES_REQUESTED') ||
+      !Array.isArray(review.refs?.artifacts) || !Array.isArray(review.refs?.files) ||
+      !review.refs.artifacts.every(ref => ref && typeof ref.artifact_id === 'string' && !!ref.artifact_id && Number.isSafeInteger(ref.version) && ref.version > 0)) {
+    throw new ApiRequestError('Invalid review record');
+  }
+  return review as WorkReview;
+}
+
+async function readReviewContent(client: ApiClient, workId: string, reviewId: string): Promise<WorkReview> {
+  const route = reviewRoute(workId, reviewId);
+  return await readCardContent(client, route, route, value => asReview(value, reviewId)) as WorkReview;
+}
+
+function reviewDecisionLabel(decision: WorkReview['decision'], zh: boolean) {
+  if (decision === 'APPROVED') return zh ? '复核通过' : 'Review approved';
+  return zh ? '要求修改' : 'Changes requested';
+}
+
+function reviewTimeLabel(value: string, locale: string) {
+  return Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString(locale) : value;
+}
+
+function CardContent({ client, work, card, reading, readingContext, onScroll, onCompare, onReviewRead, onReviewTarget, onOpenRun, compactPreview = false, excerpt = false, scrollPosition = card.scroll }: {
   client: ApiClient; work: Work; card: Card; reading: boolean; readingContext?: ReactNode; onScroll: (scroll: number) => void;
   onCompare?: (version: number, opener: HTMLButtonElement) => void;
+  onReviewRead?: (workId: string, review: WorkReview) => void;
+  onReviewTarget?: (target: ReviewTarget, opener: HTMLButtonElement) => void;
   onOpenRun?: (target: ExecutionTarget, opener: HTMLButtonElement) => void;
   compactPreview?: boolean;
   excerpt?: boolean;
@@ -1021,15 +1145,20 @@ function CardContent({ client, work, card, reading, readingContext, onScroll, on
     let live = true; setContent(null); setError(null);
     const path = card.kind === 'requirement' ? `requirements/${card.version}` : card.kind === 'task' ? `tasks/${card.ref_id}` : `artifacts/${card.ref_id}/${card.version}`;
     const route = `/api/v1/works/${work.id}/${path}`;
-    const scope = `${route}:${card.kind === 'task' ? work.revision : ''}`;
-    void readCardContent(client, route, scope).then(value => { if (live) setContent(value); }).catch(err => {
+    const request = card.kind === 'review' ? readReviewContent(client, work.id, card.ref_id)
+      : readCardContent(client, route, `${route}:${card.kind === 'task' ? work.revision : ''}`);
+    void request.then(value => {
+      if (!live) return;
+      setContent(value);
+      if (card.kind === 'review') onReviewRead?.(work.id, value as WorkReview);
+    }).catch(err => {
       if (!live) return;
       setError(err instanceof ApiRequestError && err.status === 503 ? 'contentBusy' :
         err instanceof ApiRequestError && err.status === 404 ? 'contentMissing' :
           err instanceof SessionUnavailableError || err instanceof ApiRequestError && (err.status === null || err.status === 401) ? 'contentConnection' : 'contentFailed');
     });
     return () => { live = false; };
-  }, [client, work.id, card.kind, card.ref_id, card.version, retry, card.kind === 'task' ? work.revision : 0]);
+  }, [client, work.id, card.kind, card.ref_id, card.version, retry, onReviewRead, card.kind === 'task' ? work.revision : 0]);
   useEffect(() => { if (body.current && content && Math.abs(body.current.scrollTop - scrollPosition) > 1) body.current.scrollTop = scrollPosition; }, [content, scrollPosition]);
   if (excerpt && content) {
     const lines = workExcerpt(content.body, content.title);
@@ -1037,12 +1166,34 @@ function CardContent({ client, work, card, reading, readingContext, onScroll, on
       ? lines.map((line, index) => <p key={index}>{line}</p>)
       : <p>{locale === 'zh-CN' ? '暂无正文节选' : 'No excerpt available'}</p>}</div>;
   }
+  const review = content && card.kind === 'review' ? content as WorkReview : null;
   return <div className="work-card-body" ref={body} tabIndex={0} role="region" aria-label={t[card.kind]} onScroll={e => {
     if (content && (reading || Math.abs(e.currentTarget.scrollTop - scrollPosition) > 1)) onScroll(e.currentTarget.scrollTop);
   }}>
     {error ? <p role="alert">{t[error]} <button onClick={() => setRetry(n => n + 1)}>{t.retry}</button></p> : content ? <>
       {reading && <div className="work-reader-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</div>}
-      {!compactPreview && <h2>{content.title ?? `${work.title} · ${t.requirement}`}</h2>}
+      {!compactPreview && <h2>{review ? t.review : content.title ?? `${work.title} · ${t.requirement}`}</h2>}
+      {review && <>
+        <dl className="work-provenance work-review-provenance">
+          <div><dt>{locale === 'zh-CN' ? '复核人' : 'Reviewer'}</dt><dd>{review.reviewer}</dd></div>
+          <div><dt>{locale === 'zh-CN' ? '复核决定' : 'Review decision'}</dt><dd>
+            {reviewDecisionLabel(review.decision, locale === 'zh-CN')}
+          </dd></div>
+          <div><dt>{locale === 'zh-CN' ? '复核时间' : 'Reviewed at'}</dt><dd><time dateTime={review.created_at}>
+            {reviewTimeLabel(review.created_at, locale)}
+          </time></dd></div>
+        </dl>
+        {onReviewTarget && <div className="work-origin-line" role="group" aria-label={locale === 'zh-CN' ? '复核相关文稿' : 'Review references'}>
+          <button className="work-compare-source" type="button"
+            onClick={event => onReviewTarget({ kind: 'requirement', ref_id: work.id, version: review.requirement_version }, event.currentTarget)}>
+            <Icon name="link" size={14} />{locale === 'zh-CN' ? '对照要求' : 'Compare requirement'} v{review.requirement_version}
+          </button>
+          {review.refs.artifacts.map(ref => <button key={ref.artifact_id + ':' + ref.version} className="work-compare-source" type="button"
+            onClick={event => onReviewTarget({ kind: 'artifact', ref_id: ref.artifact_id, version: ref.version }, event.currentTarget)}>
+            <Icon name="link" size={14} />{locale === 'zh-CN' ? '对照' : 'Compare'} {work.artifacts.find(artifact => artifact.id === ref.artifact_id && artifact.version === ref.version)?.title ?? t.artifact} v{ref.version}
+          </button>)}
+        </div>}
+      </>}
       {card.kind === 'artifact' && !compactPreview && <div className="work-origin-line">
         {content.source && <small>{content.source === 'AGENT_RUN' ? t.runOutput : content.source === 'USER_EDITED_RUN_OUTPUT' ? t.editedRunOutput : content.source === 'MANUAL' ? t.manual : content.source}</small>}
         {Number.isSafeInteger(content.requirement_version) && content.requirement_version! > 0 && (onCompare ?

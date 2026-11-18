@@ -286,11 +286,10 @@ class ExecutionService(PendingInstructionMixin):
                     raise WorkError('CONTEXT_FILE_NOT_TEXT', 422)
                 versions.append(ref.version_id)
             else:
-                cursor = self.conn.execute('SELECT body FROM work_reviews WHERE id=? AND work_id=?', (ref.ref_id, work_id))
-                review = cursor.fetchone()
-                if not review:
+                review = self.work._review_record(self.conn, work_id, ref.ref_id)
+                if review is None:
                     raise WorkError('CONTEXT_NOT_IN_WORK', 422)
-                content = review[0]
+                content = review['body']
             contexts.append({'ref': ref.model_dump(mode='json'), 'body': content})
         return contexts, versions
 

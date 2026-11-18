@@ -46,8 +46,12 @@ def work_router(db_path: Path, agent_enricher=None, agent_reader=None) -> APIRou
         return invoke("create", command)
 
     @router.get("")
-    def list_works(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0)):
-        result = invoke("list", limit, offset)
+    def list_works(
+        limit: int = Query(50, ge=1, le=100),
+        offset: int = Query(0, ge=0),
+        q: str | None = None,
+    ):
+        result = invoke("list", limit, offset, q=q)
         return result if isinstance(result, JSONResponse) else {"items": result}
 
     @router.get("/{work_id}")
@@ -120,6 +124,10 @@ def work_router(db_path: Path, agent_enricher=None, agent_reader=None) -> APIRou
     @router.get("/{work_id}/artifacts/{artifact_id}/{version}")
     def artifact(work_id: UUID, artifact_id: UUID, version: int):
         return invoke("artifact", str(work_id), str(artifact_id), version)
+
+    @router.get("/{work_id}/reviews/{review_id}")
+    def review(work_id: UUID, review_id: UUID):
+        return invoke("review", str(work_id), str(review_id))
 
     @router.get("/{work_id}/view")
     def view(work_id: UUID):

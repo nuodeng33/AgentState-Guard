@@ -45,3 +45,6 @@
 .work-delivery-decision { border-left: 3px solid var(--border-2); margin: 10px 0; padding-left: 10px; }
 .work-delivery-decision strong { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 @media (max-width: 680px) { .work-delivery { top: 72px; right: 8px; bottom: 62px; width: calc(100% - 16px); } .work-delivery-header { padding: 8px; } .work-delivery-content { padding: 10px; } }
+
+.work-review-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-block-start: 8px; }
+.work-page .work-review-actions button { text-align: left; white-space: normal; overflow-wrap: anywhere; }

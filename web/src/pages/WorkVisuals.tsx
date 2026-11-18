@@ -96,6 +96,7 @@ const ICONS: Record<string, ReactNode> = {
   expand: <path d="M11.5 4H16v4.5M16 4l-5.5 5.5M8.5 16H4v-4.5M4 16l5.5-5.5" />,
   close: <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />,
   task: <><rect x="4.5" y="3.5" width="11" height="13" rx="1.5" /><path d="M7.5 7.5h5M7.5 10.5h5M7.5 13.5h3" /></>,
+  review: <><path d="M5 4h10v10H9l-4 3z" /><path d="m7.7 9 1.5 1.6 3-3.2" /></>,
   artifact: <><path d="M5.5 3.5h6l3 3v10h-9z" /><path d="M11.5 3.5v3h3" /></>,
   requirement: <><circle cx="10" cy="10" r="6.5" /><circle cx="10" cy="10" r="2.5" /></>,
   library: <><path d="M4.5 4v12M8 4v12" /><path d="m11 4.5 3.5 11" /></>,

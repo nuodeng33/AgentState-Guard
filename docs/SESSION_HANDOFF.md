@@ -1,5 +1,11 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-11-19 Desktop workbench
+
+The desktop workbench shows the current requirement beside an excerpt from the latest artifact. In the installed Windows build of `3a5f814`, the podcast fixture opened the artifact's original requirement v1 while the work had already moved to v2. The native readback confirmed return to the same artifact card. [Windows build](https://github.com/nuodeng33/AgentState-Guard/actions/runs/44345540970)
+
+Work title search queries the complete work index. A delivery review can be opened beside one of the artifact versions in its submission. The workbench saves a reference to the review so that reopening the work restores it. For a submission with only files, the reading action opens the requirement version recorded at submission. Review decisions and owner acceptance records remain separate in the delivery record.
+
 ### 2026-11-18 Desktop workbench
 
 Product commit `738f17f` lets users open the run that produced an artifact, inspect its output and observed file differences, and return to the same reading position. The Windows acceptance used an older artifact from the first of two completed runs. The official MSI payload showed the first run’s output and restored the original reader when the session panel closed. Browser acceptance also covered aggregate and comparison views, the exact file version, manual artifacts and unavailable historical sources. See the [Windows build](https://github.com/nuodeng33/AgentState-Guard/actions/runs/44301223806) and [Core checks](https://github.com/nuodeng33/AgentState-Guard/actions/runs/44301223952).

@@ -28,7 +28,48 @@ const NAV_ITEMS: Array<{ key: PageKey; labelKey: MessageKey; icon: IconName }> =
 
 const SETTINGS_ITEMS = NAV_ITEMS.filter(item => item.key !== 'work');
 
+
+type WorkRow = { id: string; title: string };
+
+function WorkSearchResults({ client, query, renderRow, locked }: {
+  client: ApiClient; query: string; renderRow: (item: WorkRow) => ReactNode; locked: boolean;
+}) {
+  const t = useT();
+  const [items, setItems] = useState<WorkRow[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [attempt, setAttempt] = useState(0);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    let live = true;
+    // One lookahead row distinguishes a full last page from an actual next page.
+    const timer = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q: query, limit: '21', offset: String(offset) });
+        const result = await client.get<{ items: WorkRow[] }>(`/api/v1/works?${params}`);
+        if (!live) return;
+        const page = result.items.slice(0, 20);
+        setItems(previous => offset ? [...previous, ...page.filter(row => !previous.some(item => item.id === row.id))] : page);
+        setMore(result.items.length > 20);
+        setStatus('ready');
+      } catch {
+        if (live) setStatus('error');
+      }
+    }, offset || attempt ? 0 : 180);
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [client, query, offset, attempt]);
+  return <>
+    {items.map(renderRow)}
+    {status === 'loading' && <p role="status" className="work-sidebar-no-match">{t('sidebar.searching')}</p>}
+    {status === 'ready' && !items.length && <p role="status" className="work-sidebar-no-match">{t('sidebar.noMatches')}</p>}
+    {status === 'error' && <><p role="status" className="work-sidebar-no-match">{t('sidebar.searchFailed')}</p>
+      <button type="button" disabled={locked} onClick={() => { setStatus('loading'); setAttempt(value => value + 1); }}>{t('view.retry')}</button></>}
+    {status === 'ready' && more && <button type="button" disabled={locked} onClick={() => { setStatus('loading'); setOffset(value => value + 20); }}>{t('sidebar.moreResults')}</button>}
+  </>;
+}
+
 export type WorkSidebarProps = {
+  client?: ApiClient;
   id?: string;
   items?: { id: string; title: string }[];
   activeId?: string | null;
@@ -42,13 +83,15 @@ export type WorkSidebarProps = {
 };
 
 /** Work navigation only; auxiliary destinations live inside Settings. */
-export function WorkSidebar({ id, items = [], activeId, onOpen, onCreate, onNavigate, page,
+export function WorkSidebar({ id, client, items = [], activeId, onOpen, onCreate, onNavigate, page,
   onMore, hasMore = false, navigationLocked = false }: WorkSidebarProps) {
   const t = useT();
   const [profileOpen, setProfileOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const query = search.trim().toLocaleLowerCase();
-  const filteredItems = query ? items.filter(item => item.title.toLocaleLowerCase().includes(query)) : items;
+  const query = search.trim();
+  const renderRow = (item: WorkRow) => <button type="button" key={item.id} title={item.title}
+    disabled={navigationLocked} aria-current={page === 'work' && item.id === activeId ? 'page' : undefined}
+    onClick={() => onOpen?.(item.id)}><NavIcon name="folder" /><span>{item.title}</span></button>;
   const profile = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => { setProfileOpen(false); }, [page]);
   useEffect(() => {
@@ -74,15 +117,16 @@ export function WorkSidebar({ id, items = [], activeId, onOpen, onCreate, onNavi
         aria-current={page === 'work' && !activeId ? 'page' : undefined} onClick={() => onNavigate('work')}>
         <NavIcon name="work" />{t('nav.work')}
       </button>
-      {onOpen && <label className="work-sidebar-search-field"><NavIcon name="search" /><input type="search" className="work-sidebar-search" aria-label={t('sidebar.searchWork')}
+      {onOpen && client && <label className="work-sidebar-search-field"><NavIcon name="search" /><input type="search" className="work-sidebar-search" aria-label={t('sidebar.searchWork')}
         placeholder={t('sidebar.searchWork')} value={search} disabled={navigationLocked}
-        onChange={event => setSearch(event.target.value)} /></label>}
+        onKeyDown={event => {
+          if (event.key === 'Escape' && search && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); setSearch(''); }
+        }} onChange={event => setSearch(event.target.value)} /></label>}
       <div className="work-sidebar-list">
-        {query && !filteredItems.length && <p className="work-sidebar-no-match">{t('sidebar.noMatches')}</p>}
-        {filteredItems.map(item => <button type="button" key={item.id} title={item.title}
-          disabled={navigationLocked} aria-current={page === 'work' && item.id === activeId ? 'page' : undefined}
-          onClick={() => onOpen?.(item.id)}><NavIcon name="folder" /><span>{item.title}</span></button>)}
-        {hasMore && onMore && <button type="button" disabled={navigationLocked} onClick={onMore}>{t('sidebar.moreWorks')}</button>}
+        {query && client ? <WorkSearchResults key={query} client={client} query={query} renderRow={renderRow} locked={navigationLocked} /> : <>
+          {items.map(renderRow)}
+          {hasMore && onMore && <button type="button" disabled={navigationLocked} onClick={onMore}>{t('sidebar.moreWorks')}</button>}
+        </>}
       </div>
     </nav>
     <div className="work-sidebar-profile" ref={profile}>

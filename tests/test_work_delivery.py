@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from agentguard.execution.models import StartRun
+from agentguard.execution.models import ContextRef, StartRun
 from agentguard.work.delivery import (
     AcceptSubmission,
     CreateSubmission,
@@ -55,6 +55,20 @@ def test_output_promotion_submission_review_acceptance_and_changed_requirement(s
         assert delivery.submit(work_id, submit_command) == submission
         review = delivery.decide(work_id, submission['submission_id'], ReviewSubmission(request_id=uuid4(),
             expected_revision=submission['revision'], decision='CHANGES_REQUESTED', body='More verification needed', reviewer='Reviewer'))
+        saved_review = service.work.review(work_id, review['review_id'])
+        assert saved_review['refs'] == delivery.submissions(work_id)['items'][0]['refs']
+        assert saved_review['refs']['files'][0]['version_id'] == run['file_result']['version_id']
+        assert saved_review['refs']['files'][0]['digest']
+        ref = ContextRef(kind='review', ref_id=review['review_id'])
+        contexts, versions = service._contexts(work_id, [ref])
+        assert contexts == [{'ref': ref.model_dump(mode='json'), 'body': saved_review['body']}]
+        assert versions == []
+        facts, _ = service._pending_semantics(
+            service.one('work_sessions', session['id'], work_id), 1, [ref.model_dump(mode='json')],
+        )
+        assert facts['context_versions'] == [[ref.model_dump(mode='json'), saved_review['body']]]
+        with pytest.raises(WorkError, match='CONTEXT_NOT_IN_WORK'):
+            service._contexts(str(uuid4()), [ref])
         accept_command = AcceptSubmission(request_id=uuid4(), expected_revision=review['revision'], decision='ACCEPTED', basis='Inspected fixed version', owner='Owner')
         acceptance = delivery.decide(work_id, submission['submission_id'], accept_command, acceptance=True)
         assert delivery.decide(work_id, submission['submission_id'], accept_command, acceptance=True) == acceptance
