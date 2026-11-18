@@ -1,5 +1,11 @@
 # R4-P7 Recovery Trust Boundary Handoff
 
+### 2026-11-18 Desktop workbench
+
+Product commit `738f17f` lets users open the run that produced an artifact, inspect its output and observed file differences, and return to the same reading position. The Windows acceptance used an older artifact from the first of two completed runs. The official MSI payload showed the first run’s output and restored the original reader when the session panel closed. Browser acceptance also covered aggregate and comparison views, the exact file version, manual artifacts and unavailable historical sources. See the [Windows build](https://github.com/nuodeng33/AgentState-Guard/actions/runs/44301223806) and [Core checks](https://github.com/nuodeng33/AgentState-Guard/actions/runs/44301223952).
+
+Earlier desktop changes added inline preview, comparison with the historical requirement, and restoration of the selected artifact version across native restart. The semantic retrieval study remains an independent local prototype. Docker Codex and Kimi execution retain the scope limitations recorded in the [provider matrix](MANAGED_SESSION_BACKEND.md).
+
 ### Phase34 source — Device Link I/O responsive, native follow-up pending
 
 Actual enable5906ms exposed the generic5s UI deadline and ASGI blocking. Lifecycle calls now use serialized request workers, status materializes a coherent candidate snapshot, and only exact known lifecycle POSTs receive finite60s with visible existing progress/no replay. Source full1711passed52skipped, frontend455passed55files/build, related70passed, focused22passed1skipped; suites remain distinct. A1f91 CI controlled-change timing fixture correction retains strict post-write started_at/business assertions and uses the same20ms fixture cadence as other R4 suites. Android signing identity stays pinned; trusted-push versions now advance for genuine acceptance updates. See [phase34](phases/34-responsive-device-link.md). Exact next CI/phone protocol/update and native UI gates remain open.

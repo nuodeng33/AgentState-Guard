@@ -1,6 +1,6 @@
 # ASG 受管会话：能力与接口
 
-更新：2026-10-15（工作级反馈与上下文接入；提供方实测版本仍为 9 月 30 日历史记录）。验收记录见 [MANAGED_SESSION_ACCEPTANCE_20260930.md](MANAGED_SESSION_ACCEPTANCE_20260930.md)。
+2026-11-18 更新了 WSL 实测记录。较早的提供方验收见 [MANAGED_SESSION_ACCEPTANCE_20260930.md](MANAGED_SESSION_ACCEPTANCE_20260930.md)。
 
 ## 对象与边界
 
@@ -17,7 +17,7 @@ Work 保存要求、任务、成果与交付。`work_sessions` 绑定已核验�
 | Windows Codex 0.159.0 | 握手、目录沙箱、真实运行、流式输出、续接、取消、精确状态对账通过 | 已核验目录内的只读及写入运行 |
 | Docker Codex 0.147.0 | 握手通过；真实沙箱探测因 bwrap namespace 限制失败 | 保留发现和会话读取；受管运行拒绝，返回权限能力原因 |
 | Docker kimi-code 0.29.2 ACP | 握手确认 list、load、resume；没有可验证的只读／写入目录约束 | 保留发现和会话读取；受管运行返回 `EXECUTION_ACP_SCOPE_UNENFORCED` |
-| 用户 WSL | 当前没有已运行、可验收的用户发行版 | 未验收；不唤醒发行版完成测试 |
+| WSL Ubuntu Codex 0.164.0-alpha.11.1 | 目录隔离、网络限制和两次独立模型任务通过实测。工作接口验证了单次派发、事件顺序和文件版本 | 已核验目录的只读和写入会话。见[权限验收](phases/32-wsl-scoped-execution.md)和[运行证据](verification/NATIVE_MODEL_UPGRADE_20261029.json) |
 
 原生 fork 已实现格式和身份校验，尚未完成真实端到端验收，页面首版只提供新建与继续。Zcode、CloudCLI 等观察来源不会自动变成执行器。
 
