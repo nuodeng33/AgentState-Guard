@@ -12,7 +12,7 @@ from agentguard.work.delivery import (
     ReviewSubmission,
     SaveRunArtifact,
 )
-from agentguard.work.models import ReviseRequirement, SaveArtifact
+from agentguard.work.models import CreateWork, ReviseRequirement, SaveArtifact
 from agentguard.work.service import WorkError
 from tests.test_execution_core import create_session, wait_for
 
@@ -46,6 +46,7 @@ def test_output_promotion_submission_review_acceptance_and_changed_requirement(s
         saved = service.work.artifact(work_id, artifact['artifact_id'], 1)
         assert saved['body'] == 'samesame'
         assert saved['source'] == 'AGENT_RUN' and saved['source_run_id'] == run_id
+        assert saved['source_session_id'] == session['id']
         run = service.run(work_id, session['id'], run_id)
         submit_command = CreateSubmission(request_id=uuid4(), expected_revision=artifact['revision'], requirement_version=1,
             run_id=run_id, responsibility='Implementer', artifact_refs=[{'artifact_id': artifact['artifact_id'], 'version': 1}],
@@ -78,10 +79,41 @@ def test_user_edited_output_and_manual_artifact_are_distinct(setup):
             SaveRunArtifact(request_id=uuid4(), expected_revision=2, title='Edited output', body='User correction'))
         artifact = service.work.artifact(setup['work_id'], promoted['artifact_id'], 1)
         assert artifact['source'] == 'USER_EDITED_RUN_OUTPUT'
+        assert artifact['source_session_id'] == session['id']
         assert artifact['source_events']
         manual = service.work.save_artifact(setup['work_id'], SaveArtifact(request_id=uuid4(), expected_revision=promoted['revision'],
             requirement_version=1, title='Human note', body='Hand written'))
-        assert service.work.artifact(setup['work_id'], manual['artifact_id'], 1)['source'] == 'MANUAL'
+        manual_artifact = service.work.artifact(setup['work_id'], manual['artifact_id'], 1)
+        assert manual_artifact['source'] == 'MANUAL'
+        assert manual_artifact['source_session_id'] is None
+
+
+def test_unresolved_or_cross_work_source_keeps_the_artifact_readable(setup):
+    _, run_id = finished(setup)
+    work_id = setup['work_id']
+    with setup['runtime'].service() as service:
+        other_work_id = service.work.create(CreateWork(
+            request_id=uuid4(), title='Other work', owner='Owner', requirement='Keep its records separate',
+        ))['work_id']
+        cases = [
+            (work_id, 'AGENT_RUN', str(uuid4())),
+            (other_work_id, 'AGENT_RUN', run_id),
+            (work_id, 'MANUAL', run_id),
+        ]
+        with service.db.transaction() as conn:
+            artifacts = [
+                (target_work, source, source_run, service.work._store_artifact(
+                    conn, target_work, None, 'Historical output', 'Saved body', 1,
+                    '2026-01-01T00:00:00Z', source=source, source_run_id=source_run,
+                ))
+                for target_work, source, source_run in cases
+            ]
+        for target_work, source, source_run, (artifact_id, version) in artifacts:
+            read = service.work.artifact(target_work, artifact_id, version)
+            assert read['body'] == 'Saved body'
+            assert read['source'] == source
+            assert read['source_run_id'] == source_run
+            assert read['source_session_id'] is None
 
 
 def test_delivery_cannot_use_wrong_work_or_invalid_versions(setup):

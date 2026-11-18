@@ -34,7 +34,7 @@ type Viewport = { x: number; y: number; zoom: number };
 export type Board = { schema_version: 1; viewport: Viewport; cards: Card[];
   surface?: 'space' | 'board'; space?: { viewport: Viewport; nodes: SpaceNode[] } };
 type View = { revision: number; state: Board | null };
-type Content = { title?: string; body: string; requirement_version?: number; source?: string; source_run_id?: string | null; assignee?: string | null; depends_on?: string[] };
+type Content = { title?: string; body: string; requirement_version?: number; source?: string; source_run_id?: string | null; source_session_id?: string | null; assignee?: string | null; depends_on?: string[] };
 type SaveCommand = { request_id: string; expected_revision: number; state: Board; edit: number };
 type Session = { id: string; board: Board; revision: number | null; hydrated: boolean; edits: number; saved: number; selectedCard?: string;
   pending: SaveCommand | null; saving: Promise<void> | null; status: 'loading' | 'unavailable' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'; blocked: boolean };
@@ -135,7 +135,11 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const [protectionCommand, setProtectionCommand] = useState<ProtectionScopeCommand | null>(null);
   const sessionOpener = useRef<HTMLElement | null>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  function openSessions(target?: ExecutionTarget) { sessionOpener.current = target ? document.activeElement as HTMLElement | null : menuButton.current; setExecutionTarget(target ?? null); setRecoveryPanel(false); setDeliveryPanel(false); setSessionPanel(true); setMenuOpen(false); }
+  function openSessions(target?: ExecutionTarget, opener?: HTMLElement) {
+    sessionOpener.current = opener ?? (target ? document.activeElement as HTMLElement | null : menuButton.current);
+    setExecutionTarget(target ?? null);
+    setRecoveryPanel(false); setDeliveryPanel(false); setSessionPanel(true); setMenuOpen(false);
+  }
   function closeSessions() { setSessionPanel(false); requestAnimationFrame(() => { if (sessionOpener.current?.isConnected) sessionOpener.current.focus(); else menuButton.current?.focus(); }); }
   function openDelivery(output: WorkRunOutput | null = null) {
     deliveryOpener.current = output ? document.activeElement as HTMLElement | null : menuButton.current;
@@ -170,6 +174,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const comparisonOpener = useRef<HTMLButtonElement | null>(null);
   const [comparison, setComparison] = useState<{ workId: string; artifact: string; version: number; fromReader: boolean } | null>(null);
   const comparing = comparison?.workId === work?.id && comparison?.artifact === focus ? comparison : null;
+  const readerCovered = sessionPanel || deliveryPanel;
   function leaveReader() {
     setComparison(null);
     if (comparing?.fromReader) return;
@@ -359,7 +364,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }, [form, editor, linksPanel, appearances.hasPending]);
   useEffect(() => { onUnsavedChange?.([...sessions.current.values()].some(s => s.saved !== s.edits) || form !== null || editor !== null || linksPanel || appearances.hasPending); }, [status, form, editor, linksPanel, onUnsavedChange, appearances.hasPending]);
   useEffect(() => {
-    if (!visible || (!form && !focus)) return;
+    if (!visible || readerCovered || (!form && !focus)) return;
     const keyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !busy) { e.preventDefault(); if (focus) leaveReader(); else closeForm(); }
       if (e.key !== 'Tab' || !overlay.current) return;
@@ -370,7 +375,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     };
     document.addEventListener('keydown', keyboard);
     return () => { document.removeEventListener('keydown', keyboard); };
-  }, [form, focus, busy, visible, comparing]);
+  }, [form, focus, busy, visible, comparing, readerCovered]);
   useEffect(() => {
     if (focus || !readingOpener.current) return;
     const opener = readingOpener.current; readingOpener.current = null;
@@ -610,6 +615,9 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     } catch (err) { if (mounted.current && workRef.current?.id === id && sequence === loadSequence.current) setError(message(err)); }
   }
   function compareOnBoard(kind: Card['kind'], refId: string, version: number) {
+    if (focus) {
+      setComparison(null); setFocus(null); readingOpener.current = null;
+    }
     showOnBoard({ kind, ref_id: refId, version }, false);
     const current = boardRef.current, card = current?.cards.find(item => item.kind === kind && item.ref_id === refId && item.version === version);
     const width = (canvas.current ?? spaceSurface.current)?.clientWidth ?? window.innerWidth;
@@ -703,6 +711,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       {!linked.length && (agents.loading || agents.failed) && <button className="work-quiet" onClick={() => { setFocus(null); openAgents(); }}>{t.agents}</button>}
     </div>;
     return <CardContent client={client} work={work!} card={card} reading={reading} readingContext={context}
+      onOpenRun={(target, opener) => { selectCard(card); openSessions(target, opener); }}
       onCompare={card.kind !== 'artifact' || !allowCompare ? undefined : (version, opener) => {
         if (reading) comparisonOpener.current = opener;
         else readingOpener.current = opener;
@@ -755,7 +764,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       onCreate={opener => { openForm('work', navOpen ? navButton.current : opener); setNavOpen(false); }} onNavigate={next => { if (navOpen) closeNav(); if (next === 'work') back(); else onNavigate?.(next); }}
       hasMore={more} onMore={() => void list(true).catch(() => setError(t.failed))}
       navigationLocked={layoutLocked} />
-    <main className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
+    <main className={`work-page ${restOpen ? 'is-resting' : ''} ${active && !readerCovered ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
     {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button>{work && !layoutReady && status === 'unavailable' && <button onClick={() => void openWork(work.id)}>{locale === 'zh-CN' ? '重新读取现场' : 'Reload workspace'}</button>}</div>}
     {loading ? <div className="work-loading-state" role="status"><span className="work-loading-spinner" aria-hidden="true" /><p>{t.load}</p></div> : !work ? <>
       <WorkOverview items={items} more={more} onOpen={id => void openWork(id)} onCreate={opener => openForm('work', opener)}
@@ -904,10 +913,10 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     {work && <WorkProtectionLinks key={`protection-links:${work.id}`} client={client} workId={work.id} visible={visible && linksPanel}
       onClose={() => setLinksPanel(false)} onChanged={() => void refreshDeliveryWork(work.id)} />}
     <WorkRecovery protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} client={client} visible={recoveryPanel && visible && Boolean(work) && !loading && !restOpen && !agentPanel && !form && !active} onClose={closeRecovery} />
-    {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={`sessions:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
+    {work && <WorkSessions protectionCommand={protectionCommand} onProtectionCommandChange={setProtectionCommand} key={`sessions:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} artifacts={work.artifacts} target={executionTarget} tasks={work.tasks} visible={sessionPanel && !deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form} memory={sessionMemory.current} onClose={closeSessions} onOpenRequirement={compareRequirement} onDelivery={openDelivery} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
-    {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form && !active} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowArtifact={(id, version) => {
+    {work && <WorkDelivery key={`delivery:${work.id}`} client={client} workId={work.id} revision={work.revision} requirementVersion={work.requirement_version} owner={work.owner} artifacts={work.artifacts} output={deliveryOutput} visible={deliveryPanel && !recoveryPanel && visible && !restOpen && !agentPanel && !form} memory={sessionMemory.current} onClose={closeDelivery} onOpenRequirement={compareRequirement} onChanged={() => refreshDeliveryWork(work.id)} onShowArtifact={(id, version) => {
       if (workRef.current?.id !== work.id) return;
       compareOnBoard('artifact', id, version);
     }} onRevision={revision => {
@@ -918,7 +927,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
     {appearancePanel && work && <AgentAppearancePicker agents={agents.items} state={appearances} selected={appearancePanel.selected} onClose={closeAppearance} />}
-    {active && work && <div className="work-overlay work-reading-overlay" ref={overlay} role="dialog" aria-modal="true" aria-label={t.focus}>
+    {active && work && <div className="work-overlay work-reading-overlay" style={readerCovered ? { display: 'none' } : undefined} ref={overlay} role="dialog" aria-modal="true" aria-label={t.focus}>
       <section className={`work-reader${comparing ? ' is-comparing' : ''}`}>
         <header>
           <button className="work-quiet" autoFocus onClick={leaveReader}><Icon name="back" />{comparing?.fromReader ? (locale === 'zh-CN' ? '返回成果' : 'Back to artifact') : t.returnBoard}</button>
@@ -962,9 +971,10 @@ function readCardContent(client: ApiClient, path: string, scope: string): Promis
   if (cache.size > 64) cache.delete(cache.keys().next().value as string);
   return request;
 }
-function CardContent({ client, work, card, reading, readingContext, onScroll, onCompare, compactPreview = false }: {
+function CardContent({ client, work, card, reading, readingContext, onScroll, onCompare, onOpenRun, compactPreview = false }: {
   client: ApiClient; work: Work; card: Card; reading: boolean; readingContext?: ReactNode; onScroll: (scroll: number) => void;
   onCompare?: (version: number, opener: HTMLButtonElement) => void;
+  onOpenRun?: (target: ExecutionTarget, opener: HTMLButtonElement) => void;
   compactPreview?: boolean;
 }) {
   const { locale } = useI18n(); const t = workspaceCopy[locale];
@@ -994,7 +1004,10 @@ function CardContent({ client, work, card, reading, readingContext, onScroll, on
           <button type="button" className="work-compare-source" onClick={e => onCompare(content.requirement_version!, e.currentTarget)}>
             <Icon name="link" size={14} />{locale === 'zh-CN' ? '对照要求' : 'Compare requirement'} v{content.requirement_version}
           </button> : <small>{t.basedOn} v{content.requirement_version}</small>)}
-        {content.source_run_id && <details><summary>{locale === 'zh-CN' ? '来源运行' : 'Source run'}</summary><code>{content.source_run_id}</code></details>}
+        {content.source_run_id && (onOpenRun && content.source_session_id && (content.source === 'AGENT_RUN' || content.source === 'USER_EDITED_RUN_OUTPUT') ?
+          <button type="button" className="work-compare-source" onClick={e => onOpenRun({ sessionId: content.source_session_id!, runId: content.source_run_id! }, e.currentTarget)}>
+            <Icon name="agents" size={14} />{locale === 'zh-CN' ? '查看来源运行' : 'View source run'}
+          </button> : <details><summary>{locale === 'zh-CN' ? '来源运行' : 'Source run'}</summary><code>{content.source_run_id}</code></details>)}
       </div>}
       {card.kind === 'task' && <dl className="work-provenance">
         <div><dt>{t.assignee}</dt><dd>{content.assignee === undefined ? (locale === 'zh-CN' ? '未知' : 'Unknown') : content.assignee || (locale === 'zh-CN' ? '尚未指定' : 'Not assigned')}</dd></div>

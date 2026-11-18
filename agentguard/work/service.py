@@ -473,8 +473,12 @@ class WorkService:
     def artifact(self, work_id: str, artifact_id: str, version: int):
         with self.db.transaction(immediate=False) as conn:
             row = conn.execute(
-                """SELECT v.title, v.body, v.requirement_version, v.created_at,v.source,v.source_run_id,v.source_events_json
+                """SELECT v.title, v.body, v.requirement_version, v.created_at,
+                       v.source, v.source_run_id, v.source_events_json, s.id
                 FROM work_artifact_versions v JOIN work_artifacts a ON a.id=v.artifact_id
+                LEFT JOIN work_runs r ON r.id=v.source_run_id AND r.work_id=a.work_id
+                    AND v.source IN ('AGENT_RUN', 'USER_EDITED_RUN_OUTPUT')
+                LEFT JOIN work_sessions s ON s.id=r.session_id AND s.work_id=a.work_id
                 WHERE a.work_id=? AND a.id=? AND v.version=?""",
                 (work_id, artifact_id, version),
             ).fetchone()
@@ -490,6 +494,7 @@ class WorkService:
                 "source": row[4],
                 "source_run_id": row[5],
                 "source_events": json.loads(row[6]),
+                "source_session_id": row[7],
             }
 
     def view(self, work_id: str):
