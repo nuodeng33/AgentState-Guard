@@ -115,7 +115,17 @@ const artifactBody = '## Result\nVerified local original body.\n| --- | --- |';
       report.checks.acceptance_persisted = submissions.items.length === 1 && submissions.items[0].reviews.length === 1 && submissions.items[0].acceptances[0].decision === 'ACCEPTED';
       await changeLanguageViaSettings(page, 'zh-CN');
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.getByRole('button', { name: '放大', exact: true }).waitFor();
+      const picker = page.getByRole('combobox', { name: '定位已打开的卡片', exact: true });
+      await picker.selectOption({ label: 'Local artifact · v' + artifact.version });
+      const visibleCards = page.locator('.work-card:visible');
+      const paragraph = visibleCards.getByText('Verified local original body.', { exact: true });
+      await paragraph.waitFor();
+      assert.equal(await visibleCards.count(), 1);
+      assert(await paragraph.evaluate(el => {
+        const r = el.getBoundingClientRect(), canvas = el.closest('.work-canvas').getBoundingClientRect();
+        return r.top >= canvas.top && r.bottom <= canvas.bottom &&
+          el.contains(document.elementFromPoint(r.left + Math.min(16, r.width / 2), r.top + r.height / 2));
+      }), 'The selected artifact body must be onscreen after reopening on mobile');
       report.checks.mobile_readable = !(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth));
       await page.screenshot({ path: path.join(directory, 'real-reopened-mobile.png') });
     }
