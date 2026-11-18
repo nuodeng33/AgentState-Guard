@@ -152,6 +152,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const surfaceReturn = useRef(false);
   const spaceEntry = useRef<HTMLButtonElement>(null);
   const cardToLocate = useRef<string | null>(null);
+  const [locatedId, setLocatedId] = useState<string | null>(null);
   const libraryButton = useRef<HTMLButtonElement>(null);
   const [navOpen, setNavOpen] = useState(false);
   const navButton = useRef<HTMLButtonElement>(null);
@@ -217,6 +218,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     setItems(old => append ? [...old, ...result.items] : result.items); setMore(result.items.length === 50);
   }
   async function openWork(id: string) {
+    setLocatedId(null);
     cardToLocate.current = null; surfaceOpener.current = null; surfaceReturn.current = false;
     const previous = workRef.current && sessions.current.get(workRef.current.id);
     if (previous && previous.id !== id) void saveView(previous);
@@ -362,7 +364,8 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     const item = Array.from(el.querySelectorAll<HTMLElement>('[data-card]')).find(node => node.dataset.card === id);
     if (!item) return false;
     if (getComputedStyle(el).getPropertyValue('--work-board-stack').trim() === '1') {
-      item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+      if (item.dataset.current !== 'true') return false;
+      el.scrollTop = 0;
     } else {
       const width = el.clientWidth || el.getBoundingClientRect().width;
       if (width > 0) {
@@ -374,6 +377,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     return true;
   }
   function queueCardLocation(id: string) {
+    setLocatedId(id);
     cardToLocate.current = id;
     if (revealCard(id)) cardToLocate.current = null;
   }
@@ -408,7 +412,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
         .find(node => (node.dataset.directoryCard ?? node.dataset.node) === original.id);
       (opener ?? spaceEntry.current)?.focus({ preventScroll: true });
     }
-  }, [board, deliveryPanel, sessionPanel]);
+  }, [board, locatedId, deliveryPanel, sessionPanel]);
   useEffect(() => {
     const el = canvas.current; if (!el) return;
     const wheel = (e: WheelEvent) => {
@@ -489,6 +493,8 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }
   const layoutReady = Boolean(work && sessions.current.get(work.id)?.hydrated);
   const active = board?.cards.find(c => key(c) === focus);
+  const locatedCard = board?.cards.find(c => key(c) === locatedId) ?? board?.cards[0];
+  const locatedKey = locatedCard ? key(locatedCard) : '';
   const space = board?.space; const inSpace = board?.surface !== 'board';
   const relatedNodes = space?.nodes.filter(node => node.kind !== 'requirement') ?? [];
   const visibleNodes = [...(space?.nodes.filter(node => node.kind === 'requirement' && node.version === work?.requirement_version) ?? []),
@@ -535,7 +541,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     if (!current || !card) return;
     if (available < 300) {
       if (deliveryPanel) { setDeliveryPanel(false); deliveryReturnsToSession.current = false; } else closeSessions();
-      cardToLocate.current = key(card);
+      setLocatedId(key(card)); cardToLocate.current = key(card);
       return;
     }
     const zoom = bound(Math.min(current.viewport.zoom, available / card.width), .25, 2);
@@ -650,7 +656,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
         <button ref={menuButton} className="work-icon-button" aria-label={t.actions} title={t.actions} aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><Icon name="more" /></button>
         {menuOpen && <div className="work-menu" role="group" aria-label={t.actions}><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={openRecovery}>{t.recovery}</button><button onClick={() => { setRecoveryPanel(false); openForm('task', menuButton.current); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setRecoveryPanel(false); openForm('artifact', menuButton.current); setMenuOpen(false); }}>{t.newArtifact}</button></div>}</header>
       {!inSpace && <div className="work-tools"><button className="work-quiet" onClick={returnToSpace}><Icon name="back" />{t.returnSpace}</button><button className="work-quiet" ref={libraryButton} onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}><Icon name="library" />{t.addRelated}</button>
-        {Boolean(board?.cards.length) && <select className="work-card-locator" aria-label={locale === 'zh-CN' ? '定位已打开的卡片' : 'Locate an open card'} value="" onChange={event => queueCardLocation(event.target.value)}>
+        {Boolean(board?.cards.length) && <select className="work-card-locator" aria-label={locale === 'zh-CN' ? '定位已打开的卡片' : 'Locate an open card'} value={locatedKey} onChange={event => queueCardLocation(event.target.value)}>
           <option value="" disabled>{locale === 'zh-CN' ? `${board!.cards.length} 张卡片` : `${board!.cards.length} open ${board!.cards.length === 1 ? 'card' : 'cards'}`}</option>
           {board!.cards.map(card => <option key={key(card)} value={key(card)}>{cardTitle(card)}{card.version !== null ? ` · v${card.version}` : ''}</option>)}
         </select>}
@@ -718,7 +724,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
             const from = board.cards.find(c => c.kind === 'requirement' && c.version === version);
             return from ? <path key={key(a)} d={`M${from.x + from.width},${from.y + 80} C${from.x + from.width + 50},${from.y + 80} ${a.x - 50},${a.y + 80} ${a.x},${a.y + 80}`} /> : null;
           })}</svg>
-          {board?.cards.map(card => <article className={`work-card work-card-${card.kind}${card.kind === 'artifact' ? '' : ' work-paper-note'}`} key={key(card)} data-card={key(card)} aria-label={cardTitle(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
+          {board?.cards.map(card => <article className={`work-card work-card-${card.kind}${card.kind === 'artifact' ? '' : ' work-paper-note'}`} key={key(card)} data-card={key(card)} data-current={key(card) === locatedKey} aria-label={cardTitle(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
             <header onPointerDown={e => startDrag(e, card)}><span className="work-card-kind"><Icon name={card.kind} size={16} />{card.version ? <em className="work-version">v{card.version}</em> : null}</span><button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}><Icon name="expand" size={16} /></button><button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={() => { changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) }); libraryButton.current?.focus(); }}><Icon name="close" size={16} /></button></header>
             {renderContent(card)}<button className="work-resize" title={t.resize(t[card.kind])} aria-label={t.resize(t[card.kind])} onPointerDown={e => startDrag(e, card, true)} onKeyDown={event => {
               const delta = ({ ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24] } as Record<string, number[]>)[event.key];

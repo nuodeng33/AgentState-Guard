@@ -298,6 +298,7 @@
   .work-world { position: relative; display: grid; align-content: start; gap: 12px; padding: 12px; transform: none !important; }
   .work-links, .work-page button.work-resize { display: none; }
   .work-card { position: relative; inset: auto !important; width: 100% !important; height: auto !important; box-shadow: none; }
+  .work-world > .work-card[data-current="false"] { display: none; }
   .work-card > header { cursor: default; }
   .work-card-body { max-height: min(420px, 54dvh); }
   .work-reader .work-card-body { max-height: none; }
