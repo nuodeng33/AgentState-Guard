@@ -231,7 +231,8 @@ describe('local Work delivery', () => {
     expect(card.style.left).toBe(left); expect(card.style.top).toBe(top);
     fireEvent.click(screen.getByRole('button', { name: 'Open artifact Implementation v1' }));
     expect(await screen.findByText('Artifact body')).toBeTruthy();
-    expect(screen.getByText('Original execution output · Requirement v3')).toBeTruthy();
+    expect(screen.getByText('Original execution output')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Compare requirement v3' })).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('region', { name: 'Delivery' })).toBeNull();
     expect(post.mock.calls.every(([path]) => path.endsWith('/view'))).toBe(true);

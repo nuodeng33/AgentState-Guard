@@ -39,18 +39,25 @@ fs.mkdirSync(directory, { recursive: true });
     });
     const workButton = title => page.locator('.work-layout:visible .work-sidebar-list').getByRole('button', { name: title });
     await page.goto(`http://127.0.0.1:${server.address().port}/?workspace=1`);
-    await page.getByText('4 work items, most recently updated first.').waitFor();
+    const overview = page.locator('.work-overview');
+    await overview.getByRole('heading', { name: 'My work', exact: true }).waitFor();
+    assert.equal(await overview.locator('a[href^="?work="]').count(), 4);
     await changeLanguageViaSettings(page, 'zh-CN');
-    await page.getByRole('button', { name: '我的工作', exact: true }).waitFor();
+    await overview.getByRole('heading', { name: '我的工作', exact: true }).waitFor();
     await page.screenshot({ path: path.join(directory, 'overview-zh-desktop.png') });
     await workButton(/Windows 受管会话断线可靠性/).click();
     await page.getByText('6 项任务', { exact: true }).waitFor();
     await page.getByText('5 项成果', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '展开关联', exact: true }).click();
+    await page.locator('.work-space').waitFor();
+    await page.getByRole('button', { name: '保存现场', exact: true }).click();
+    await page.getByText('现场已保存', { exact: true }).waitFor();
     const viewport = await page.locator('.work-space-world').getAttribute('style');
     const beforeLanguage = await snapshot();
     await changeLanguageViaSettings(page, 'en-US');
     await page.getByText('6 tasks', { exact: true }).waitFor();
     await page.getByText('5 artifacts', { exact: true }).waitFor();
+    await page.locator('.work-space').waitFor();
     assert.equal(await page.locator('.work-space-world').getAttribute('style'), viewport);
     assert.deepEqual(await snapshot(), beforeLanguage, 'Language navigation must not change Work data or workspace revision');
     await page.getByRole('button', { name: 'Continue workbench', exact: true }).click();
@@ -63,6 +70,8 @@ fs.mkdirSync(directory, { recursive: true });
     assert.deepEqual(await page.locator('.work-prose').allTextContents(), content);
     for (const locale of ['zh-CN', 'en-US']) {
       await page.setViewportSize({ width: 390, height: 844 });
+      const drawer = page.locator('.work-mobile-works');
+      if (await drawer.getAttribute('aria-expanded') === 'false') await drawer.click();
       await changeLanguageViaSettings(page, locale, { inspectPreference: async radio => {
         const box = await radio.boundingBox();
         assert(box && box.x >= 0 && box.x + box.width <= 391);
@@ -72,9 +81,10 @@ fs.mkdirSync(directory, { recursive: true });
       await page.screenshot({ path: path.join(directory, `workbench-${locale}-mobile.png`) });
     }
     await page.getByRole('button', { name: 'All work', exact: true }).click();
-    await page.locator('.work-layout:visible .work-sidebar').getByRole('button', { name: 'New work', exact: true }).waitFor();
+    await overview.getByRole('heading', { name: 'My work', exact: true }).waitFor();
     await page.screenshot({ path: path.join(directory, 'overview-en-mobile.png') });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.locator('.work-mobile-works').click();
     assert.equal(await page.evaluate(() => {
       const sidebar = document.querySelector('.work-layout:not([aria-hidden="true"]) .work-sidebar').getBoundingClientRect();
       const navigation = document.querySelector('.work-layout:not([aria-hidden="true"]) .work-sidebar-nav').getBoundingClientRect();

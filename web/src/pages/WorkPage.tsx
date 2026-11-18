@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
 import { agentProgramName } from '../components/AgentIdentity';
 import { WorkMenuBar } from '../components/WorkMenuBar';
@@ -6,7 +6,10 @@ import { WorkSidebar, type PageKey } from '../components/AppShell';
 import { useI18n } from '../i18n/I18nProvider';
 import { workspaceCopy } from './workspaceCopy';
 import WorkOverview, { type WorkIndexItem } from './WorkOverview';
-import WorkContents, { type WorkArtifactEntry, type WorkContentEntry } from './WorkContents';
+import { recordOpenedWork } from './workRecency';
+import WorkSourceReading from './WorkSourceReading';
+import type { WorkArtifactEntry, WorkContentEntry } from './workContentTypes';
+import WorkDesk from './WorkDesk';
 import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
@@ -19,7 +22,7 @@ import { useAgentAppearances } from '../components/useAgentAppearances';
 import { AgentAppearancePicker } from '../components/AgentAppearancePicker';
 import type { ProtectionScopeCommand } from '../api/protection';
 import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExecutionStatus';
-import { AgentFilm, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
+import { AgentFilm, Icon, Prose } from './WorkVisuals';
 import './work.css';
 
 type Summary = WorkIndexItem & { revision: number };
@@ -59,10 +62,17 @@ function arc(index: number, count: number, side: -1 | 1) {
   const step = count > 1 ? Math.min(0.42, 2.1 / (count - 1)) : 0, angle = (index - (count - 1) / 2) * step;
   return { x: Math.round(side * (300 + 90 * Math.cos(angle))), y: Math.round(Math.sin(angle) * 430) };
 }
+function historicalRequirement(workId: string, version: number, index: number): SpaceNode {
+  return { kind: 'requirement', ref_id: workId, version, x: 0, y: 220 + index * 120 };
+}
 function availableNodes(work: Work): SpaceNode[] {
+  const olderVersions = [...new Set(work.artifacts.map(artifact => artifact.requirement_version))]
+    .filter(version => version !== work.requirement_version);
   return [{ kind: 'requirement' as const, ref_id: work.id, version: work.requirement_version, x: 0, y: 0 },
     ...work.tasks.map((task, index) => ({ kind: 'task' as const, ref_id: task.id, version: null, ...arc(index, work.tasks.length, -1) })),
-    ...work.artifacts.map((artifact, index) => ({ kind: 'artifact' as const, ref_id: artifact.id, version: artifact.version, ...arc(index, work.artifacts.length, 1) }))].slice(0, 1000);
+    ...work.artifacts.map((artifact, index) => ({ kind: 'artifact' as const, ref_id: artifact.id, version: artifact.version, ...arc(index, work.artifacts.length, 1) })),
+    ...olderVersions.map((version, index) => historicalRequirement(work.id, version, index)),
+  ].slice(0, 1000);
 }
 function withSpace(state: Board, work: Work): Board {
   const available = availableNodes(work);
@@ -94,6 +104,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [items, setItems] = useState<Summary[]>([]); const [more, setMore] = useState(false);
   const [work, setWork] = useState<Work | null>(null); const workRef = useRef<Work | null>(null);
+  useEffect(() => { if (work) recordOpenedWork(work.id, items); }, [work?.id, items]);
   const agents = useWorkAgents(client, work?.id, visible);
   const appearances = useAgentAppearances(client, work?.id, agents.items.map(agent => agent.agent_id).join('\0'));
   const [appearancePanel, setAppearancePanel] = useState<{ selected?: string } | null>(null);
@@ -145,10 +156,25 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const [draft, setDraft] = useState({ title: '', owner: '', body: '', artifact: '' });
   const [focus, setFocus] = useState<string | null>(null); const [requirementVersion, setRequirementVersion] = useState(1);
   const readingOpener = useRef<HTMLElement | null>(null);
+  const comparisonOpener = useRef<HTMLButtonElement | null>(null);
+  const [comparison, setComparison] = useState<{ workId: string; artifact: string; version: number; fromReader: boolean } | null>(null);
+  const comparing = comparison?.workId === work?.id && comparison?.artifact === focus ? comparison : null;
+  function leaveReader() {
+    setComparison(null);
+    if (comparing?.fromReader) return;
+    setFocus(null);
+  }
+  useEffect(() => {
+    if (!comparison && focus && comparisonOpener.current) {
+      comparisonOpener.current.focus({ preventScroll: true });
+    }
+    if (!comparison) comparisonOpener.current = null;
+  }, [comparison, focus]);
   const overlay = useRef<HTMLDivElement>(null);
-  const surfaceOpener = useRef<{ id: string; origin: 'space' | 'directory' } | null>(null);
+  const surfaceOpener = useRef<{ id: string; origin: 'space' | 'desk' } | null>(null);
   const spaceSurface = useRef<HTMLDivElement>(null);
-  const [contentsExpanded, setContentsExpanded] = useState(() => typeof window.matchMedia === 'function' ? !window.matchMedia('(max-width: 760px)').matches : true);
+  const spaceScroll = useRef(0);
+  const [deskContents, setDeskContents] = useState({ open: true, allTasks: false, allArtifacts: false });
   const surfaceReturn = useRef(false);
   const spaceEntry = useRef<HTMLButtonElement>(null);
   const cardToLocate = useRef<string | null>(null);
@@ -160,12 +186,8 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const [hover, setHover] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [relationshipsOpen, setRelationshipsOpen] = useState(false);
-  const [relationsRetained, setRelationsRetained] = useState(false);
-  useEffect(() => {
-    if (relationshipsOpen) { setRelationsRetained(true); return; }
-    const timer = setTimeout(() => setRelationsRetained(false), 250);
-    return () => clearTimeout(timer);
-  }, [relationshipsOpen]);
+  const relationToggle = useRef<HTMLButtonElement>(null);
+  const relationsId = useId();
   const [relationLimit, setRelationLimit] = useState(12);
   const [menuOpen, setMenuOpen] = useState(false);
   const [restOpen, setRestOpen] = useState(false);
@@ -224,6 +246,8 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     if (previous && previous.id !== id) void saveView(previous);
     const seq = ++loadSequence.current; setLoading(true); setError('');
     if (workRef.current?.id !== id) {
+      spaceScroll.current = 0;
+      setDeskContents({ open: true, allTasks: false, allArtifacts: false });
       setAppearancePanel(null); setFocus(null); setLibraryOpen(false); setRelationshipsOpen(false); setRelationLimit(12);
       setMenuOpen(false); setRestOpen(false); setAgentPanel(null); setSessionPanel(false); setDeliveryPanel(false);
       setDeliveryOutput(null); setRecoveryPanel(false); setLinksPanel(false); setEditor(null); setHover(null);
@@ -313,7 +337,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   useEffect(() => {
     if (!visible || (!form && !focus)) return;
     const keyboard = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) { e.preventDefault(); if (focus) setFocus(null); else closeForm(); }
+      if (e.key === 'Escape' && !busy) { e.preventDefault(); if (focus) leaveReader(); else closeForm(); }
       if (e.key !== 'Tab' || !overlay.current) return;
       const nodes = Array.from(overlay.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'));
       const first = nodes[0], last = nodes[nodes.length - 1];
@@ -322,7 +346,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     };
     document.addEventListener('keydown', keyboard);
     return () => { document.removeEventListener('keydown', keyboard); };
-  }, [form, focus, busy, visible]);
+  }, [form, focus, busy, visible, comparing]);
   useEffect(() => {
     if (focus || !readingOpener.current) return;
     const opener = readingOpener.current; readingOpener.current = null;
@@ -340,10 +364,11 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       else if (libraryOpen) closeLibrary();
       else if (menuOpen) setMenuOpen(false);
       else if (boardRef.current?.surface === 'board') returnToSpace();
+      else if (relationshipsOpen) { setRelationshipsOpen(false); setHover(null); relationToggle.current?.focus(); }
       else void back();
     };
     document.addEventListener('keydown', keyboard); return () => document.removeEventListener('keydown', keyboard);
-  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, navOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel, appearancePanel, editor, linksPanel]);
+  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, navOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel, appearancePanel, editor, linksPanel, relationshipsOpen]);
   function addCard(kind: Card['kind'], ref: string, version: number | null, locate = true) {
     const current = boardRef.current; if (!current) return null;
     const existing = current.cards.find(card => card.kind === kind && card.ref_id === ref && card.version === version);
@@ -408,8 +433,9 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     if (board?.surface === 'space' && surfaceReturn.current) {
       surfaceReturn.current = false;
       const original = surfaceOpener.current;
-      const opener = original && Array.from(spaceSurface.current?.querySelectorAll<HTMLButtonElement>(original.origin === 'directory' ? '[data-directory-card]' : '[data-node]') ?? [])
-        .find(node => (node.dataset.directoryCard ?? node.dataset.node) === original.id);
+      if (spaceSurface.current) spaceSurface.current.scrollTop = spaceScroll.current;
+      const opener = original && Array.from(spaceSurface.current?.querySelectorAll<HTMLButtonElement>(original.origin === 'desk' ? '[data-desk-card]' : '[data-node]') ?? [])
+        .find(node => (node.dataset.deskCard ?? node.dataset.node) === original.id);
       (opener ?? spaceEntry.current)?.focus({ preventScroll: true });
     }
   }, [board, locatedId, deliveryPanel, sessionPanel]);
@@ -481,6 +507,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   function continueBoard() {
     const current = boardRef.current; if (!current || !workRef.current) return;
     if (current.surface === 'board' && current.cards.length) return;
+    if (spaceSurface.current) spaceScroll.current = spaceSurface.current.scrollTop;
     surfaceOpener.current = null;
     if (!current.cards.length) {
       const detail = workRef.current;
@@ -496,32 +523,46 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const locatedCard = board?.cards.find(c => key(c) === locatedId) ?? board?.cards[0];
   const locatedKey = locatedCard ? key(locatedCard) : '';
   const space = board?.space; const inSpace = board?.surface !== 'board';
-  const relatedNodes = space?.nodes.filter(node => node.kind !== 'requirement') ?? [];
-  const visibleNodes = [...(space?.nodes.filter(node => node.kind === 'requirement' && node.version === work?.requirement_version) ?? []),
-    ...((relationshipsOpen || relationsRetained) ? relatedNodes.slice(0, relationLimit) : [])];
-  const coreNode = visibleNodes.find(node => node.kind === 'requirement');
+  const taskNodes = space?.nodes.filter(node => node.kind === 'task') ?? [];
+  const artifactNodes = space?.nodes.filter(node => node.kind === 'artifact') ?? [];
+  const taskLimit = Math.max(relationLimit / 2, relationLimit - artifactNodes.length);
+  const artifactLimit = Math.max(relationLimit / 2, relationLimit - taskNodes.length);
+  const visibleRelated = relationshipsOpen ? [...taskNodes.slice(0, taskLimit), ...artifactNodes.slice(0, artifactLimit)] : [];
+  const requirementByVersion = new Map(space?.nodes.filter(node => node.kind === 'requirement').map(node => [node.version, node]));
+  const artifactByKey = new Map(work?.artifacts.map(artifact => [`artifact:${artifact.id}:${artifact.version}`, artifact]));
+  const visibleVersions = new Set(visibleRelated.flatMap(node => {
+    const artifact = artifactByKey.get(key(node));
+    return artifact ? [artifact.requirement_version] : [];
+  }));
+  if (work) visibleVersions.add(work.requirement_version);
+  const visibleRequirements = work && relationshipsOpen ? [...visibleVersions].map((version, index) =>
+    requirementByVersion.get(version) ?? historicalRequirement(work.id, version, index)) : [];
+  const visibleNodes = [...visibleRequirements, ...visibleRelated];
+  const visibleByKey = new Map(visibleNodes.map(node => [key(node), node]));
   // Agents sit just outside the tasks they carry; unlinked agents wait above the core.
-  const agentNodes = agents.items.slice(0, 4).reduce<{ agent: WorkAgent; x: number; y: number }[]>((placed, agent, index) => {
-    const linked = visibleNodes.filter(node => node.kind === 'task' && agent.task_ids?.includes(node.ref_id));
+  const agentNodes = relationshipsOpen ? agents.items.slice(0, 4).reduce<{ agent: WorkAgent; x: number; y: number }[]>((placed, agent, index) => {
+    const linked = visibleRelated.filter(node => node.kind === 'task' && agent.task_ids?.includes(node.ref_id));
     let x = linked.length ? Math.min(...linked.map(node => node.x)) - 330 : (index % 2 ? 1 : -1) * 120;
     let y = linked.length ? linked.reduce((sum, node) => sum + node.y, 0) / linked.length : -360;
     while (placed.some(other => Math.abs(other.x - x) < 150 && Math.abs(other.y - y) < 150)) y += 160;
     return [...placed, { agent, x: Math.round(x), y: Math.round(y) }];
-  }, []);
-  const edges = visibleNodes.flatMap(node => {
-    if (node.kind === 'requirement') return [];
-    const artifact = node.kind === 'artifact' ? work?.artifacts.find(a => a.id === node.ref_id && a.version === node.version) : null;
-    const origin = artifact ? visibleNodes.find(other => other.kind === 'requirement' && other.version === artifact.requirement_version) : visibleNodes.find(other => other.kind === 'requirement' && other.ref_id === work?.id);
+  }, []) : [];
+  const edges = visibleRelated.flatMap(node => {
+    const version = node.kind === 'artifact' ? artifactByKey.get(key(node))?.requirement_version : work?.requirement_version;
+    const origin = visibleRequirements.find(other => other.version === version);
     return origin ? [[key(origin), key(node)] as const] : [];
-  }) ?? [];
-  const agentEdges = relationshipsOpen ? agentNodes.flatMap(node => (node.agent.task_ids ?? []).map(id => [`agent:${node.agent.agent_id}`, `task:${id}:`] as const)) : [];
+  });
+  const agentEdges = agentNodes.flatMap(node => (node.agent.task_ids ?? []).map(id => [`agent:${node.agent.agent_id}`, `task:${id}:`] as const));
   const highlighted = hover ? new Set([hover, ...[...edges, ...agentEdges].flatMap(([a, b]) => a === hover ? [b] : b === hover ? [a] : [])]) : null;
-  function showOnBoard(node: Pick<SpaceNode, 'kind' | 'ref_id' | 'version'>, locate = true, origin: 'space' | 'directory' = 'space') {
+  function showOnBoard(node: Pick<SpaceNode, 'kind' | 'ref_id' | 'version'>, locate = true, origin: 'space' | 'desk' = 'space', opener = key(node)) {
     const card = addCard(node.kind, node.ref_id, node.version, locate), current = boardRef.current;
     if (!current || !card) return;
-    if (current.surface !== 'board') surfaceOpener.current = { id: key(node), origin };
+    if (current.surface !== 'board') {
+      if (spaceSurface.current) spaceScroll.current = spaceSurface.current.scrollTop;
+      surfaceOpener.current = { id: opener, origin };
+      changeBoard({ ...current, surface: 'board' });
+    }
     setHover(null);
-    if (current.surface !== 'board') changeBoard({ ...current, surface: 'board' });
   }
   async function refreshDeliveryWork(id: string) {
     const sequence = loadSequence.current;
@@ -535,7 +576,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   function compareOnBoard(kind: Card['kind'], refId: string, version: number) {
     showOnBoard({ kind, ref_id: refId, version }, false);
     const current = boardRef.current, card = current?.cards.find(item => item.kind === kind && item.ref_id === refId && item.version === version);
-    const width = (canvas.current ?? spaceCanvas.current)?.clientWidth ?? window.innerWidth;
+    const width = (canvas.current ?? spaceSurface.current)?.clientWidth ?? window.innerWidth;
     const panelWidth = document.querySelector('.work-sessions, .work-delivery')?.getBoundingClientRect().width ?? 640;
     const available = width - panelWidth - 32;
     if (!current || !card) return;
@@ -549,22 +590,47 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }
   function compareRequirement(version: number) { compareOnBoard('requirement', work!.id, version); }
   function fitSpace() { const current = boardRef.current, el = spaceCanvas.current; if (!current?.space?.nodes.length || !el) return;
+    if (!visibleNodes.length) return;
     const bounds = [...visibleNodes, ...agentNodes].map(node => {
       const kind = 'kind' in node ? node.kind : 'agent';
       const halfWidth = kind === 'requirement' ? 150 : kind === 'task' ? 115 : kind === 'artifact' ? 130 : 75;
-      const halfHeight = kind === 'requirement' ? 150 : kind === 'task' ? 21 : kind === 'artifact' ? 18 : 75;
+      const halfHeight = kind === 'requirement' ? 43 : kind === 'task' ? 21 : kind === 'artifact' ? 18 : 75;
       return { left: node.x - halfWidth, right: node.x + halfWidth, top: node.y - halfHeight, bottom: node.y + halfHeight };
     });
     const left = Math.min(...bounds.map(n => n.left)), right = Math.max(...bounds.map(n => n.right));
     const top = Math.min(...bounds.map(n => n.top)), bottom = Math.max(...bounds.map(n => n.bottom));
-    const zoom = bound(Math.min(Math.max(1, el.clientWidth - 32) / (right - left), Math.max(1, el.clientHeight - 32 - 80) / (bottom - top), 1.4), .25, 2);
-    changeBoard({ ...current, space: { ...current.space, viewport: { x: -(left + right) / 2 * zoom, y: -(top + bottom) / 2 * zoom - 40, zoom } } });
+    const zoom = bound(Math.min(Math.max(1, el.clientWidth - 32) / (right - left), Math.max(1, el.clientHeight - 32) / (bottom - top), 1.4), .25, 2);
+    changeBoard({ ...current, space: { ...current.space, viewport: { x: -(left + right) / 2 * zoom, y: -(top + bottom) / 2 * zoom, zoom } } });
   }
   function spaceZoom(factor: number) { const current = boardRef.current; if (!current?.space) return;
     changeBoard({ ...current, space: { ...current.space, viewport: { ...current.space.viewport, zoom: bound(current.space.viewport.zoom * factor, .25, 2) } } }); }
   // First reveal of relations frames everything once; a viewport the user set is left alone.
   const fitOnReveal = useRef(false);
   useEffect(() => { if (relationshipsOpen && fitOnReveal.current) { fitOnReveal.current = false; fitSpace(); } }, [relationshipsOpen]);
+  function toggleRelations() {
+    const viewport = boardRef.current?.space?.viewport;
+    fitOnReveal.current = !relationshipsOpen && viewport?.x === 0 && viewport.y === 0 && viewport.zoom === 1;
+    setRelationshipsOpen(open => !open);
+    setHover(null);
+    if (!relationshipsOpen) requestAnimationFrame(() => spaceCanvas.current?.scrollIntoView?.({ block: 'nearest' }));
+  }
+  function moveSpaceByKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+    const current = boardRef.current;
+    if (!current?.space) return;
+    const { viewport } = current.space;
+    const delta = ({ ArrowLeft: [36, 0], ArrowRight: [-36, 0], ArrowUp: [0, 36], ArrowDown: [0, -36] } as Record<string, number[]>)[event.key];
+    if (delta) {
+      event.preventDefault();
+      changeBoard({ ...current, space: { ...current.space, viewport: { ...viewport, x: bound(viewport.x + delta[0], -100000, 100000), y: bound(viewport.y + delta[1], -100000, 100000) } } });
+    } else if (event.key === '+' || event.key === '=') {
+      event.preventDefault(); spaceZoom(1.2);
+    } else if (event.key === '-') {
+      event.preventDefault(); spaceZoom(1 / 1.2);
+    } else if (event.key === 'Home') {
+      event.preventDefault(); fitSpace();
+    }
+  }
   const spaceDrag = useRef<{ x: number; y: number; startX: number; startY: number; node?: SpaceNode; moved: boolean } | null>(null);
   const spaceCanvas = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -575,7 +641,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       changeBoard({ ...current, space: { ...current.space, viewport: { x: bound(x - (x - old.x) * ratio, -100000, 100000), y: bound(y - (y - old.y) * ratio, -100000, 100000), zoom: z } } });
     };
     el.addEventListener('wheel', wheel, { passive: false }); return () => el.removeEventListener('wheel', wheel);
-  }, [work, board?.surface, relationshipsOpen]);
+  }, [work, board?.surface, relationshipsOpen, loading]);
   function spaceMove(e: PointerEvent) { const d = spaceDrag.current; const current = boardRef.current; if (!d || !current?.space) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y; if (Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
     if (!d.moved) return;
@@ -585,12 +651,13 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }
   function spaceStart(e: PointerEvent, node?: SpaceNode) { if (!relationshipsOpen || e.button !== 0 || !boardRef.current?.space) return;
     e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
+    if (node && e.currentTarget instanceof HTMLElement) e.currentTarget.focus({ preventScroll: true });
     const viewport = boardRef.current.space.viewport;
     spaceDrag.current = { x: e.clientX, y: e.clientY, startX: node?.x ?? viewport.x, startY: node?.y ?? viewport.y, node, moved: false };
   }
   const suppressSpaceClick = useRef(false);
   function spaceEnd(e: PointerEvent) { suppressSpaceClick.current = !!spaceDrag.current?.moved; spaceDrag.current = null; e.stopPropagation(); }
-  const renderContent = (card: Card, reading = false) => {
+  const renderContent = (card: Card, reading = false, allowCompare = true) => {
     const linked = reading && card.kind === 'task' ? agents.items.filter(agent => agent.task_ids?.includes(card.ref_id)) : [];
     const context = reading && card.kind === 'task' && <div className="work-reader-context">
       <span>{locale === 'zh-CN' ? '关联智能体' : 'Linked agents'}</span>
@@ -599,6 +666,12 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       {!linked.length && (agents.loading || agents.failed) && <button className="work-quiet" onClick={() => { setFocus(null); openAgents(); }}>{t.agents}</button>}
     </div>;
     return <CardContent client={client} work={work!} card={card} reading={reading} readingContext={context}
+      onCompare={card.kind !== 'artifact' || !allowCompare ? undefined : (version, opener) => {
+        if (reading) comparisonOpener.current = opener;
+        else readingOpener.current = opener;
+        setComparison({ workId: work!.id, artifact: key(card), version, fromReader: reading });
+        setFocus(key(card));
+      }}
       onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
   };
   const layoutLocked = busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel);
@@ -650,7 +723,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       <WorkOverview items={items} more={more} onOpen={id => void openWork(id)} onCreate={opener => openForm('work', opener)}
         onMore={() => void list(true).catch(() => setError(t.failed))} />
     </> : <>
-      <header className="work-toolbar"><button className="work-back" onClick={back}><Icon name="back" />{t.back}</button><div className="work-heading"><span>{currentSurface}</span><h1 title={work.title}>{work.title}</h1></div>
+      <header className={`work-toolbar${inSpace ? ' is-desk-toolbar' : ''}`}><button className="work-back" onClick={back}><Icon name="back" />{t.back}</button><div className="work-heading"><span>{currentSurface}</span>{!inSpace && <h1 title={work.title}>{work.title}</h1>}</div>
         <WorkExecutionStatus key={work.id} client={client} workId={work.id} visible={visible} onOpen={openSessions}
           onRequirement={version => { if (workRef.current?.id === work.id && workRef.current.requirement_version < version) void refreshDeliveryWork(work.id); }} />
         <button ref={menuButton} className="work-icon-button" aria-label={t.actions} title={t.actions} aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><Icon name="more" /></button>
@@ -661,20 +734,46 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
           {board!.cards.map(card => <option key={key(card)} value={key(card)}>{cardTitle(card)}{card.version !== null ? ` · v${card.version}` : ''}</option>)}
         </select>}
         <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
-      {inSpace && <div className="work-space-surface" ref={spaceSurface}>
-      <WorkContents tasks={work.tasks} artifacts={work.artifacts} expanded={contentsExpanded} canOpen={layoutReady}
-        onToggle={() => setContentsExpanded(open => !open)}
-        onOpen={(kind, ref_id, version) => showOnBoard({ kind, ref_id, version }, true, 'directory')}
-        onCreate={(kind, opener) => openForm(kind, opener)} />
-      {space && <div className="work-space" ref={spaceCanvas} onPointerDown={e => { if (e.target === e.currentTarget || (e.target as Element).closest('.work-space-world') && !(e.target as Element).closest('.work-space-node')) spaceStart(e); }} onPointerMove={spaceMove} onPointerUp={e => { if (spaceDrag.current && !spaceDrag.current.node) spaceEnd(e); }} onPointerCancel={() => { spaceDrag.current = null; }}>
-        <div className="work-space-world" style={{ transform: relationshipsOpen ? `translate(calc(50% + ${space.viewport.x}px), calc(50% + ${space.viewport.y}px)) scale(${space.viewport.zoom})` : `translate(calc(50% - ${coreNode?.x ?? 0}px), calc(50% - ${coreNode?.y ?? 0}px)) scale(1)` }}>
-          <svg className="work-space-links" aria-hidden="true">{edges.map(([a, b]) => { const origin = space.nodes.find(n => key(n) === a)!, node = space.nodes.find(n => key(n) === b)!;
-            return <path key={`${a}:${b}`} d={curve(origin, node)} className={highlighted ? (highlighted.has(a) && highlighted.has(b) ? 'lit' : 'dim') : ''} />; })}
+      {inSpace && <div className="work-desk-surface" ref={spaceSurface}>
+        <WorkDesk key={work.id} work={work} canOpen={layoutReady} contents={deskContents} onContents={setDeskContents}
+          previewArtifact={artifact => <CardContent client={client} work={work} reading={false} compactPreview
+            card={{ kind: 'artifact', ref_id: artifact.id, version: artifact.version, x: 0, y: 0, width: 0, height: 0, scroll: 0 }}
+            onScroll={() => {}} />}
+          continueButton={spaceEntry} onContinue={continueBoard}
+          onOpen={(node, opener) => showOnBoard(node, true, 'desk', opener)} onCreate={(kind, opener) => openForm(kind, opener)} />
+        <section className="desk-map-section" aria-label={currentSurface}>
+          <div className="desk-map-rail">
+            <h2 className="desk-map-heading"><Icon name="link" size={16} />{locale === 'zh-CN' ? '关系图' : 'Relationship map'}
+              <small><span>{t.taskCount(work.tasks.length)}</span><span aria-hidden="true"> · </span><span>{t.artifactCount(work.artifacts.length)}</span></small></h2>
+            <button type="button" className="desk-map-toggle" ref={relationToggle} aria-controls={relationsId}
+              aria-expanded={relationshipsOpen} onClick={toggleRelations} disabled={!layoutReady}>
+              {relationshipsOpen ? t.hideRelations : t.showRelations}<span className="desk-chevron" aria-hidden="true" />
+            </button>
+          </div>
+          <div className="desk-map-body" id={relationsId} hidden={!relationshipsOpen}>
+            <div className="desk-map-tools">
+              <span id={relationsId + '-hint'}>{locale === 'zh-CN' ? '拖动或用方向键平移，滚轮或 +/- 缩放' : 'Drag or use arrow keys to pan. Wheel or +/- to zoom.'}</span>
+              {taskNodes.length + artifactNodes.length > visibleRelated.length && <button type="button" className="desk-map-more" onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}
+              <div className="work-zoom">
+                <button type="button" className="work-icon-button" aria-label={t.zoomOut} onClick={() => spaceZoom(1 / 1.2)}><Icon name="minus" /></button>
+                <span>{Math.round((space?.viewport.zoom ?? 1) * 100)}%</span>
+                <button type="button" className="work-icon-button" aria-label={t.zoomIn} onClick={() => spaceZoom(1.2)}><Icon name="plus" /></button>
+                <button type="button" className="work-icon-button" aria-label={t.fit} title={t.fit} onClick={fitSpace}><Icon name="fit" /></button>
+              </div>
+            </div>
+            {space && <div className="work-space" ref={spaceCanvas} tabIndex={0} role="region" aria-label={currentSurface} aria-describedby={relationsId + '-hint'}
+              onKeyDown={moveSpaceByKey} onPointerDown={e => { if (e.target === e.currentTarget || (e.target as Element).closest('.work-space-world') && !(e.target as Element).closest('button')) spaceStart(e); }}
+              onPointerMove={spaceMove} onPointerUp={e => { if (spaceDrag.current && !spaceDrag.current.node) spaceEnd(e); }} onPointerCancel={() => { spaceDrag.current = null; }}>
+              <div className="work-space-world" style={{ transform: `translate(calc(50% + ${space.viewport.x}px), calc(50% + ${space.viewport.y}px)) scale(${space.viewport.zoom})` }}>
+                <svg className="work-space-links" aria-hidden="true">{edges.map(([a, b]) => {
+                  const origin = visibleByKey.get(a)!, node = visibleByKey.get(b)!;
+                  return <path key={`${a}:${b}`} d={curve(origin, node)} className={highlighted ? (highlighted.has(a) && highlighted.has(b) ? 'lit' : 'dim') : ''} />;
+                })}
             {relationshipsOpen && agentNodes.flatMap(node => (node.agent.task_ids ?? []).flatMap(id => {
               const task = visibleNodes.find(item => item.kind === 'task' && item.ref_id === id);
               return task ? <path key={`${node.agent.agent_id}:${id}`} data-agent-task={id} d={curve(node, task)} className={`agent-link ${highlighted ? (highlighted.has(`agent:${node.agent.agent_id}`) && highlighted.has(key(task)) ? 'lit' : 'dim') : ''}`}><title>{locale === 'zh-CN' ? '用户任务关联；执行活动未知' : 'User task link; execution activity unknown'}</title></path> : [];
             }))}</svg>
-          {(relationshipsOpen || relationsRetained) && agentNodes.map(({ agent, x, y }, index) => <WorkBubbleGroup key={agent.agent_id}
+          {agentNodes.map(({ agent, x, y }, index) => <WorkBubbleGroup key={agent.agent_id}
             label={`${locale === 'zh-CN' ? 'Agent 子项' : 'Agent children'} ${agent.agent_id}`} width={150} height={150} style={{ left: x, top: y }} side={x < 0 ? 1 : -1} verticalSide={y < 0 ? -1 : 1}
             forceClosed={!relationshipsOpen} onHover={open => setHover(open ? `agent:${agent.agent_id}` : null)}
             actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
@@ -685,8 +784,9 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
           {visibleNodes.map(node => { const item = node.kind === 'task' ? work.tasks.find(x => x.id === node.ref_id) : node.kind === 'artifact' ? work.artifacts.find(x => x.id === node.ref_id && x.version === node.version) : null;
             if (node.kind !== 'requirement' && !item) return null;
             const state = highlighted ? (highlighted.has(key(node)) ? 'lit' : 'dim') : '';
-            const trigger = (triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>) => <button key={key(node)} {...triggerProps} data-node={key(node)} className={`work-space-node ${node.kind} ${state} ${triggerProps?.className ?? ''}`} style={node.kind === 'task' ? {} : { left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={e => { if (!suppressSpaceClick.current || e.detail === 0) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? work.title}`}>
-              {node.kind === 'requirement' ? <><WorkCore size={300} /><span className="work-core-text"><strong>{work.title}</strong>{goalOf(work.requirement) && <span className="work-core-goal">{goalOf(work.requirement)}</span>}<span className="work-core-counts"><span>{t.requirement} v{node.version}</span><span>{t.taskCount(work.tasks.length)}</span><span>{t.artifactCount(work.artifacts.length)}</span></span></span></> :
+            const trigger = (triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>) => <button key={key(node)} {...triggerProps} data-node={key(node)} data-historical={node.kind === 'requirement' && node.version !== work.requirement_version || undefined} className={`work-space-node ${node.kind} ${state} ${triggerProps?.className ?? ''}`} style={node.kind === 'task' ? {} : { left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={e => { if (!suppressSpaceClick.current || e.detail === 0) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? (node.version === work.requirement_version ? work.title : t.requirement + ' v' + node.version)}`}>
+              {node.kind === 'requirement' ? <><span className="desk-map-hub"><Icon name="requirement" size={15} />{node.version === work.requirement_version ? t.current : t.requirement}<span className="desk-version">v{node.version}</span></span>
+                {node.version === work.requirement_version && <strong>{work.title}</strong>}</> :
                 <><span className="work-anchor-icon"><Icon name={node.kind} size={16} /></span><strong>{item?.title ?? work.title}</strong>{node.version && <em className="work-version">v{node.version}</em>}</>}
             </button>;
             return node.kind === 'task' ? <WorkBubbleGroup key={key(node)} label={`${locale === 'zh-CN' ? '任务关联' : 'Task links'} ${item?.title ?? node.ref_id}`}
@@ -696,19 +796,10 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
               actions={[{ id: 'open-task', label: `${t.open} ${item?.title ?? node.ref_id}`, onSelect: () => showOnBoard(node) },
                 ...agents.items.filter(agent => agent.task_ids?.includes(node.ref_id)).slice(0, 3).map(agent => ({ id: agent.agent_id,
                   label: agent.pid != null ? `${agentProgramName(agent)} · PID ${agent.pid}` : agentProgramName(agent), onSelect: () => openAgents(agent.agent_id) }))]} /> : trigger(); })}
-        </div>{!relationshipsOpen && !relationsRetained && <><div className="work-agent-bubbles">
-          <svg width="100%" height="100%" aria-hidden="true">{agents.items.slice(0, 4).map((agent, index) => {
-            const [x, y] = [[22, 30], [78, 67], [22, 67], [78, 30]][index];
-            return <line key={agent.agent_id} x1="50%" y1="50%" x2={`${x}%`} y2={`${y}%`} className="work-agent-tether" />;
-          })}</svg>
-          {agents.items.slice(0, 4).map((agent, index) => { const [x, y] = [[22, 30], [78, 67], [22, 67], [78, 30]][index];
-            return <WorkBubbleGroup key={agent.agent_id} label={`${locale === 'zh-CN' ? 'Agent 子项' : 'Agent children'} ${agent.agent_id}`}
-              width={170} height={170} style={{ left: `${x}%`, top: `${y}%` }} side={x < 50 ? 1 : -1} verticalSide={y < 50 ? -1 : 1}
-              actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
-              { id: 'color', label: locale === 'zh-CN' ? '设置颜色' : 'Choose color', onSelect: () => openAppearance(agent.agent_id) },
-                ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null }) }))]}
-              renderTrigger={triggerProps => <AgentBubble agent={agent} selectedTints={appearances.tints} index={index} size={170} tasks={work.tasks} copy={t} style={{}} triggerProps={triggerProps} onClick={() => openAgents(agent.agent_id)} />} />;
-          })}</div></>}</div>}
+              </div>
+            </div>}
+          </div>
+        </section>
       </div>}
       {!inSpace && <div className="work-area">{libraryOpen && <aside className="work-library"><div className="work-library-head"><h2>{t.library}</h2><button className="work-icon-button" onClick={closeLibrary} aria-label={locale === 'zh-CN' ? '关闭关联内容' : 'Close related content'}><Icon name="close" size={16} /></button></div>
         <label>{t.requirement}<input aria-label={t.showRequirement} type="number" min={1} max={work.requirement_version} value={requirementVersion} onChange={e => setRequirementVersion(bound(Number(e.target.value), 1, work.requirement_version))} /></label>
@@ -735,8 +826,6 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
           </article>)}
         </div></div></div>}
       <nav className="work-dock" aria-label={t.workspaceControls}>
-        {inSpace && <div className="work-dock-group work-dock-navigation"><button className="work-primary" ref={spaceEntry} disabled={!layoutReady} onClick={continueBoard}><Icon name="board" />{t.continueBoard}</button><button className={`work-toggle${relationshipsOpen ? ' is-on' : ''}`} onClick={() => { const v = boardRef.current?.space?.viewport; fitOnReveal.current = !relationshipsOpen && !!v && v.x === 0 && v.y === 0 && v.zoom === 1; setRelationshipsOpen(open => !open); }} aria-expanded={relationshipsOpen} disabled={!layoutReady}><Icon name="link" />{relationshipsOpen ? t.hideRelations : t.showRelations}</button>{relationshipsOpen && relatedNodes.length > relationLimit && <button className="work-quiet" onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}</div>}
-        {inSpace && relationshipsOpen && <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => spaceZoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((space?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => spaceZoom(1.2)}><Icon name="plus" /></button><button className="work-icon-button" aria-label={t.fit} title={t.fit} onClick={fitSpace}><Icon name="fit" /></button></div>}
         <div className="work-dock-group">
           <span role="status" className={`work-save is-${status}`} title={status === 'conflict' ? t.viewConflict : undefined}>{status === 'loading' ? t.load : status === 'unavailable' ? (locale === 'zh-CN' ? '现场尚未载入' : 'Workspace not loaded') : status === 'saved' ? t.saved : status === 'saving' ? t.saving : status === 'failed' ? t.saveFailed : status === 'conflict' ? t.viewConflict : t.dirty}</span>
           <button className="work-icon-button" title={t.saveView} aria-label={t.saveView} disabled={!layoutReady || status === 'saving' || status === 'conflict'} onClick={() => void saveView()}><Icon name="save" /></button>
@@ -775,16 +864,20 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     }} />}
     {appearancePanel && work && <AgentAppearancePicker agents={agents.items} state={appearances} selected={appearancePanel.selected} onClose={closeAppearance} />}
     {active && work && <div className="work-overlay work-reading-overlay" ref={overlay} role="dialog" aria-modal="true" aria-label={t.focus}>
-      <section className="work-reader">
+      <section className={`work-reader${comparing ? ' is-comparing' : ''}`}>
         <header>
-          <button className="work-quiet" autoFocus onClick={() => setFocus(null)}><Icon name="back" />{t.returnBoard}</button>
+          <button className="work-quiet" autoFocus onClick={leaveReader}><Icon name="back" />{comparing?.fromReader ? (locale === 'zh-CN' ? '返回成果' : 'Back to artifact') : t.returnBoard}</button>
           <span className="work-reader-project" title={work.title}>{work.title}</span>
           <div className="work-reader-actions">
             {active.kind === 'task' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'task', taskId: active.ref_id }); }}>{locale === 'zh-CN' ? '编辑任务' : 'Edit task'}</button>}
             {active.kind === 'requirement' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'requirement' }); }}>{locale === 'zh-CN' ? '修订要求' : 'Revise requirement'}</button>}
           </div>
         </header>
-        {renderContent(active, true)}
+        {(!comparing || comparing.fromReader) && <div className="work-reader-document" hidden={!!comparing}>{renderContent(active, true)}</div>}
+        {comparing && <WorkSourceReading key={key(active)} artifactVersion={active.version!} requirementVersion={comparing.version}
+          artifact={renderContent(active, true, false)}
+          requirement={<CardContent client={client} work={work} card={{ ...active, kind: 'requirement', ref_id: work.id, version: comparing.version, scroll: 0 }}
+            reading={false} onScroll={() => {}} />} />}
       </section>
     </div>}
     {form && <div className="work-overlay" ref={overlay} role="dialog" aria-modal="true" aria-label={form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}><form className="work-form" onSubmit={submit}>
@@ -814,8 +907,10 @@ function readCardContent(client: ApiClient, path: string, scope: string): Promis
   if (cache.size > 64) cache.delete(cache.keys().next().value as string);
   return request;
 }
-function CardContent({ client, work, card, reading, readingContext, onScroll }: {
+function CardContent({ client, work, card, reading, readingContext, onScroll, onCompare, compactPreview = false }: {
   client: ApiClient; work: Work; card: Card; reading: boolean; readingContext?: ReactNode; onScroll: (scroll: number) => void;
+  onCompare?: (version: number, opener: HTMLButtonElement) => void;
+  compactPreview?: boolean;
 }) {
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [content, setContent] = useState<Content | null>(null); const [error, setError] = useState<'contentBusy' | 'contentMissing' | 'contentConnection' | 'contentFailed' | null>(null); const [retry, setRetry] = useState(0);
@@ -837,9 +932,15 @@ function CardContent({ client, work, card, reading, readingContext, onScroll }: 
   return <div className="work-card-body" ref={body} tabIndex={0} role="region" aria-label={t[card.kind]} onScroll={e => { if (content && Math.abs(e.currentTarget.scrollTop - card.scroll) > 1) onScroll(e.currentTarget.scrollTop); }}>
     {error ? <p role="alert">{t[error]} <button onClick={() => setRetry(n => n + 1)}>{t.retry}</button></p> : content ? <>
       {reading && <div className="work-reader-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</div>}
-      <h2>{content.title ?? `${work.title} · ${t.requirement}`}</h2>
-      {content.requirement_version && <small className="work-provenance">{content.source === 'AGENT_RUN' ? t.runOutput : content.source === 'USER_EDITED_RUN_OUTPUT' ? t.editedRunOutput : t.manual} · {t.basedOn} v{content.requirement_version}</small>}
-      {content.source_run_id && <code>{content.source_run_id}</code>}
+      {!compactPreview && <h2>{content.title ?? `${work.title} · ${t.requirement}`}</h2>}
+      {card.kind === 'artifact' && !compactPreview && <div className="work-origin-line">
+        {content.source && <small>{content.source === 'AGENT_RUN' ? t.runOutput : content.source === 'USER_EDITED_RUN_OUTPUT' ? t.editedRunOutput : content.source === 'MANUAL' ? t.manual : content.source}</small>}
+        {Number.isSafeInteger(content.requirement_version) && content.requirement_version! > 0 && (onCompare ?
+          <button type="button" className="work-compare-source" onClick={e => onCompare(content.requirement_version!, e.currentTarget)}>
+            <Icon name="link" size={14} />{locale === 'zh-CN' ? '对照要求' : 'Compare requirement'} v{content.requirement_version}
+          </button> : <small>{t.basedOn} v{content.requirement_version}</small>)}
+        {content.source_run_id && <details><summary>{locale === 'zh-CN' ? '来源运行' : 'Source run'}</summary><code>{content.source_run_id}</code></details>}
+      </div>}
       {card.kind === 'task' && <dl className="work-provenance">
         <div><dt>{t.assignee}</dt><dd>{content.assignee === undefined ? (locale === 'zh-CN' ? '未知' : 'Unknown') : content.assignee || (locale === 'zh-CN' ? '尚未指定' : 'Not assigned')}</dd></div>
         <div><dt>{locale === 'zh-CN' ? '前置任务' : 'Dependencies'}</dt><dd>{Array.isArray(content.depends_on) && content.depends_on.length

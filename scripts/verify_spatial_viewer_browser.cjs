@@ -28,7 +28,12 @@ fs.mkdirSync(directory, { recursive: true });
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(`http://127.0.0.1:${server.address().port}/?work=7d1c9b52-4a3e-4f0b-9c61-2f8e5a1d3b70`);
     await changeLanguageViaSettings(page, 'en-US');
-    const viewport = await page.locator('.work-space-world').getAttribute('style');
+    await page.getByRole('button', { name: 'Show relationships', exact: true }).click();
+    await page.locator('.work-space').waitFor();
+    const world = page.locator('.work-space-world');
+    await page.getByRole('button', { name: 'Save workspace', exact: true }).click();
+    await page.getByText('Workspace saved', { exact: true }).waitFor();
+    const viewport = await world.getAttribute('style');
     await page.getByRole('button', { name: '3D view', exact: true }).click();
     await page.locator('.work-rest-stage canvas').waitFor();
     check('real WebGL canvas present', await page.locator('.work-rest-stage canvas').count() === 1);
@@ -77,7 +82,9 @@ fs.mkdirSync(directory, { recursive: true });
       await page.screenshot({ path: path.join(directory, `scene-${size.width}x${size.height}.png`) });
     }
     await page.getByRole('button', { name: 'Return to workspace', exact: true }).click();
-    check('2D viewport unchanged after return', await page.locator('.work-space-world').getAttribute('style') === viewport);
+    await page.locator('.work-space').waitFor();
+    assert.equal(await world.getAttribute('style'), viewport, '2D viewport unchanged after return');
+    checks.push('2D viewport unchanged after return');
     check('no browser or shader errors', errors.length === 0);
     fs.writeFileSync(path.join(directory, 'report.json'), JSON.stringify({ status: 'PASS', renderer: renderInfo,
       environment: 'Demo fixtures, headless Chromium with SwiftShader software WebGL; not native GPU/device acceptance', checks, errors }, null, 2));

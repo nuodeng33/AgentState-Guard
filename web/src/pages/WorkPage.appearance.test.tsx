@@ -28,7 +28,10 @@ it('loads authoritative color into both 2D and 3D and closes color dialog withou
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(screen.getByRole('button', { name: 'Agent colors' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Show relationships' }));
   expect(container.querySelector('svg.work-film path[stroke="#e3a5bf"]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Hide relationships' }));
+  expect(screen.getByRole('button', { name: 'Open Color Work' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '3D view' }));
   expect((await screen.findByTestId('3d-color')).textContent).toBe('#e3a5bf');
 });

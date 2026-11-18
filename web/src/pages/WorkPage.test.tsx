@@ -92,8 +92,15 @@ describe('persistent workbench', () => {
     expect(screen.getByRole('button', { name: 'Verify delivery' })).toBeTruthy();
   });
 
-  it('opens a specific artifact version from the relationship directory before graph expansion and returns to its row', async () => {
+  it('opens an artifact and its exact historical requirement from the desk, restoring focus to either entry', async () => {
     const { client } = fixture({ ...board, surface: 'space' });
+    const original = vi.mocked(client.get).getMockImplementation()!;
+    vi.mocked(client.get).mockImplementation(async (path: string) => {
+      if (path.endsWith('/requirements/1')) return { body: 'Original requirement used by this artifact' };
+      if (path.endsWith('/requirements/2')) return { body: 'Updated current requirement' };
+      const value = await original(path) as Record<string, unknown>;
+      return path === '/api/v1/works/' + id ? { ...value, requirement: 'Updated current requirement', requirement_version: 2 } : value;
+    });
     render(<WorkPage client={client} />);
     const directory = within(await screen.findByRole('complementary', { name: 'Work contents' }));
     expect(screen.queryByRole('button', { name: 'Open Real artifact' })).toBeNull();
@@ -104,7 +111,15 @@ describe('persistent workbench', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to relationship space' }));
     const returned = within(screen.getByRole('complementary', { name: 'Work contents' }));
     expect(document.activeElement).toBe(returned.getByRole('button', { name: 'Real artifact v1' }));
-    expect(screen.getByRole('button', { name: 'Show relationships' })).toBeTruthy();
+    const origin = returned.getByRole('button', { name: 'From requirement v1' });
+    fireEvent.click(origin);
+    expect(await screen.findByText('Original requirement used by this artifact')).toBeTruthy();
+    expect(vi.mocked(client.get)).toHaveBeenCalledWith('/api/v1/works/' + id + '/requirements/1');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to relationship space' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'From requirement v1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show relationships' }));
+    expect(screen.getByRole('button', { name: 'Open Requirement v1' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Real artifact' })).toBeTruthy();
   });
 
   it('opens a real node through the space and returns through each layer without losing position', async () => {
@@ -222,18 +237,21 @@ describe('persistent workbench', () => {
     expect(container.querySelector('.work-world')?.getAttribute('style')).not.toContain('100000');
   });
 
-  it('centers the core despite a saved distant relationship viewport and restores that view on expansion', async () => {
+  it('offers the requirement on the desk despite a distant saved viewport and restores that viewport on map expansion', async () => {
     const { client } = fixture({ ...board, surface: 'space', space: { viewport: { x: 100000, y: -90000, zoom: .4 }, nodes: [
       { kind: 'requirement', ref_id: id, version: 1, x: 50000, y: -40000 },
       { kind: 'artifact', ref_id: artifact, version: 1, x: 50300, y: -40000 },
     ] } });
     const { container } = render(<WorkPage client={client} />);
-    await screen.findByRole('button', { name: 'Open Actual work' });
-    expect(container.querySelector('.work-space-world')?.getAttribute('style')).toContain('calc(50% - 50000px)');
+    expect((await screen.findByRole('button', { name: 'Open Actual work' })).getAttribute('data-desk-card')).toBe('current');
     expect(screen.queryByRole('button', { name: 'Zoom in' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show relationships' }));
     expect(container.querySelector('.work-space-world')?.getAttribute('style')).toContain('100000px');
     expect(screen.getByRole('button', { name: 'Zoom in' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open Real artifact' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide relationships' }));
+    expect(screen.getByRole('button', { name: 'Open Actual work' }).getAttribute('data-desk-card')).toBe('current');
+    expect(screen.queryByRole('button', { name: 'Open Real artifact' })).toBeNull();
   });
 
   it('keeps an empty board actionable', async () => {
