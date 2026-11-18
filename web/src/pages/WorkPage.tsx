@@ -6,7 +6,7 @@ import { WorkSidebar, type PageKey } from '../components/AppShell';
 import { useI18n } from '../i18n/I18nProvider';
 import { workspaceCopy } from './workspaceCopy';
 import WorkOverview, { type WorkIndexItem } from './WorkOverview';
-import { recordOpenedWork } from './workRecency';
+import { forgetSelectedCard, lastSelectedCard, recordOpenedWork, recordSelectedCard } from './workRecency';
 import WorkSourceReading from './WorkSourceReading';
 import type { WorkArtifactEntry, WorkContentEntry } from './workContentTypes';
 import WorkDesk from './WorkDesk';
@@ -36,7 +36,7 @@ export type Board = { schema_version: 1; viewport: Viewport; cards: Card[];
 type View = { revision: number; state: Board | null };
 type Content = { title?: string; body: string; requirement_version?: number; source?: string; source_run_id?: string | null; assignee?: string | null; depends_on?: string[] };
 type SaveCommand = { request_id: string; expected_revision: number; state: Board; edit: number };
-type Session = { id: string; board: Board; revision: number | null; hydrated: boolean; edits: number; saved: number;
+type Session = { id: string; board: Board; revision: number | null; hydrated: boolean; edits: number; saved: number; selectedCard?: string;
   pending: SaveCommand | null; saving: Promise<void> | null; status: 'loading' | 'unavailable' | 'saved' | 'dirty' | 'saving' | 'failed' | 'conflict'; blocked: boolean };
 // Share only in-flight reads, scoped to the concrete Core client. Responses
 // are still checked against the selected Work before any state is published.
@@ -51,6 +51,17 @@ function readWorkOnce<T>(client: ApiClient, path: string, scope = path): Promise
 }
 const WorkRestScene = lazy(() => import('./WorkRestScene'));
 const key = (card: Pick<Card, 'kind' | 'ref_id' | 'version'>) => `${card.kind}:${card.ref_id}:${card.version ?? ''}`;
+function hasCardContent(work: Work, card: Card): boolean {
+  switch (card.kind) {
+    case 'requirement':
+      return card.ref_id === work.id && card.version != null &&
+        Number.isSafeInteger(card.version) && card.version >= 1 && card.version <= work.requirement_version;
+    case 'task':
+      return card.version === null && work.tasks.some(task => task.id === card.ref_id);
+    case 'artifact':
+      return work.artifacts.some(artifact => artifact.id === card.ref_id && artifact.version === card.version);
+  }
+}
 const bound = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 /** Soft S-curve between two space points; reads as a relation, not a wire. */
 const curve = (a: { x: number; y: number }, b: { x: number; y: number }) => {
@@ -242,6 +253,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   async function openWork(id: string) {
     setLocatedId(null);
     cardToLocate.current = null; surfaceOpener.current = null; surfaceReturn.current = false;
+    fitOnBoardOpen.current = false;
     const previous = workRef.current && sessions.current.get(workRef.current.id);
     if (previous && previous.id !== id) void saveView(previous);
     const seq = ++loadSequence.current; setLoading(true); setError('');
@@ -273,7 +285,13 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       const startingEdits = session.edits;
       boardRef.current = session.board; setBoard(session.board); setStatus(session.status); setLoading(false);
       const url = new URL(location.href); url.searchParams.set('work', id); history.replaceState(null, '', url);
-      if (!viewRead) return;
+      if (!viewRead) {
+        const selected = session.selectedCard;
+        if (session.hydrated && selected && session.board.cards.some(card => key(card) === selected && hasCardContent(detail, card))) {
+          setLocatedId(selected);
+        }
+        return;
+      }
       // The caller may finish a confirmed form once Work facts are available;
       // layout hydration continues independently and remains generation-fenced.
       void viewRead.then(result => {
@@ -285,12 +303,13 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
           setError(t.failed); return;
         }
         const view = result.value;
+        const loadedWork = workRef.current;
         let next: Board;
         try {
           if (view.state && (!Array.isArray(view.state.cards) || !view.state.viewport ||
             ![view.state.viewport.x, view.state.viewport.y, view.state.viewport.zoom].every(Number.isFinite) ||
             view.state.space && !Array.isArray(view.state.space.nodes))) throw new Error('WORK_VIEW_INVALID');
-          next = withSpace(view.state ?? initialBoard(id, workRef.current.requirement_version), workRef.current);
+          next = withSpace(view.state ?? initialBoard(id, loadedWork.requirement_version), loadedWork);
         } catch {
           if (!current.hydrated) { current.status = 'unavailable'; setStatus(current.status); }
           setError(t.failed); return;
@@ -301,6 +320,11 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
         current.board = next; current.revision = view.revision; current.hydrated = true;
         current.edits = dirty ? startingEdits + 1 : startingEdits; current.status = dirty ? 'dirty' : 'saved';
         boardRef.current = next; setBoard(next); setStatus(current.status);
+        const selected = current.selectedCard ?? lastSelectedCard(id);
+        if (selected && view.state?.cards.some(card => key(card) === selected && hasCardContent(loadedWork, card))) {
+          current.selectedCard = selected;
+          setLocatedId(selected);
+        }
       }).catch(() => {
         if (seq !== loadSequence.current || !mounted.current || workRef.current?.id !== id) return;
         if (!session.hydrated) { session.status = 'unavailable'; setStatus(session.status); }
@@ -401,8 +425,19 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     item.querySelector('button')?.focus({ preventScroll: true });
     return true;
   }
+  function selectCard(card: Card) {
+    const selected = key(card);
+    setLocatedId(selected);
+    const workId = workRef.current?.id;
+    if (!workId) return;
+    const session = sessions.current.get(workId);
+    if (session) session.selectedCard = selected;
+    recordSelectedCard(workId, selected);
+  }
   function queueCardLocation(id: string) {
-    setLocatedId(id);
+    const card = boardRef.current?.cards.find(item => key(item) === id);
+    if (!card) return;
+    selectCard(card);
     cardToLocate.current = id;
     if (revealCard(id)) cardToLocate.current = null;
   }
@@ -520,7 +555,8 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }
   const layoutReady = Boolean(work && sessions.current.get(work.id)?.hydrated);
   const active = board?.cards.find(c => key(c) === focus);
-  const locatedCard = board?.cards.find(c => key(c) === locatedId) ?? board?.cards[0];
+  const locatedCard = board?.cards.find(card => key(card) === locatedId) ??
+    board?.cards.find(card => work && hasCardContent(work, card)) ?? board?.cards[0];
   const locatedKey = locatedCard ? key(locatedCard) : '';
   const space = board?.space; const inSpace = board?.surface !== 'board';
   const taskNodes = space?.nodes.filter(node => node.kind === 'task') ?? [];
@@ -580,9 +616,10 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     const panelWidth = document.querySelector('.work-sessions, .work-delivery')?.getBoundingClientRect().width ?? 640;
     const available = width - panelWidth - 32;
     if (!current || !card) return;
+    selectCard(card);
     if (available < 300) {
       if (deliveryPanel) { setDeliveryPanel(false); deliveryReturnsToSession.current = false; } else closeSessions();
-      setLocatedId(key(card)); cardToLocate.current = key(card);
+      cardToLocate.current = key(card);
       return;
     }
     const zoom = bound(Math.min(current.viewport.zoom, available / card.width), .25, 2);
@@ -670,6 +707,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
         if (reading) comparisonOpener.current = opener;
         else readingOpener.current = opener;
         setComparison({ workId: work!.id, artifact: key(card), version, fromReader: reading });
+        selectCard(card);
         setFocus(key(card));
       }}
       onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
@@ -816,7 +854,24 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
             return from ? <path key={key(a)} d={`M${from.x + from.width},${from.y + 80} C${from.x + from.width + 50},${from.y + 80} ${a.x - 50},${a.y + 80} ${a.x},${a.y + 80}`} /> : null;
           })}</svg>
           {board?.cards.map(card => <article className={`work-card work-card-${card.kind}${card.kind === 'artifact' ? '' : ' work-paper-note'}`} key={key(card)} data-card={key(card)} data-current={key(card) === locatedKey} aria-label={cardTitle(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
-            <header onPointerDown={e => startDrag(e, card)}><span className="work-card-kind"><Icon name={card.kind} size={16} />{card.version ? <em className="work-version">v{card.version}</em> : null}</span><button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}><Icon name="expand" size={16} /></button><button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={() => { changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) }); libraryButton.current?.focus(); }}><Icon name="close" size={16} /></button></header>
+            <header onPointerDown={e => startDrag(e, card)}>
+              <span className="work-card-kind"><Icon name={card.kind} size={16} />{card.version ? <em className="work-version">v{card.version}</em> : null}</span>
+              <button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={e => {
+                readingOpener.current = e.currentTarget;
+                selectCard(card);
+                setFocus(key(card));
+              }}><Icon name="expand" size={16} /></button>
+              <button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={() => {
+                const closed = key(card);
+                forgetSelectedCard(work.id, closed);
+                const session = sessions.current.get(work.id);
+                if (session?.selectedCard === closed) delete session.selectedCard;
+                if (locatedId === closed) setLocatedId(null);
+                if (cardToLocate.current === closed) cardToLocate.current = null;
+                changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== closed) });
+                libraryButton.current?.focus();
+              }}><Icon name="close" size={16} /></button>
+            </header>
             {renderContent(card)}<button className="work-resize" title={t.resize(t[card.kind])} aria-label={t.resize(t[card.kind])} onPointerDown={e => startDrag(e, card, true)} onKeyDown={event => {
               const delta = ({ ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24] } as Record<string, number[]>)[event.key];
               if (!delta) return;
