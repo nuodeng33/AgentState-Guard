@@ -488,7 +488,6 @@ export default function WorkRestScene({ title, requirementVersion, taskCount, ar
       {!unavailable && <div className="work-rest-core-label" ref={coreLabel} aria-hidden="true">
         <span>WORK</span><strong>{title}</strong>
       </div>}
-      {!unavailable && <p className="work-rest-keyboard-hint">{zh ? '拖动旋转 · 滚动缩放 · 键盘：方向键、+/−、Home' : 'Drag to rotate · Scroll to zoom · Keyboard: arrows, +/−, Home'}</p>}
       {!unavailable && <div className="work-rest-agent-labels">{visibleAgents.map(agent => agentButton(agent, true))}</div>}
       {!unavailable && showTasks && <div className="work-rest-task-markers">
         {visibleTasks.map((task, index) => <button key={task.id} className="work-rest-task-marker"

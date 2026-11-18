@@ -41,7 +41,7 @@ fn open_sidecar_logs(data_dir: &str) -> Result<(File, File), String> {
     Ok((stdout, stderr))
 }
 
-fn configure_no_window(command: &mut Command) {
+pub(crate) fn configure_no_window(command: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

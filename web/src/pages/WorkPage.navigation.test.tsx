@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError, type ApiClient } from '../api/client';
 import WorkPage, { type Board } from './WorkPage';
@@ -10,11 +10,11 @@ const board: Board = { schema_version: 1, surface: 'board', viewport: { x: 24, y
   cards: [{ kind: 'requirement', ref_id: workId, version: 1, x: 0, y: 0, width: 400, height: 430, scroll: 0 }] };
 
 function clientWith(overrides: { detail?: () => Promise<unknown>; content?: () => Promise<unknown>;
-  save?: () => Promise<unknown> } = {}) {
+  save?: () => Promise<unknown>; view?: Board } = {}) {
   const get = vi.fn(async (path: string) => {
     if (path.endsWith('/execution-summary')) return { work_id: workId, requirement_version: 1, counts: {}, items: [] };
     if (path.includes('?limit=')) return { items: [work] };
-    if (path.endsWith('/view')) return { revision: 1, state: board };
+    if (path.endsWith('/view')) return { revision: 1, state: overrides.view ?? board };
     if (path.includes('/requirements/')) return overrides.content ? overrides.content() : { body: 'Readable requirement' };
     return overrides.detail ? overrides.detail() : work;
   });
@@ -22,7 +22,7 @@ function clientWith(overrides: { detail?: () => Promise<unknown>; content?: () =
   return { client: { bootstrap: vi.fn(), get, post } as unknown as ApiClient, get, post };
 }
 
-afterEach(() => { cleanup(); history.replaceState(null, '', '/'); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); history.replaceState(null, '', '/'); });
 
 describe('work navigation recovery', () => {
   it.each([
@@ -72,6 +72,83 @@ describe('work navigation recovery', () => {
     expect(await screen.findByText('Readable requirement')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /All work/ }));
     expect(await screen.findByRole('button', { name: /Visible work/ })).toBeTruthy();
+  });
+
+  it('opens a record from the overview, locates a relationship card in the mounted canvas, and restores focus on return', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('work-canvas') ? 560 : 800;
+    });
+    const { client } = clientWith({ view: { ...board, surface: 'space', viewport: { x: 10, y: 16, zoom: 0.8 } } });
+    const { container } = render(<WorkPage client={client} />);
+    const record = await screen.findByRole('link', { name: /Visible work/ });
+    expect(record.getAttribute('href')).toBe(`?work=${workId}`);
+    fireEvent.click(record);
+    const node = await screen.findByRole('button', { name: 'Open Visible work' });
+    act(() => node.focus());
+    fireEvent.click(node, { detail: 0 });
+
+    const preview = await screen.findByRole('button', { name: 'Focus reading Requirement 1' });
+    expect(document.activeElement).toBe(preview);
+    const viewport = container.querySelector('.work-world')?.getAttribute('style');
+    expect(viewport).toContain('translate(120px, 20px) scale(0.8)');
+    fireEvent.click(preview);
+
+    const dialog = screen.getByRole('dialog', { name: 'Focus reading' });
+    await within(dialog).findByText('Readable requirement');
+    const back = within(dialog).getByRole('button', { name: 'Back to workbench' });
+    expect(document.activeElement).toBe(back);
+    fireEvent.keyDown(back, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(within(dialog).getByRole('region', { name: 'Requirement' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(preview);
+    expect(container.querySelector('.work-world')?.getAttribute('style')).toBe(viewport);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open Visible work' }));
+  });
+
+  it('returns focus to a visible control when dismissing a creation form', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(function (this: HTMLElement) {
+      const hiddenDrawer = this.closest('.work-sidebar') && !this.closest('[data-nav-open]');
+      const rects = hiddenDrawer ? [] : [new DOMRect(0, 0, 80, 32)];
+      return Object.assign(rects, { item: (index: number) => rects[index] ?? null });
+    });
+    const { client } = clientWith();
+    const { container } = render(<WorkPage client={client} />);
+    await screen.findByRole('link', { name: /Visible work/ });
+
+    const file = screen.getByRole('button', { name: 'File' });
+    act(() => file.focus());
+    fireEvent.keyDown(file, { key: 'ArrowDown' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create work' }));
+    const form = screen.getByRole('dialog', { name: 'Create work' });
+    expect(document.activeElement).toBe(within(form).getByRole('textbox', { name: 'Work title' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(file);
+
+    const drawer = container.querySelector<HTMLButtonElement>('.work-mobile-works')!;
+    fireEvent.click(drawer);
+    fireEvent.click(screen.getByRole('button', { name: 'New work' }));
+    expect(drawer.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Create work' })).getByRole('button', { name: 'Cancel' }));
+    expect(document.activeElement).toBe(drawer);
+  });
+
+  it('gives an empty work creation actions without opening either board or relationships, and can collapse the directory', async () => {
+    history.replaceState(null, '', `/?work=${workId}`);
+    const { client } = clientWith({ view: { ...board, surface: 'space' } });
+    render(<WorkPage client={client} />);
+    const contents = within(await screen.findByRole('complementary', { name: 'Work contents' }));
+    const toggle = contents.getByRole('button', { name: 'Work contents' });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(contents.queryByRole('button', { name: 'Add task' })).toBeNull();
+    fireEvent.click(toggle);
+    fireEvent.click(contents.getByRole('button', { name: 'Add task' }));
+    expect(screen.getByRole('dialog', { name: 'Add task' })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(contents.getByRole('button', { name: 'Save artifact' }));
+    expect(screen.getByRole('dialog', { name: 'Save artifact' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Show relationships' })).toBeTruthy();
   });
 
   it('keeps a failed in-flight save on its original work when another work opens', async () => {

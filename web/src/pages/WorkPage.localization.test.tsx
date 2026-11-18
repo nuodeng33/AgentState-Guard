@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import { I18nProvider } from '../i18n/I18nProvider';
@@ -47,7 +47,7 @@ it('uses English plural counts and switches controls without changing content, v
 it('keeps an unsaved form draft when the interface language changes', async () => {
   const { post } = setup();
   fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+  fireEvent.click(within(screen.getByRole('group', { name: 'More actions' })).getByRole('button', { name: 'Add task' }));
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: '未保存的任务 draft' } });
   // Drive the same shared preference control now hosted only in Settings.
   fireEvent.click(screen.getByRole('radio', { name: '简体中文' }));

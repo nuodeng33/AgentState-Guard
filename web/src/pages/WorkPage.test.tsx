@@ -56,7 +56,7 @@ describe('persistent workbench', () => {
     expect(project(150)).toBeLessThanOrEqual(236);
   });
 
-  it('opens a task from the compact relation node into a pinned content note with real content and closes only its board reference', async () => {
+  it('opens a compact relation node into a task card with real content and closes only its board reference', async () => {
     const task = '33333333-3333-4333-8333-333333333333';
     const state: Board = { ...board, surface: 'space', space: { viewport: { x: 0, y: 0, zoom: 1 }, nodes: [
       { kind: 'requirement', ref_id: id, version: 1, x: 0, y: 0 },
@@ -72,20 +72,13 @@ describe('persistent workbench', () => {
     const { container } = render(<WorkPage client={client} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Show relationships' }));
     const note = await screen.findByRole('button', { name: 'Open Verify delivery' });
-    expect(note.querySelector('.work-task-pin')).toBeNull();
     expect(note.querySelectorAll('button')).toHaveLength(0);
-    expect(container.querySelector('.work-space-node.requirement .work-task-pin')).toBeNull();
     fireEvent.click(note);
     await screen.findByText('Read the original file before delivery.');
     const card = container.querySelector('[data-card="task:' + task + ':"]')!;
     expect(card.classList.contains('work-card-task')).toBe(true);
-    expect(card.querySelector('header .work-task-pin')?.getAttribute('aria-hidden')).toBe('true');
     const requirement = container.querySelector('.work-card-requirement')!;
     expect(requirement.classList.contains('work-paper-note')).toBe(true);
-    expect(requirement.querySelector('.work-task-pin')).toBeTruthy();
-    const ids = Array.from(container.querySelectorAll('.work-task-pin [id]')).map(element => element.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(container.querySelector('[data-card^="artifact:"] .work-task-pin')).toBeNull();
     expect((card as HTMLElement).style.width).toBe('320px');
     fireEvent.click(within(card as HTMLElement).getByRole('button', { name: 'Focus reading Task' }));
     const dialog = screen.getByRole('dialog');
@@ -97,6 +90,21 @@ describe('persistent workbench', () => {
     expect(post.mock.calls[post.mock.calls.length - 1][1].state.cards.some((item: { ref_id: string }) => item.ref_id === task)).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Add related content' }));
     expect(screen.getByRole('button', { name: 'Verify delivery' })).toBeTruthy();
+  });
+
+  it('opens a specific artifact version from the relationship directory before graph expansion and returns to its row', async () => {
+    const { client } = fixture({ ...board, surface: 'space' });
+    render(<WorkPage client={client} />);
+    const directory = within(await screen.findByRole('complementary', { name: 'Work contents' }));
+    expect(screen.queryByRole('button', { name: 'Open Real artifact' })).toBeNull();
+    const open = directory.getByRole('button', { name: 'Real artifact v1' });
+    fireEvent.click(open);
+    const card = screen.getByRole('article', { name: 'Real artifact' });
+    expect(await within(card).findByText('Saved content')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to relationship space' }));
+    const returned = within(screen.getByRole('complementary', { name: 'Work contents' }));
+    expect(document.activeElement).toBe(returned.getByRole('button', { name: 'Real artifact v1' }));
+    expect(screen.getByRole('button', { name: 'Show relationships' })).toBeTruthy();
   });
 
   it('opens a real node through the space and returns through each layer without losing position', async () => {

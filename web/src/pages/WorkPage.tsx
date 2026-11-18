@@ -1,11 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { apiClient, ApiActionError, ApiRequestError, SessionUnavailableError, type ApiClient } from '../api/client';
 import { agentProgramName } from '../components/AgentIdentity';
 import { WorkMenuBar } from '../components/WorkMenuBar';
 import { WorkSidebar, type PageKey } from '../components/AppShell';
 import { useI18n } from '../i18n/I18nProvider';
-import { formatDateTime } from '../i18n/format';
 import { workspaceCopy } from './workspaceCopy';
+import WorkOverview, { type WorkIndexItem } from './WorkOverview';
+import WorkContents, { type WorkArtifactEntry, type WorkContentEntry } from './WorkContents';
 import WorkAgents, { useWorkAgents, type WorkAgent } from './WorkAgents';
 import WorkSessions, { createWorkSessionMemory, type WorkRunOutput } from '../components/WorkSessions';
 import WorkDelivery from '../components/WorkDelivery';
@@ -21,9 +22,8 @@ import WorkExecutionStatus, { type ExecutionTarget } from '../components/WorkExe
 import { AgentFilm, Icon, Prose, WorkCore, goalOf } from './WorkVisuals';
 import './work.css';
 
-type Summary = { id: string; title: string; owner: string; revision: number; requirement_version: number; updated_at?: string };
-type Artifact = { id: string; title: string; version: number; requirement_version: number; created_at?: string };
-type Work = Summary & { requirement: string; tasks: { id: string; title: string }[]; artifacts: Artifact[] };
+type Summary = WorkIndexItem & { revision: number };
+type Work = Summary & { requirement: string; tasks: WorkContentEntry[]; artifacts: WorkArtifactEntry[] };
 export type Card = { kind: 'requirement' | 'task' | 'artifact'; ref_id: string; version: number | null;
   x: number; y: number; width: number; height: number; scroll: number };
 type SpaceNode = Pick<Card, 'kind' | 'ref_id' | 'version' | 'x' | 'y'>;
@@ -140,9 +140,22 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   const [status, setStatus] = useState(''); const [error, setError] = useState('');
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<'work' | 'artifact' | 'task' | null>(null);
+  const formOpener = useRef<HTMLElement | null>(null);
+  const commandBar = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState({ title: '', owner: '', body: '', artifact: '' });
   const [focus, setFocus] = useState<string | null>(null); const [requirementVersion, setRequirementVersion] = useState(1);
   const readingOpener = useRef<HTMLElement | null>(null);
+  const overlay = useRef<HTMLDivElement>(null);
+  const surfaceOpener = useRef<{ id: string; origin: 'space' | 'directory' } | null>(null);
+  const spaceSurface = useRef<HTMLDivElement>(null);
+  const [contentsExpanded, setContentsExpanded] = useState(() => typeof window.matchMedia === 'function' ? !window.matchMedia('(max-width: 760px)').matches : true);
+  const surfaceReturn = useRef(false);
+  const spaceEntry = useRef<HTMLButtonElement>(null);
+  const cardToLocate = useRef<string | null>(null);
+  const libraryButton = useRef<HTMLButtonElement>(null);
+  const [navOpen, setNavOpen] = useState(false);
+  const navButton = useRef<HTMLButtonElement>(null);
+  const sidebarId = useId();
   const [hover, setHover] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [relationshipsOpen, setRelationshipsOpen] = useState(false);
@@ -204,6 +217,7 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     setItems(old => append ? [...old, ...result.items] : result.items); setMore(result.items.length === 50);
   }
   async function openWork(id: string) {
+    cardToLocate.current = null; surfaceOpener.current = null; surfaceReturn.current = false;
     const previous = workRef.current && sessions.current.get(workRef.current.id);
     if (previous && previous.id !== id) void saveView(previous);
     const seq = ++loadSequence.current; setLoading(true); setError('');
@@ -296,41 +310,76 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   useEffect(() => { onUnsavedChange?.([...sessions.current.values()].some(s => s.saved !== s.edits) || form !== null || editor !== null || linksPanel || appearances.hasPending); }, [status, form, editor, linksPanel, onUnsavedChange, appearances.hasPending]);
   useEffect(() => {
     if (!visible || (!form && !focus)) return;
-    const previous = focus ? readingOpener.current : document.activeElement as HTMLElement | null;
     const keyboard = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) { e.preventDefault(); if (focus) setFocus(null); else setForm(null); }
-      if (e.key !== 'Tab') return;
-      const nodes = Array.from(document.querySelectorAll<HTMLElement>('.work-overlay button:not(:disabled), .work-overlay input, .work-overlay textarea, .work-overlay select'));
+      if (e.key === 'Escape' && !busy) { e.preventDefault(); if (focus) setFocus(null); else closeForm(); }
+      if (e.key !== 'Tab' || !overlay.current) return;
+      const nodes = Array.from(overlay.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]'));
       const first = nodes[0], last = nodes[nodes.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
       if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     };
     document.addEventListener('keydown', keyboard);
-    return () => { document.removeEventListener('keydown', keyboard); previous?.focus(); };
+    return () => { document.removeEventListener('keydown', keyboard); };
   }, [form, focus, busy, visible]);
   useEffect(() => {
-    if (!visible || !work || editor || linksPanel || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel || appearancePanel) return;
+    if (focus || !readingOpener.current) return;
+    const opener = readingOpener.current; readingOpener.current = null;
+    if (!editor && !agentPanel && opener.isConnected) opener.focus({ preventScroll: true });
+  }, [focus, editor, agentPanel]);
+  function closeLibrary() { setLibraryOpen(false); libraryButton.current?.focus({ preventScroll: true }); }
+  function closeNav() { setNavOpen(false); navButton.current?.focus({ preventScroll: true }); }
+  useEffect(() => {
+    if (!visible || editor || linksPanel || form || focus || restOpen || agentPanel || sessionPanel || deliveryPanel || recoveryPanel || appearancePanel) return;
     const keyboard = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (!work && !navOpen) return;
       e.preventDefault();
-      if (libraryOpen) setLibraryOpen(false);
+      if (navOpen) closeNav();
+      else if (libraryOpen) closeLibrary();
       else if (menuOpen) setMenuOpen(false);
       else if (boardRef.current?.surface === 'board') returnToSpace();
       else void back();
     };
     document.addEventListener('keydown', keyboard); return () => document.removeEventListener('keydown', keyboard);
-  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel, appearancePanel, editor, linksPanel]);
-  function addCard(kind: Card['kind'], ref: string, version: number | null) {
-    const current = boardRef.current; if (!current) return;
+  }, [work, form, focus, visible, restOpen, libraryOpen, menuOpen, navOpen, agentPanel, sessionPanel, deliveryPanel, recoveryPanel, appearancePanel, editor, linksPanel]);
+  function addCard(kind: Card['kind'], ref: string, version: number | null, locate = true) {
+    const current = boardRef.current; if (!current) return null;
     const existing = current.cards.find(card => card.kind === kind && card.ref_id === ref && card.version === version);
-    const card = existing ?? { kind, ref_id: ref, version, x: current.cards.length * 430, y: 0, width: kind === 'task' ? 320 : 400, height: kind === 'task' ? 260 : 430, scroll: 0 };
-    if (!existing && current.cards.length >= 40) return;
-    const rect = canvas.current?.getBoundingClientRect();
-    const cardZoom = current.cards.length ? current.viewport.zoom : 1;
-    changeBoard({ ...current, cards: existing ? current.cards : [...current.cards, card], viewport: {
-      zoom: cardZoom, x: (rect?.width ?? 900) / 2 - (card.x + card.width / 2) * cardZoom,
-      y: 24 - card.y * cardZoom,
-    } });
+    if (!existing && current.cards.length >= 40) {
+      setError(locale === 'zh-CN' ? '工作台已打开 40 张卡片，请先关闭一张。' : 'The workbench has 40 open cards. Close one to add another.');
+      return null;
+    }
+    const x = current.cards.length ? bound(Math.max(...current.cards.map(card => card.x + card.width)) + 36, -100000, 100000) : 0;
+    const y = current.cards.length ? Math.min(...current.cards.map(card => card.y)) : 0;
+    const card = existing ?? { kind, ref_id: ref, version, x, y, width: kind === 'task' ? 320 : 400, height: kind === 'task' ? 260 : 430, scroll: 0 };
+    if (!existing) changeBoard({ ...current, cards: [...current.cards, card], viewport: current.cards.length ? current.viewport : { x: 24, y: 24, zoom: 1 } });
+    if (locate) queueCardLocation(key(card));
+    return card;
+  }
+  function revealCard(id: string) {
+    const b = boardRef.current, el = canvas.current, card = b?.cards.find(item => key(item) === id);
+    if (!b || !el || !card) return false;
+    const item = Array.from(el.querySelectorAll<HTMLElement>('[data-card]')).find(node => node.dataset.card === id);
+    if (!item) return false;
+    if (getComputedStyle(el).getPropertyValue('--work-board-stack').trim() === '1') {
+      item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    } else {
+      const width = el.clientWidth || el.getBoundingClientRect().width;
+      if (width > 0) {
+        const zoom = bound(Math.min(b.viewport.zoom, (width - 40) / card.width), .25, 2);
+        changeBoard({ ...b, viewport: { zoom, x: bound(width / 2 - (card.x + card.width / 2) * zoom, -100000, 100000), y: bound(20 - card.y * zoom, -100000, 100000) } });
+      }
+    }
+    item.querySelector('button')?.focus({ preventScroll: true });
+    return true;
+  }
+  function queueCardLocation(id: string) {
+    cardToLocate.current = id;
+    if (revealCard(id)) cardToLocate.current = null;
+  }
+  function openRelated(kind: Card['kind'], ref: string, version: number | null) {
+    if (canvas.current && getComputedStyle(canvas.current).getPropertyValue('--work-board-stack').trim() === '1') setLibraryOpen(false);
+    addCard(kind, ref, version);
   }
   function zoom(factor: number, px?: number, py?: number) {
     const b = boardRef.current; if (!b) return;
@@ -351,16 +400,29 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     fitOnBoardOpen.current = false; fit();
   } }, [board]);
   useEffect(() => {
+    if (board?.surface === 'board' && cardToLocate.current && revealCard(cardToLocate.current)) cardToLocate.current = null;
+    if (board?.surface === 'space' && surfaceReturn.current) {
+      surfaceReturn.current = false;
+      const original = surfaceOpener.current;
+      const opener = original && Array.from(spaceSurface.current?.querySelectorAll<HTMLButtonElement>(original.origin === 'directory' ? '[data-directory-card]' : '[data-node]') ?? [])
+        .find(node => (node.dataset.directoryCard ?? node.dataset.node) === original.id);
+      (opener ?? spaceEntry.current)?.focus({ preventScroll: true });
+    }
+  }, [board, deliveryPanel, sessionPanel]);
+  useEffect(() => {
     const el = canvas.current; if (!el) return;
     const wheel = (e: WheelEvent) => {
-      if ((e.target as Element).closest('.work-card') && !e.ctrlKey && !e.metaKey) return;
+      if (getComputedStyle(el).getPropertyValue('--work-board-stack').trim() === '1' ||
+        (e.target as Element).closest('.work-card') && !e.ctrlKey && !e.metaKey) return;
       e.preventDefault(); const r = el.getBoundingClientRect(); zoom(Math.exp(-e.deltaY * .001), e.clientX - r.left, e.clientY - r.top);
     };
     el.addEventListener('wheel', wheel, { passive: false }); return () => el.removeEventListener('wheel', wheel);
   }, [work, loading, board?.surface]);
   const drag = useRef<{ x: number; y: number; startX: number; startY: number; card?: Card; resize?: boolean } | null>(null);
   function startDrag(e: PointerEvent, card?: Card, resize = false) {
-    if (e.button !== 0 || (!resize && (e.target as Element).closest('button'))) return;
+    if (e.button !== 0 || !boardRef.current || !canvas.current ||
+      getComputedStyle(canvas.current).getPropertyValue('--work-board-stack').trim() === '1' ||
+      (!resize && (e.target as Element).closest('button'))) return;
     if (!card && (e.target as Element).closest('.work-card')) return;
     e.preventDefault(); e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId);
     const v = boardRef.current!.viewport;
@@ -407,9 +469,15 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     const url = new URL(location.href); url.searchParams.delete('work'); history.replaceState(null, '', url);
     setLoading(true); void list().catch(() => setError(t.failed)).finally(() => setLoading(false));
   }
-  function returnToSpace() { const current = boardRef.current; if (current) changeBoard({ ...current, surface: 'space' }); }
+  function returnToSpace() {
+    const current = boardRef.current; if (!current || current.surface === 'space') return;
+    surfaceReturn.current = true; setLibraryOpen(false); setHover(null);
+    changeBoard({ ...current, surface: 'space' });
+  }
   function continueBoard() {
     const current = boardRef.current; if (!current || !workRef.current) return;
+    if (current.surface === 'board' && current.cards.length) return;
+    surfaceOpener.current = null;
     if (!current.cards.length) {
       const detail = workRef.current;
       const latest = [...detail.artifacts].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '') || b.version - a.version).slice(0, 1);
@@ -442,7 +510,13 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }) ?? [];
   const agentEdges = relationshipsOpen ? agentNodes.flatMap(node => (node.agent.task_ids ?? []).map(id => [`agent:${node.agent.agent_id}`, `task:${id}:`] as const)) : [];
   const highlighted = hover ? new Set([hover, ...[...edges, ...agentEdges].flatMap(([a, b]) => a === hover ? [b] : b === hover ? [a] : [])]) : null;
-  function showOnBoard(node: SpaceNode) { addCard(node.kind, node.ref_id, node.version); const current = boardRef.current; if (current) changeBoard({ ...current, surface: 'board' }); }
+  function showOnBoard(node: Pick<SpaceNode, 'kind' | 'ref_id' | 'version'>, locate = true, origin: 'space' | 'directory' = 'space') {
+    const card = addCard(node.kind, node.ref_id, node.version, locate), current = boardRef.current;
+    if (!current || !card) return;
+    if (current.surface !== 'board') surfaceOpener.current = { id: key(node), origin };
+    setHover(null);
+    if (current.surface !== 'board') changeBoard({ ...current, surface: 'board' });
+  }
   async function refreshDeliveryWork(id: string) {
     const sequence = loadSequence.current;
     try {
@@ -453,13 +527,17 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     } catch (err) { if (mounted.current && workRef.current?.id === id && sequence === loadSequence.current) setError(message(err)); }
   }
   function compareOnBoard(kind: Card['kind'], refId: string, version: number) {
-    showOnBoard({ kind, ref_id: refId, version, x: 0, y: 0 });
+    showOnBoard({ kind, ref_id: refId, version }, false);
     const current = boardRef.current, card = current?.cards.find(item => item.kind === kind && item.ref_id === refId && item.version === version);
     const width = (canvas.current ?? spaceCanvas.current)?.clientWidth ?? window.innerWidth;
     const panelWidth = document.querySelector('.work-sessions, .work-delivery')?.getBoundingClientRect().width ?? 640;
     const available = width - panelWidth - 32;
     if (!current || !card) return;
-    if (available < 300) { if (deliveryPanel) { setDeliveryPanel(false); deliveryReturnsToSession.current = false; } else closeSessions(); return; }
+    if (available < 300) {
+      if (deliveryPanel) { setDeliveryPanel(false); deliveryReturnsToSession.current = false; } else closeSessions();
+      cardToLocate.current = key(card);
+      return;
+    }
     const zoom = bound(Math.min(current.viewport.zoom, available / card.width), .25, 2);
     changeBoard({ ...current, viewport: { x: 12 - card.x * zoom, y: 24 - card.y * zoom, zoom } });
   }
@@ -506,12 +584,46 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
   }
   const suppressSpaceClick = useRef(false);
   function spaceEnd(e: PointerEvent) { suppressSpaceClick.current = !!spaceDrag.current?.moved; spaceDrag.current = null; e.stopPropagation(); }
-  const renderContent = (card: Card, reading = false) => <CardContent client={client} work={work!} card={card} onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
-  return <div className="work-layout" aria-hidden={!visible}>
-    <WorkMenuBar onNewWork={() => setForm('work')} disabled={busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)}
+  const renderContent = (card: Card, reading = false) => {
+    const linked = reading && card.kind === 'task' ? agents.items.filter(agent => agent.task_ids?.includes(card.ref_id)) : [];
+    const context = reading && card.kind === 'task' && <div className="work-reader-context">
+      <span>{locale === 'zh-CN' ? '关联智能体' : 'Linked agents'}</span>
+      {linked.map(agent => <button key={agent.agent_id} className="work-quiet" onClick={() => { setFocus(null); openAgents(agent.agent_id); }}>{agentProgramName(agent)}</button>)}
+      {!linked.length && !agents.loading && !agents.failed && <span className="work-reader-muted">{locale === 'zh-CN' ? '尚未关联' : 'None linked'}</span>}
+      {!linked.length && (agents.loading || agents.failed) && <button className="work-quiet" onClick={() => { setFocus(null); openAgents(); }}>{t.agents}</button>}
+    </div>;
+    return <CardContent client={client} work={work!} card={card} reading={reading} readingContext={context}
+      onScroll={scroll => { if (!reading) updateCard(key(card), { scroll }); }} />;
+  };
+  const layoutLocked = busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel);
+  function openForm(kind: NonNullable<typeof form>, opener = document.activeElement as HTMLElement | null) {
+    formOpener.current = opener;
+    setForm(kind);
+  }
+  function closeForm() { setForm(null); setError(''); }
+  useEffect(() => {
+    if (form || layoutLocked || !formOpener.current) return;
+    const opener = formOpener.current;
+    formOpener.current = null;
+    if (!visible) return;
+    const candidates = [opener, menuButton.current, navButton.current, commandBar.current?.querySelector<HTMLElement>('.work-menu-trigger')];
+    for (const candidate of candidates) {
+      if (!candidate?.isConnected || candidate.matches(':disabled') || !candidate.getClientRects().length) continue;
+      candidate.focus({ preventScroll: true });
+      if (document.activeElement === candidate) break;
+    }
+  }, [form, layoutLocked, visible]);
+  const currentSurface = locale === 'zh-CN' ? (inSpace ? '关系空间' : '聚合工作台') : (inSpace ? 'Relationship space' : 'Workbench');
+  const cardTitle = (card: Card) => card.kind === 'requirement' ? t.requirement : card.kind === 'task' ?
+    work?.tasks.find(task => task.id === card.ref_id)?.title ?? t.task : work?.artifacts.find(artifact => artifact.id === card.ref_id && artifact.version === card.version)?.title ?? t.artifact;
+  return <div className="work-layout" aria-hidden={!visible} data-nav-open={navOpen || undefined}>
+    <div className="work-command-bar" ref={commandBar}>
+    <button type="button" className="work-mobile-works" ref={navButton} aria-expanded={navOpen} aria-controls={sidebarId} disabled={layoutLocked}
+      onClick={() => { if (navOpen) closeNav(); else { setNavOpen(true); requestAnimationFrame(() => document.getElementById(sidebarId)?.querySelector('input')?.focus()); } }}><Icon name="library" size={16} />{t.title}</button>
+    <WorkMenuBar onNewWork={() => openForm('work')} disabled={layoutLocked}
       onSave={work && layoutReady && status !== 'conflict' && status !== 'saving' ? () => void saveView() : undefined}
       onAllWork={work ? back : undefined}
-      onNewTask={work ? () => setForm('task') : undefined} onNewArtifact={work ? () => setForm('artifact') : undefined}
+      onNewTask={work ? () => openForm('task') : undefined} onNewArtifact={work ? () => openForm('artifact') : undefined}
       onEditWork={work ? () => setEditor({ mode: 'work' }) : undefined}
       onReviseRequirement={work ? () => setEditor({ mode: 'requirement' }) : undefined}
       onEditTask={work?.tasks.length ? () => setEditor({ mode: 'task' }) : undefined}
@@ -519,28 +631,36 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       onRecovery={work ? openRecovery : undefined} onProtectionLinks={work ? () => setLinksPanel(true) : undefined}
       onAgents={work ? () => openAgents() : undefined} onAppearance={work ? () => openAppearance() : undefined}
       onBoard={work && layoutReady ? continueBoard : undefined} onSpace={work && layoutReady ? returnToSpace : undefined} on3d={work ? () => setRestOpen(true) : undefined} />
+    </div>
     <div className="work-layout-content">
-    <WorkSidebar page="work" items={items} activeId={work?.id} onOpen={id => { if (id !== work?.id) void openWork(id); }}
-      onCreate={() => setForm('work')} onNavigate={next => { if (next === 'work') back(); else onNavigate?.(next); }}
+    {navOpen && <div className="work-mobile-shade" aria-hidden="true" onClick={closeNav} />}
+    <WorkSidebar id={sidebarId} page="work" items={items} activeId={work?.id} onOpen={id => { if (navOpen) closeNav(); if (id !== work?.id) void openWork(id); }}
+      onCreate={opener => { openForm('work', navOpen ? navButton.current : opener); setNavOpen(false); }} onNavigate={next => { if (navOpen) closeNav(); if (next === 'work') back(); else onNavigate?.(next); }}
       hasMore={more} onMore={() => void list(true).catch(() => setError(t.failed))}
-      navigationLocked={busy || Boolean(editor || linksPanel || form || active || agentPanel || appearancePanel || restOpen || sessionPanel || deliveryPanel || recoveryPanel)} />
-    <section className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
+      navigationLocked={layoutLocked} />
+    <main className={`work-page ${restOpen ? 'is-resting' : ''} ${active ? 'is-reading' : ''} ${agentPanel ? 'is-agents' : ''} ${appearancePanel ? 'is-appearance' : ''}`} aria-hidden={!visible}>
     {error && <div role="alert" className="work-error">{error} <button onClick={() => { if (work) void client.get<Work>(`/api/v1/works/${work.id}`).then(w => { workRef.current = w; setWork(w); setError(''); }).catch(() => setError(t.failed)); else void list().then(() => setError('')).catch(() => setError(t.failed)); }}>{t.reload}</button>{work && !layoutReady && status === 'unavailable' && <button onClick={() => void openWork(work.id)}>{locale === 'zh-CN' ? '重新读取现场' : 'Reload workspace'}</button>}</div>}
     {loading ? <div className="work-loading-state" role="status"><span className="work-loading-spinner" aria-hidden="true" /><p>{t.load}</p></div> : !work ? <>
-      <div className="work-overview">
-        <header className="work-overview-head"><div><h1>{t.title}</h1><p>{items.length ? t.overviewCount(items.length) : t.intro}</p></div>
-          </header>
-        {!items.length && <div className="work-empty">{t.empty}</div>}
-        {items.length > 0 && <div className="work-empty">{t.selectWork}</div>}
-      </div>
+      <WorkOverview items={items} more={more} onOpen={id => void openWork(id)} onCreate={opener => openForm('work', opener)}
+        onMore={() => void list(true).catch(() => setError(t.failed))} />
     </> : <>
-      <header className="work-toolbar"><button className="work-back" onClick={back}><Icon name="back" />{t.back}</button><div className="work-heading"><strong>{work.title}</strong><span className="work-version">{t.requirement} v{work.requirement_version}</span></div>
+      <header className="work-toolbar"><button className="work-back" onClick={back}><Icon name="back" />{t.back}</button><div className="work-heading"><span>{currentSurface}</span><h1 title={work.title}>{work.title}</h1></div>
+        <WorkExecutionStatus key={work.id} client={client} workId={work.id} visible={visible} onOpen={openSessions}
+          onRequirement={version => { if (workRef.current?.id === work.id && workRef.current.requirement_version < version) void refreshDeliveryWork(work.id); }} />
         <button ref={menuButton} className="work-icon-button" aria-label={t.actions} title={t.actions} aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><Icon name="more" /></button>
-        {menuOpen && <div className="work-menu"><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={openRecovery}>{t.recovery}</button><button onClick={() => { setRecoveryPanel(false); setForm('task'); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setRecoveryPanel(false); setForm('artifact'); setMenuOpen(false); }}>{t.newArtifact}</button></div>}</header>
-      <WorkExecutionStatus key={work.id} client={client} workId={work.id} visible={visible} onOpen={openSessions}
-        onRequirement={version => { if (workRef.current?.id === work.id && workRef.current.requirement_version < version) void refreshDeliveryWork(work.id); }} />
-      {!inSpace && <div className="work-tools"><button className="work-quiet" onClick={returnToSpace}><Icon name="back" />{t.returnSpace}</button><button className="work-quiet" onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}><Icon name="library" />{t.addRelated}</button><div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
-      {inSpace && space && <div className="work-space" ref={spaceCanvas} onPointerDown={e => { if (e.target === e.currentTarget || (e.target as Element).closest('.work-space-world') && !(e.target as Element).closest('.work-space-node')) spaceStart(e); }} onPointerMove={spaceMove} onPointerUp={e => { if (spaceDrag.current && !spaceDrag.current.node) spaceEnd(e); }} onPointerCancel={() => { spaceDrag.current = null; }}>
+        {menuOpen && <div className="work-menu" role="group" aria-label={t.actions}><button onClick={() => openSessions()}>{t.sessions}</button><button onClick={() => openDelivery()}>{t.delivery}</button><button onClick={openRecovery}>{t.recovery}</button><button onClick={() => { setRecoveryPanel(false); openForm('task', menuButton.current); setMenuOpen(false); }}>{t.newTask}</button><button onClick={() => { setRecoveryPanel(false); openForm('artifact', menuButton.current); setMenuOpen(false); }}>{t.newArtifact}</button></div>}</header>
+      {!inSpace && <div className="work-tools"><button className="work-quiet" onClick={returnToSpace}><Icon name="back" />{t.returnSpace}</button><button className="work-quiet" ref={libraryButton} onClick={() => setLibraryOpen(open => !open)} aria-expanded={libraryOpen}><Icon name="library" />{t.addRelated}</button>
+        {Boolean(board?.cards.length) && <select className="work-card-locator" aria-label={locale === 'zh-CN' ? '定位已打开的卡片' : 'Locate an open card'} value="" onChange={event => queueCardLocation(event.target.value)}>
+          <option value="" disabled>{locale === 'zh-CN' ? `${board!.cards.length} 张卡片` : `${board!.cards.length} open ${board!.cards.length === 1 ? 'card' : 'cards'}`}</option>
+          {board!.cards.map(card => <option key={key(card)} value={key(card)}>{cardTitle(card)}{card.version !== null ? ` · v${card.version}` : ''}</option>)}
+        </select>}
+        <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => zoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((board?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => zoom(1.2)}><Icon name="plus" /></button><button className="work-quiet" onClick={fit}><Icon name="fit" />{t.fit}</button></div></div>}
+      {inSpace && <div className="work-space-surface" ref={spaceSurface}>
+      <WorkContents tasks={work.tasks} artifacts={work.artifacts} expanded={contentsExpanded} canOpen={layoutReady}
+        onToggle={() => setContentsExpanded(open => !open)}
+        onOpen={(kind, ref_id, version) => showOnBoard({ kind, ref_id, version }, true, 'directory')}
+        onCreate={(kind, opener) => openForm(kind, opener)} />
+      {space && <div className="work-space" ref={spaceCanvas} onPointerDown={e => { if (e.target === e.currentTarget || (e.target as Element).closest('.work-space-world') && !(e.target as Element).closest('.work-space-node')) spaceStart(e); }} onPointerMove={spaceMove} onPointerUp={e => { if (spaceDrag.current && !spaceDrag.current.node) spaceEnd(e); }} onPointerCancel={() => { spaceDrag.current = null; }}>
         <div className="work-space-world" style={{ transform: relationshipsOpen ? `translate(calc(50% + ${space.viewport.x}px), calc(50% + ${space.viewport.y}px)) scale(${space.viewport.zoom})` : `translate(calc(50% - ${coreNode?.x ?? 0}px), calc(50% - ${coreNode?.y ?? 0}px)) scale(1)` }}>
           <svg className="work-space-links" aria-hidden="true">{edges.map(([a, b]) => { const origin = space.nodes.find(n => key(n) === a)!, node = space.nodes.find(n => key(n) === b)!;
             return <path key={`${a}:${b}`} d={curve(origin, node)} className={highlighted ? (highlighted.has(a) && highlighted.has(b) ? 'lit' : 'dim') : ''} />; })}
@@ -553,15 +673,15 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
             forceClosed={!relationshipsOpen} onHover={open => setHover(open ? `agent:${agent.agent_id}` : null)}
             actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
               { id: 'color', label: locale === 'zh-CN' ? '设置颜色' : 'Choose color', onSelect: () => openAppearance(agent.agent_id) },
-              ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null, x: 0, y: 0 }) }))]}
+              ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null }) }))]}
             renderTrigger={triggerProps => <AgentBubble agent={agent} selectedTints={appearances.tints} index={index} size={150} tasks={work.tasks} copy={t} triggerProps={triggerProps}
               className={highlighted && !highlighted.has(`agent:${agent.agent_id}`) ? 'dim' : highlighted ? 'lit' : ''} style={{}} onClick={() => openAgents(agent.agent_id)} />} />)}
           {visibleNodes.map(node => { const item = node.kind === 'task' ? work.tasks.find(x => x.id === node.ref_id) : node.kind === 'artifact' ? work.artifacts.find(x => x.id === node.ref_id && x.version === node.version) : null;
             if (node.kind !== 'requirement' && !item) return null;
             const state = highlighted ? (highlighted.has(key(node)) ? 'lit' : 'dim') : '';
-            const trigger = (triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>) => <button key={key(node)} {...triggerProps} className={`work-space-node ${node.kind} ${state} ${triggerProps?.className ?? ''}`} style={node.kind === 'task' ? {} : { left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={() => { if (!suppressSpaceClick.current) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? work.title}`}>
+            const trigger = (triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>) => <button key={key(node)} {...triggerProps} data-node={key(node)} className={`work-space-node ${node.kind} ${state} ${triggerProps?.className ?? ''}`} style={node.kind === 'task' ? {} : { left: node.x, top: node.y }} onPointerDown={e => { e.stopPropagation(); spaceStart(e, node); }} onPointerUp={spaceEnd} onPointerEnter={() => setHover(key(node))} onPointerLeave={() => setHover(null)} onFocus={() => setHover(key(node))} onBlur={() => setHover(null)} onClick={e => { if (!suppressSpaceClick.current || e.detail === 0) showOnBoard(node); suppressSpaceClick.current = false; }} aria-label={`${t.open} ${item?.title ?? work.title}`}>
               {node.kind === 'requirement' ? <><WorkCore size={300} /><span className="work-core-text"><strong>{work.title}</strong>{goalOf(work.requirement) && <span className="work-core-goal">{goalOf(work.requirement)}</span>}<span className="work-core-counts"><span>{t.requirement} v{node.version}</span><span>{t.taskCount(work.tasks.length)}</span><span>{t.artifactCount(work.artifacts.length)}</span></span></span></> :
-                <><span className="work-anchor-icon"><Icon name={node.kind} size={16} /></span><strong>{item?.title ?? work.title}</strong>{node.version ? <em className="work-version">v{node.version}</em> : <small>{t[node.kind]}</small>}</>}
+                <><span className="work-anchor-icon"><Icon name={node.kind} size={16} /></span><strong>{item?.title ?? work.title}</strong>{node.version && <em className="work-version">v{node.version}</em>}</>}
             </button>;
             return node.kind === 'task' ? <WorkBubbleGroup key={key(node)} label={`${locale === 'zh-CN' ? '任务关联' : 'Task links'} ${item?.title ?? node.ref_id}`}
               width={230} height={42} style={{ left: node.x, top: node.y }} side={node.x < 0 ? 1 : -1} verticalSide={node.y < 0 ? -1 : 1} pinOnClick={false} forceClosed={!relationshipsOpen}
@@ -580,15 +700,16 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
               width={170} height={170} style={{ left: `${x}%`, top: `${y}%` }} side={x < 50 ? 1 : -1} verticalSide={y < 50 ? -1 : 1}
               actions={[{ id: 'details', label: locale === 'zh-CN' ? '管理 Agent' : 'Manage Agent', onSelect: () => openAgents(agent.agent_id) },
               { id: 'color', label: locale === 'zh-CN' ? '设置颜色' : 'Choose color', onSelect: () => openAppearance(agent.agent_id) },
-                ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null, x: 0, y: 0 }) }))]}
+                ...work.tasks.filter(task => agent.task_ids?.includes(task.id)).slice(0, 3).map(task => ({ id: task.id, label: task.title, onSelect: () => showOnBoard({ kind: 'task', ref_id: task.id, version: null }) }))]}
               renderTrigger={triggerProps => <AgentBubble agent={agent} selectedTints={appearances.tints} index={index} size={170} tasks={work.tasks} copy={t} style={{}} triggerProps={triggerProps} onClick={() => openAgents(agent.agent_id)} />} />;
           })}</div></>}</div>}
-      {!inSpace && <div className="work-area">{libraryOpen && <aside className="work-library"><div className="work-library-head"><h2>{t.library}</h2><button className="work-icon-button" onClick={() => setLibraryOpen(false)} aria-label={t.close}><Icon name="close" size={16} /></button></div>
+      </div>}
+      {!inSpace && <div className="work-area">{libraryOpen && <aside className="work-library"><div className="work-library-head"><h2>{t.library}</h2><button className="work-icon-button" onClick={closeLibrary} aria-label={locale === 'zh-CN' ? '关闭关联内容' : 'Close related content'}><Icon name="close" size={16} /></button></div>
         <label>{t.requirement}<input aria-label={t.showRequirement} type="number" min={1} max={work.requirement_version} value={requirementVersion} onChange={e => setRequirementVersion(bound(Number(e.target.value), 1, work.requirement_version))} /></label>
-        <button onClick={() => addCard('requirement', work.id, requirementVersion)}>{t.open} · {t.requirement} v{requirementVersion}</button>
-        <h3>{t.task} · {work.tasks.length}</h3>{work.tasks.map(task => <button key={task.id} onClick={() => addCard('task', task.id, null)}>{task.title}</button>)}
+        <button onClick={() => openRelated('requirement', work.id, requirementVersion)}>{t.open} · {t.requirement} v{requirementVersion}</button>
+        <h3>{t.task} · {work.tasks.length}</h3>{work.tasks.map(task => <button key={task.id} onClick={() => openRelated('task', task.id, null)}>{task.title}</button>)}
         <h3>{t.artifact} · {work.artifacts.length}</h3>{!work.artifacts.length && <p>{t.none}</p>}
-        {work.artifacts.map(a => <button key={`${a.id}:${a.version}`} onClick={() => addCard('artifact', a.id, a.version)}>{a.title}<small>v{a.version} · {t.basedOn} v{a.requirement_version}{a.created_at ? ` · ${new Date(a.created_at).toLocaleString(locale)}` : ''}</small></button>)}
+        {work.artifacts.map(a => <button key={`${a.id}:${a.version}`} onClick={() => openRelated('artifact', a.id, a.version)}>{a.title}<small>v{a.version} · {t.basedOn} v{a.requirement_version}{a.created_at ? ` · ${new Date(a.created_at).toLocaleString(locale)}` : ''}</small></button>)}
       </aside>}<div className="work-canvas" ref={canvas} onPointerDown={e => startDrag(e)} onPointerMove={move} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
         {!board?.cards.length && <div className="work-canvas-empty"><p>{t.noCards}</p><button onClick={() => addCard('requirement', work.id, work.requirement_version)}>{t.showRequirement}</button><button onClick={() => setLibraryOpen(true)}>{t.addRelated}</button></div>}
         <div className="work-world" style={{ transform: `translate(${board?.viewport.x}px, ${board?.viewport.y}px) scale(${board?.viewport.zoom})` }}>
@@ -597,13 +718,18 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
             const from = board.cards.find(c => c.kind === 'requirement' && c.version === version);
             return from ? <path key={key(a)} d={`M${from.x + from.width},${from.y + 80} C${from.x + from.width + 50},${from.y + 80} ${a.x - 50},${a.y + 80} ${a.x},${a.y + 80}`} /> : null;
           })}</svg>
-          {board?.cards.map(card => <article className={`work-card${card.kind === 'task' ? ' work-paper-note work-card-task' : card.kind === 'requirement' ? ' work-paper-note work-card-requirement' : ''}`} key={key(card)} data-card={key(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
-            <header onPointerDown={e => startDrag(e, card)}>{card.kind !== 'artifact' && <TaskPin />}<span className="work-card-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</span><button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}><Icon name="expand" size={16} /></button><button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`} onClick={() => changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) })}><Icon name="close" size={16} /></button></header>
-            {renderContent(card)}<button className="work-resize" aria-label={t.resize(t[card.kind])} onPointerDown={e => startDrag(e, card, true)} />
+          {board?.cards.map(card => <article className={`work-card work-card-${card.kind}${card.kind === 'artifact' ? '' : ' work-paper-note'}`} key={key(card)} data-card={key(card)} aria-label={cardTitle(card)} style={{ left: card.x, top: card.y, width: card.width, height: card.height }}>
+            <header onPointerDown={e => startDrag(e, card)}><span className="work-card-kind"><Icon name={card.kind} size={16} />{card.version ? <em className="work-version">v{card.version}</em> : null}</span><button className="work-icon-button" title={t.focus} aria-label={`${t.focus} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={e => { readingOpener.current = e.currentTarget; setFocus(key(card)); }}><Icon name="expand" size={16} /></button><button className="work-icon-button" title={t.close} aria-label={`${t.close} ${t[card.kind]} ${card.version ?? ''}`.trim()} onClick={() => { changeBoard({ ...boardRef.current!, cards: boardRef.current!.cards.filter(c => key(c) !== key(card)) }); libraryButton.current?.focus(); }}><Icon name="close" size={16} /></button></header>
+            {renderContent(card)}<button className="work-resize" title={t.resize(t[card.kind])} aria-label={t.resize(t[card.kind])} onPointerDown={e => startDrag(e, card, true)} onKeyDown={event => {
+              const delta = ({ ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24] } as Record<string, number[]>)[event.key];
+              if (!delta) return;
+              event.preventDefault();
+              updateCard(key(card), { width: bound(card.width + delta[0], 300, 1400), height: bound(card.height + delta[1], 240, 1600) });
+            }} />
           </article>)}
         </div></div></div>}
       <nav className="work-dock" aria-label={t.workspaceControls}>
-        {inSpace && <div className="work-dock-group"><button className="work-primary" disabled={!layoutReady} onClick={continueBoard}><Icon name="board" />{t.continueBoard}</button><button className={`work-toggle${relationshipsOpen ? ' is-on' : ''}`} onClick={() => { const v = boardRef.current?.space?.viewport; fitOnReveal.current = !relationshipsOpen && !!v && v.x === 0 && v.y === 0 && v.zoom === 1; setRelationshipsOpen(open => !open); }} aria-expanded={relationshipsOpen} disabled={!layoutReady}><Icon name="link" />{relationshipsOpen ? t.hideRelations : t.showRelations}</button>{relationshipsOpen && relatedNodes.length > relationLimit && <button className="work-quiet" onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}</div>}
+        {inSpace && <div className="work-dock-group work-dock-navigation"><button className="work-primary" ref={spaceEntry} disabled={!layoutReady} onClick={continueBoard}><Icon name="board" />{t.continueBoard}</button><button className={`work-toggle${relationshipsOpen ? ' is-on' : ''}`} onClick={() => { const v = boardRef.current?.space?.viewport; fitOnReveal.current = !relationshipsOpen && !!v && v.x === 0 && v.y === 0 && v.zoom === 1; setRelationshipsOpen(open => !open); }} aria-expanded={relationshipsOpen} disabled={!layoutReady}><Icon name="link" />{relationshipsOpen ? t.hideRelations : t.showRelations}</button>{relationshipsOpen && relatedNodes.length > relationLimit && <button className="work-quiet" onClick={() => setRelationLimit(n => n + 12)}>{t.moreRelations}</button>}</div>}
         {inSpace && relationshipsOpen && <div className="work-zoom"><button className="work-icon-button" aria-label={t.zoomOut} onClick={() => spaceZoom(1 / 1.2)}><Icon name="minus" /></button><span>{Math.round((space?.viewport.zoom ?? 1) * 100)}%</span><button className="work-icon-button" aria-label={t.zoomIn} onClick={() => spaceZoom(1.2)}><Icon name="plus" /></button><button className="work-icon-button" aria-label={t.fit} title={t.fit} onClick={fitSpace}><Icon name="fit" /></button></div>}
         <div className="work-dock-group">
           <span role="status" className={`work-save is-${status}`} title={status === 'conflict' ? t.viewConflict : undefined}>{status === 'loading' ? t.load : status === 'unavailable' ? (locale === 'zh-CN' ? '现场尚未载入' : 'Workspace not loaded') : status === 'saved' ? t.saved : status === 'saving' ? t.saving : status === 'failed' ? t.saveFailed : status === 'conflict' ? t.viewConflict : t.dirty}</span>
@@ -637,13 +763,25 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
     }} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision: Math.max(current.revision, revision) }; workRef.current = next; setWork(next); }
     }} />}
-    {restOpen && work && visible && <div className="work-rest-layer"><Suspense fallback={<div className="work-rest-loading"><button autoFocus onClick={() => setRestOpen(false)}>← {t.returnBoard}</button><p role="status">{t.load}</p></div>}><WorkRestScene title={work.title} requirementVersion={work.requirement_version} taskCount={work.tasks.length} artifactCount={work.artifacts.length} updatedAt={work.updated_at} agentTints={appearances.tints} agents={agents.items} tasks={work.tasks.map(task => ({ ...task, assignee_agent_ids: agents.items.filter(agent => agent.task_ids?.includes(task.id)).map(agent => agent.agent_id) }))} onTaskSelect={id => { setRestOpen(false); showOnBoard({ kind: 'task', ref_id: id, version: null, x: 0, y: 0 }); }} onAgentSelect={openAgents} onManageAgents={() => openAgents()} onReturn={() => setRestOpen(false)} /></Suspense></div>}
+    {restOpen && work && visible && <div className="work-rest-layer"><Suspense fallback={<div className="work-rest-loading"><button autoFocus onClick={() => setRestOpen(false)}>← {t.returnBoard}</button><p role="status">{t.load}</p></div>}><WorkRestScene title={work.title} requirementVersion={work.requirement_version} taskCount={work.tasks.length} artifactCount={work.artifacts.length} updatedAt={work.updated_at} agentTints={appearances.tints} agents={agents.items} tasks={work.tasks.map(task => ({ ...task, assignee_agent_ids: agents.items.filter(agent => agent.task_ids?.includes(task.id)).map(agent => agent.agent_id) }))} onTaskSelect={id => { setRestOpen(false); showOnBoard({ kind: 'task', ref_id: id, version: null }); }} onAgentSelect={openAgents} onManageAgents={() => openAgents()} onReturn={() => setRestOpen(false)} /></Suspense></div>}
     {agentPanel && work && <WorkAgents key={`agents:${work.id}`} client={client} workId={work.id} revision={work.revision} linked={agents.items} tasks={work.tasks} initialAgentId={agentPanel.selected} visible={visible} onClose={closeAgents} onLinkedChanged={agents.replace} onRevision={revision => {
       const current = workRef.current; if (current?.id === work.id) { const next = { ...current, revision }; workRef.current = next; setWork(next); }
     }} />}
     {appearancePanel && work && <AgentAppearancePicker agents={agents.items} state={appearances} selected={appearancePanel.selected} onClose={closeAppearance} />}
-    {active && work && <div className="work-overlay work-reading-overlay" role="dialog" aria-modal="true" aria-label={t.focus}><section className="work-reader"><header><button className="work-quiet" autoFocus onClick={() => setFocus(null)}><Icon name="back" />{t.returnBoard}</button><span className="work-card-kind"><Icon name={active.kind} size={16} />{t[active.kind]}{active.version ? <em className="work-version">v{active.version}</em> : null}</span><div className="work-reader-actions">{active.kind === 'task' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'task', taskId: active.ref_id }); }}>{locale === 'zh-CN' ? '编辑任务' : 'Edit task'}</button>}{active.kind === 'requirement' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'requirement' }); }}>{locale === 'zh-CN' ? '修订要求' : 'Revise requirement'}</button>}</div></header>{active.kind === 'task' && <div className="work-reader-context"><span>{locale === 'zh-CN' ? '关联智能体' : 'Linked agents'}</span>{agents.items.filter(agent => agent.task_ids?.includes(active.ref_id)).map(agent => <button key={agent.agent_id} className="work-quiet" onClick={() => { setFocus(null); openAgents(agent.agent_id); }}>{agentProgramName(agent)}</button>)}{!agents.items.some(agent => agent.task_ids?.includes(active.ref_id)) && <span className="work-reader-muted">{locale === 'zh-CN' ? '尚未关联' : 'None linked'}</span>}</div>}{renderContent(active, true)}</section></div>}
-    {form && <div className="work-overlay" role="dialog" aria-modal="true" aria-label={form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}><form className="work-form" onSubmit={submit}>
+    {active && work && <div className="work-overlay work-reading-overlay" ref={overlay} role="dialog" aria-modal="true" aria-label={t.focus}>
+      <section className="work-reader">
+        <header>
+          <button className="work-quiet" autoFocus onClick={() => setFocus(null)}><Icon name="back" />{t.returnBoard}</button>
+          <span className="work-reader-project" title={work.title}>{work.title}</span>
+          <div className="work-reader-actions">
+            {active.kind === 'task' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'task', taskId: active.ref_id }); }}>{locale === 'zh-CN' ? '编辑任务' : 'Edit task'}</button>}
+            {active.kind === 'requirement' && <button className="work-quiet" onClick={() => { setFocus(null); setEditor({ mode: 'requirement' }); }}>{locale === 'zh-CN' ? '修订要求' : 'Revise requirement'}</button>}
+          </div>
+        </header>
+        {renderContent(active, true)}
+      </section>
+    </div>}
+    {form && <div className="work-overlay" ref={overlay} role="dialog" aria-modal="true" aria-label={form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}><form className="work-form" onSubmit={submit}>
       <h2>{form === 'work' ? t.create : form === 'task' ? t.newTask : t.newArtifact}</h2>
       {error && <p role="alert">{error}</p>}
       <label>{form === 'work' ? t.name : t.titleField}<input autoFocus required maxLength={200} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} /></label>
@@ -651,32 +789,9 @@ function WorkPageBody({ client = apiClient, onUnsavedChange, onNavigate, visible
       {form === 'artifact' && <label>{t.versionOf}<select value={draft.artifact} onChange={e => setDraft({ ...draft, artifact: e.target.value })}><option value="">{t.standalone}</option>{work?.artifacts.filter((a, i, all) => all.findIndex(x => x.id === a.id) === i).map(a => <option value={a.id} key={a.id}>{a.title}</option>)}</select></label>}
       <label>{form === 'work' ? t.requirement : t.body}<textarea required={form !== 'task'} maxLength={100000} rows={12} value={draft.body} onChange={e => setDraft({ ...draft, body: e.target.value })} /></label>
       {form === 'artifact' && <small>{t.manual} · {t.basedOn} v{work?.requirement_version}</small>}
-      <footer><button type="button" disabled={busy} onClick={() => { setForm(null); setError(''); }}>{t.cancel}</button><button className="work-primary" disabled={busy}>{busy ? t.load : t.save}</button></footer>
+      <footer><button type="button" disabled={busy} onClick={closeForm}>{t.cancel}</button><button className="work-primary" disabled={busy}>{busy ? t.load : t.save}</button></footer>
     </form></div>}
-  </section></div></div>;
-}
-
-/** Decorative plastic cap and steel needle; never changes layout/pinning state. */
-function TaskPin() {
-  const id = useId().replace(/:/g, '');
-  return <span className="work-task-pin" aria-hidden="true"><svg viewBox="0 0 54 64" width="42" height="52" focusable="false">
-    <defs>
-      <radialGradient id={`${id}cap`} cx="30%" cy="20%" r="85%"><stop stopColor="#ef9083" /><stop offset=".42" stopColor="#bf5044" /><stop offset="1" stopColor="#7c2b26" /></radialGradient>
-      <linearGradient id={`${id}body`}><stop stopColor="#7b2c27" /><stop offset=".35" stopColor="#d56857" /><stop offset=".72" stopColor="#a33c32" /><stop offset="1" stopColor="#61221f" /></linearGradient>
-      <linearGradient id={`${id}steel`}><stop stopColor="#59615e" /><stop offset=".45" stopColor="#f6f8f2" /><stop offset="1" stopColor="#777f7b" /></linearGradient>
-      <filter id={`${id}shadow`} x="-50%" y="-100%" width="200%" height="300%"><feGaussianBlur stdDeviation="2" /></filter>
-    </defs>
-    <ellipse cx="32" cy="49" rx="14" ry="4" fill="#312d24" opacity=".22" filter={`url(#${id}shadow)`} />
-    <g transform="rotate(-20 26 29)">
-      <path d="M26 34v21l1.4-3V34Z" fill={`url(#${id}steel)`} />
-      <ellipse cx="26" cy="33" rx="12" ry="5" fill="#692720" />
-      <path d="M17 17c2 4 3 9 0 13 4 5 14 5 18 0-3-4-2-9 0-13Z" fill={`url(#${id}body)`} />
-      <ellipse cx="26" cy="17" rx="15" ry="7" fill="#752820" />
-      <ellipse cx="26" cy="13" rx="15" ry="7" fill={`url(#${id}cap)`} />
-      <ellipse cx="21" cy="10" rx="6" ry="2" fill="#fff4e8" opacity=".35" transform="rotate(-12 21 10)" />
-      <path d="M19 23c.5 2 .4 4-.3 6" fill="none" stroke="#f3aa91" strokeOpacity=".45" strokeWidth="1.2" strokeLinecap="round" />
-    </g>
-  </svg></span>;
+  </main></div></div>;
 }
 
 const contentReads = new WeakMap<ApiClient, Map<string, Promise<Content>>>();
@@ -693,7 +808,9 @@ function readCardContent(client: ApiClient, path: string, scope: string): Promis
   if (cache.size > 64) cache.delete(cache.keys().next().value as string);
   return request;
 }
-function CardContent({ client, work, card, onScroll }: { client: ApiClient; work: Work; card: Card; onScroll: (scroll: number) => void }) {
+function CardContent({ client, work, card, reading, readingContext, onScroll }: {
+  client: ApiClient; work: Work; card: Card; reading: boolean; readingContext?: ReactNode; onScroll: (scroll: number) => void;
+}) {
   const { locale } = useI18n(); const t = workspaceCopy[locale];
   const [content, setContent] = useState<Content | null>(null); const [error, setError] = useState<'contentBusy' | 'contentMissing' | 'contentConnection' | 'contentFailed' | null>(null); const [retry, setRetry] = useState(0);
   const body = useRef<HTMLDivElement>(null);
@@ -711,8 +828,9 @@ function CardContent({ client, work, card, onScroll }: { client: ApiClient; work
     return () => { live = false; };
   }, [client, work.id, card.kind, card.ref_id, card.version, retry, card.kind === 'task' ? work.revision : 0]);
   useEffect(() => { if (body.current && content && Math.abs(body.current.scrollTop - card.scroll) > 1) body.current.scrollTop = card.scroll; }, [content, card.scroll]);
-  return <div className="work-card-body" ref={body} onScroll={e => { if (content && Math.abs(e.currentTarget.scrollTop - card.scroll) > 1) onScroll(e.currentTarget.scrollTop); }}>
+  return <div className="work-card-body" ref={body} tabIndex={0} role="region" aria-label={t[card.kind]} onScroll={e => { if (content && Math.abs(e.currentTarget.scrollTop - card.scroll) > 1) onScroll(e.currentTarget.scrollTop); }}>
     {error ? <p role="alert">{t[error]} <button onClick={() => setRetry(n => n + 1)}>{t.retry}</button></p> : content ? <>
+      {reading && <div className="work-reader-kind"><Icon name={card.kind} size={16} />{t[card.kind]}{card.version ? <em className="work-version">v{card.version}</em> : null}</div>}
       <h2>{content.title ?? `${work.title} · ${t.requirement}`}</h2>
       {content.requirement_version && <small className="work-provenance">{content.source === 'AGENT_RUN' ? t.runOutput : content.source === 'USER_EDITED_RUN_OUTPUT' ? t.editedRunOutput : t.manual} · {t.basedOn} v{content.requirement_version}</small>}
       {content.source_run_id && <code>{content.source_run_id}</code>}
@@ -722,8 +840,10 @@ function CardContent({ client, work, card, onScroll }: { client: ApiClient; work
           ? content.depends_on.map(id => work.tasks.find(task => task.id === id)?.title ?? id).join(' · ')
           : Array.isArray(content.depends_on) ? (locale === 'zh-CN' ? '无' : 'None') : (locale === 'zh-CN' ? '未知' : 'Unknown')}</dd></div>
       </dl>}
+      {readingContext}
       <div className="work-prose"><Prose text={content.body} /></div>
     </> : <p>{t.load}</p>}
+    {!content && readingContext}
   </div>;
 }
 
@@ -748,7 +868,6 @@ function AgentBubble({ agent, selectedTints, index, size, tasks, copy, className
       <span className="work-agent-state"><i aria-hidden="true" />{state === 'current' ? copy.presentNow : state === 'absent' ? copy.presentAbsent : copy.presentUnknown}</span>
       <span className="work-agent-load">{copy.carries(linked.length)}</span>
       {linked[0] && size > 140 && <span className="work-agent-task">{linked[0].title}</span>}
-      <small>{copy.activityUnknown}</small>
     </span>
   </button>;
 }

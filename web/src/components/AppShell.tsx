@@ -29,10 +29,11 @@ const NAV_ITEMS: Array<{ key: PageKey; labelKey: MessageKey; icon: IconName }> =
 const SETTINGS_ITEMS = NAV_ITEMS.filter(item => item.key !== 'work');
 
 export type WorkSidebarProps = {
+  id?: string;
   items?: { id: string; title: string }[];
   activeId?: string | null;
   onOpen?: (id: string) => void;
-  onCreate?: () => void;
+  onCreate?: (opener: HTMLButtonElement) => void;
   onNavigate: (page: PageKey) => void;
   page: PageKey;
   onMore?: () => void;
@@ -41,7 +42,7 @@ export type WorkSidebarProps = {
 };
 
 /** Work navigation only; auxiliary destinations live inside Settings. */
-export function WorkSidebar({ items = [], activeId, onOpen, onCreate, onNavigate, page,
+export function WorkSidebar({ id, items = [], activeId, onOpen, onCreate, onNavigate, page,
   onMore, hasMore = false, navigationLocked = false }: WorkSidebarProps) {
   const t = useT();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -64,10 +65,10 @@ export function WorkSidebar({ items = [], activeId, onOpen, onCreate, onNavigate
     document.addEventListener('keydown', escape, true);
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
   }, [profileOpen]);
-  return <aside className="work-sidebar" aria-label={t('nav.work')}>
+  return <aside id={id} className="work-sidebar" aria-label={t('nav.work')}>
     <div className="work-sidebar-brand"><ShieldNodesMark /><span>{t('app.brand.name')}</span></div>
     {onCreate && <button type="button" className="work-sidebar-create" disabled={navigationLocked}
-      onClick={onCreate}><span aria-hidden="true">＋</span>{t('sidebar.newWork')}</button>}
+      onClick={event => onCreate(event.currentTarget)}><span aria-hidden="true">＋</span>{t('sidebar.newWork')}</button>}
     <nav className="work-sidebar-nav" aria-label={t('app.nav.primary')}>
       <button type="button" className="work-sidebar-home" disabled={navigationLocked}
         aria-current={page === 'work' && !activeId ? 'page' : undefined} onClick={() => onNavigate('work')}>

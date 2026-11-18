@@ -1,4 +1,7 @@
-.work-rest { position: fixed; inset: 0; z-index: 80; overflow: hidden; background: var(--bg-inset); color: var(--text-1); font-family: inherit; }
+.work-layout:has(.work-page.is-resting) > .work-command-bar,
+.work-layout:has(.work-page.is-resting) > .work-layout-content > .work-sidebar { visibility: hidden; }
+.work-page .work-rest-layer { position: fixed; inset: 0; }
+.work-rest { position: absolute; inset: 0; overflow: hidden; background: var(--bg-inset); color: var(--text-1); font-family: inherit; }
 .work-rest button { font: inherit; cursor: pointer; }
 .work-rest button:focus-visible { outline: 2px solid var(--border-2); outline-offset: 3px; }
 .work-rest-header { position: absolute; z-index: 5; top: 0; left: 0; right: 0; height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 clamp(20px, 3.5vw, 54px); border-bottom: 1px solid #d6e5dd1c; background: #111819e8; }
@@ -128,10 +131,8 @@
   .work-rest .work-rest-empty { top: 8px; bottom: auto; }
 }
 
-.work-rest-keyboard-hint { position: absolute; z-index: 1; left: 18px; bottom: 6px; margin: 0; max-width: calc(100% - 36px); color: var(--text-2); font-size: 10px; pointer-events: none; }
 .work-rest.has-crowded-labels .work-rest-agent-labels,
 .work-rest.has-agent-overflow .work-rest-agent-labels { visibility: hidden; }
-@media (max-width: 600px) { .work-rest-keyboard-hint { display: none; } }
 
 .work-rest button.work-rest-agent-label,
 .work-rest button.work-rest-agent-row,

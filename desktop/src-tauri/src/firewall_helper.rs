@@ -1,6 +1,10 @@
 use std::net::Ipv4Addr;
+#[cfg(windows)]
 use std::process::Command;
 use std::str::FromStr;
+
+#[cfg(windows)]
+use crate::sidecar::configure_no_window;
 
 const TCP_RULE: &str = "AgentState Guard Device Link TCP 8788";
 const UDP_RULE: &str = "AgentState Guard Device Link UDP 8788";
@@ -92,13 +96,12 @@ fn run_request(request: HelperRequest) -> i32 {
 
 #[cfg(windows)]
 fn network_scope_is_current(request: HelperRequest) -> bool {
-    Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", NETWORK_CHECK])
-        .env("ASG_FW_ADDRESS", request.address.to_string())
-        .env("ASG_FW_PREFIX", request.prefix.to_string())
-        .status()
-        .map(|status| status.code() == Some(0))
-        .unwrap_or(false)
+    run_without_console(
+        Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", NETWORK_CHECK])
+            .env("ASG_FW_ADDRESS", request.address.to_string())
+            .env("ASG_FW_PREFIX", request.prefix.to_string()),
+    )
 }
 
 #[cfg(windows)]
@@ -148,19 +151,24 @@ fn add_rule(
     prefix: u8,
     network: Ipv4Addr,
 ) -> bool {
-    Command::new("netsh.exe")
-        .args(add_rule_args(name, protocol, address, prefix, network))
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    run_without_console(
+        Command::new("netsh.exe").args(add_rule_args(name, protocol, address, prefix, network)),
+    )
 }
 
 #[cfg(windows)]
 fn delete_rule(name: &str) -> bool {
-    let mut command = Command::new("netsh.exe");
+    run_without_console(
+        Command::new("netsh.exe")
+            .args(["advfirewall", "firewall", "delete", "rule"])
+            .arg(format!("name={name}")),
+    )
+}
+
+#[cfg(windows)]
+fn run_without_console(command: &mut Command) -> bool {
+    configure_no_window(command);
     command
-        .args(["advfirewall", "firewall", "delete", "rule"])
-        .arg(format!("name={name}"))
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
